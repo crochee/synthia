@@ -1,0 +1,33 @@
+[workspace]
+resolver = "2"
+members = ["synthia-agent"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+
+[workspace.dependencies]
+serde = "1.0.228"
+serde_json = "1.0.145"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+thiserror = "2.0.16"
+
+[profile.release]
+codegen-units = 16
+debug = true
+lto = true
+
+[profile.bench]
+debug = true
+
+[workspace.lints.rust]
+unreachable_pub = "deny"
+# missing_debug_implementations = "deny"
+# missing_copy_implementations = "deny"
+
+[workspace.lints.clippy]
+dbg_macro = "deny"
+todo = "deny"
+clone_on_ref_ptr = "deny"
+future_not_send = "deny"
