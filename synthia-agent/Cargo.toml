@@ -4,6 +4,26 @@ version.workspace = true
 edition.workspace = true
 
 [dependencies]
+reqwest = { version = "0.12", features = ["stream", "json"] }
+tokio = { version = "1", features = ["full"] }
+futures = "0.3"
+tokio-stream = "0.1"
+async-trait = "0.1"
+serde = { workspace = true }
+serde_json = { workspace = true }
+serde_with = "3"
+thiserror = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+dotenvy = "0.15"
+clap = { version = "4", features = ["derive"] }
+async-stream = "0.3"
+colored = "2"
+anyhow = "1.0"
+
+[dev-dependencies]
+tempfile = "3"
+rstest = "0.23"
 
 [lints]
 workspace = true

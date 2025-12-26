@@ -1,14 +1,16 @@
-pub fn add(left: u64, right: u64) -> u64 {
-    left + right
-}
+pub mod clients;
+pub mod core;
+pub mod tools;
+pub mod prompts;
+pub mod memory;
+pub mod mcp;
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn it_works() {
-        let result = add(2, 2);
-        assert_eq!(result, 4);
-    }
-}
+pub use clients::{
+    LLMClient, LLMError, Message, MessageRole, OpenAIClient, StreamChunk, ToolDefinition,
+    create_llm_client,
+};
+pub use core::{ReactAgent, Step};
+pub use tools::{default_tools, ToolManager, ToolTrait};
+pub use prompts::build_code_agent_prompt;
+pub use memory::{ContextCompressor, ConversationHistory, ToolResult};
+pub use mcp::{MCPConfig, MCPError, MCPManager};
