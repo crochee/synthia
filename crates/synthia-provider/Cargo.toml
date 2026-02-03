@@ -1,0 +1,32 @@
+[package]
+name = "synthia-provider"
+version.workspace = true
+edition.workspace = true
+description = "LLM service provider module encapsulating interface calls for different language models"
+
+[dependencies]
+# 使用工作空间依赖
+tokio.workspace = true
+futures.workspace = true
+tokio-util.workspace = true
+async-trait.workspace = true
+async-stream.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+backoff.workspace = true
+uuid.workspace = true
+chrono.workspace = true
+regex.workspace = true
+dotenv.workspace = true
+rmcp.workspace = true
+
+# 仅本 crate 使用的依赖
+reqwest = { workspace = true, features = ["json", "stream"] }
+bytes = "1.6"
+base64 = "0.22"
+synthia-tracing = { path = "../synthia-tracing" }
+
+[lints]
+workspace = true

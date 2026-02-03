@@ -1,0 +1,1242 @@
+openapi: 3.0.3
+info:
+  title: Synthia Server API
+  description: |
+    Synthia Server 是 Synthia Agent 的 HTTP API 服务器，为前端应用、编辑器插件和 TUI 客户端提供 REST API 接口。
+    
+    ## 认证
+    
+    当认证启用时，所有请求需要在 `Authorization` 头中携带 Bearer Token：
+    ```
+    Authorization: Bearer <api_key>
+    ```
+    
+    ## 响应格式
+    
+    所有响应使用 JSON 格式，成功响应包含 `data` 字段，错误响应包含 `error` 字段。
+    
+    ## 流式响应
+    
+    `/chat/stream` 端点使用 Server-Sent Events (SSE) 返回流式响应。
+    
+    ## WebSocket
+    
+    `/ws/{session_id}` 端点提供 WebSocket 连接用于实时双向通信。
+  version: 1.0.0
+  contact:
+    name: Synthia Team
+  license:
+    name: MIT
+
+servers:
+  - url: http://127.0.0.1:8080
+    description: 本地开发服务器
+
+tags:
+  - name: Health
+    description: 健康检查
+  - name: Tools
+    description: 工具管理
+  - name: Chat
+    description: 聊天接口
+  - name: Sessions
+    description: 会话管理
+  - name: Skills
+    description: 技能管理
+  - name: MCP
+    description: MCP服务器管理
+  - name: Models
+    description: 模型提供商管理
+
+paths:
+  /health:
+    get:
+      tags:
+        - Health
+      summary: 健康检查
+      description: 检查服务器是否正常运行
+      operationId: health
+      responses:
+        '200':
+          description: 服务器正常
+          content:
+            text/plain:
+              schema:
+                type: string
+                example: OK
+
+  /tools:
+    get:
+      tags:
+        - Tools
+      summary: 列出所有工具
+      description: 获取所有可用工具的列表
+      operationId: listTools
+      responses:
+        '200':
+          description: 成功返回工具列表
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/ToolInfo'
+              example:
+                - name: read
+                  description: 读取文件内容
+                  parameters:
+                    type: object
+                    properties:
+                      path:
+                        type: string
+                        description: 文件路径
+                    required:
+                      - path
+                  annotations:
+                    readOnly: true
+                    destructive: false
+                    concurrencySafe: true
+                    toolKind: FileOperation
+
+  /tools/{name}:
+    get:
+      tags:
+        - Tools
+      summary: 获取工具详情
+      description: 根据名称获取特定工具的详细信息
+      operationId: getTool
+      parameters:
+        - name: name
+          in: path
+          required: true
+          description: 工具名称
+          schema:
+            type: string
+      responses:
+        '200':
+          description: 成功返回工具详情
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ToolInfo'
+        '404':
+          description: 工具不存在
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /tools/{name}/execute:
+    post:
+      tags:
+        - Tools
+      summary: 执行工具
+      description: 执行指定工具并返回结果
+      operationId: executeTool
+      parameters:
+        - name: name
+          in: path
+          required: true
+          description: 工具名称
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ToolExecuteRequest'
+            example:
+              arguments:
+                path: "/home/user/file.txt"
+      responses:
+        '200':
+          description: 工具执行成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ToolExecuteResponse'
+        '400':
+          description: 请求参数错误
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: 工具不存在
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /chat:
+    post:
+      tags:
+        - Chat
+      summary: 同步聊天
+      description: 发送消息并等待完整响应（阻塞式）
+      operationId: chat
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ChatRequest'
+            example:
+              message: "你好，请帮我分析这段代码"
+              session_id: "session-123"
+      responses:
+        '200':
+          description: 成功返回聊天响应
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ChatResponse'
+        '400':
+          description: 请求参数错误
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Agent执行错误
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /chat/stream:
+    post:
+      tags:
+        - Chat
+      summary: 流式聊天
+      description: 发送消息并通过SSE接收流式响应
+      operationId: chatStream
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ChatRequest'
+      responses:
+        '200':
+          description: SSE流式响应
+          content:
+            text/event-stream:
+              schema:
+                type: string
+                description: |
+                  SSE事件流，每个事件的data字段包含JSON对象：
+                  
+                  消息事件：
+                  ```json
+                  {"type":"message","content":"...","session_id":"..."}
+                  ```
+                  
+                  状态事件：
+                  ```json
+                  {"type":"status","status":"Completed","session_id":"..."}
+                  ```
+                  
+                  错误事件：
+                  ```json
+                  {"type":"error","error":"..."}
+                  ```
+
+  /sessions:
+    get:
+      tags:
+        - Sessions
+      summary: 列出会话
+      description: 获取最近的会话列表（默认最多20个）
+      operationId: listSessions
+      responses:
+        '200':
+          description: 成功返回会话列表
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/SessionInfo'
+    post:
+      tags:
+        - Sessions
+      summary: 创建会话
+      description: 创建一个新的会话
+      operationId: createSession
+      responses:
+        '200':
+          description: 成功创建会话
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SessionInfo'
+
+  /sessions/{id}:
+    get:
+      tags:
+        - Sessions
+      summary: 获取会话
+      description: 根据ID获取会话详情
+      operationId: getSession
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: 会话ID
+          schema:
+            type: string
+      responses:
+        '200':
+          description: 成功返回会话详情
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SessionInfo'
+        '404':
+          description: 会话不存在
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+    delete:
+      tags:
+        - Sessions
+      summary: 删除会话
+      description: 根据ID删除会话
+      operationId: deleteSession
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: 会话ID
+          schema:
+            type: string
+      responses:
+        '204':
+          description: 成功删除会话
+        '404':
+          description: 会话不存在
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /sessions/{id}/compact:
+    post:
+      tags:
+        - Sessions
+      summary: 压缩会话上下文
+      description: 压缩会话的上下文以减少token使用量
+      operationId: compactSession
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: 会话ID
+          schema:
+            type: string
+      responses:
+        '200':
+          description: 成功压缩会话
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CompactionResult'
+        '404':
+          description: 会话不存在
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /sessions/{id}/messages:
+    get:
+      tags:
+        - Sessions
+      summary: 获取会话消息
+      description: 获取会话中的所有消息
+      operationId: getSessionMessages
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: 会话ID
+          schema:
+            type: string
+      responses:
+        '200':
+          description: 成功返回消息列表
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/FormattedMessage'
+        '404':
+          description: 会话不存在
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /skills:
+    get:
+      tags:
+        - Skills
+      summary: 列出技能
+      description: 获取所有可用技能的列表
+      operationId: listSkills
+      responses:
+        '200':
+          description: 成功返回技能列表
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/SkillInfo'
+    post:
+      tags:
+        - Skills
+      summary: 添加技能
+      description: 添加一个新的技能配置
+      operationId: addSkill
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AddSkillRequest'
+            example:
+              name: "code-review"
+              path: ".trae/skills/code-review.md"
+              description: "代码审查技能"
+      responses:
+        '200':
+          description: 成功添加技能
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SkillInfo'
+        '400':
+          description: 请求参数错误
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '409':
+          description: 技能已存在
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /skills/{name}:
+    get:
+      tags:
+        - Skills
+      summary: 获取技能详情
+      description: 根据名称获取技能详情
+      operationId: getSkill
+      parameters:
+        - name: name
+          in: path
+          required: true
+          description: 技能名称
+          schema:
+            type: string
+      responses:
+        '200':
+          description: 成功返回技能详情
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SkillInfo'
+        '404':
+          description: 技能不存在
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+    delete:
+      tags:
+        - Skills
+      summary: 删除技能
+      description: 根据名称删除技能
+      operationId: deleteSkill
+      parameters:
+        - name: name
+          in: path
+          required: true
+          description: 技能名称
+          schema:
+            type: string
+      responses:
+        '204':
+          description: 成功删除技能
+        '404':
+          description: 技能不存在
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /skills/{name}/load:
+    post:
+      tags:
+        - Skills
+      summary: 加载技能
+      description: 加载指定技能并返回其内容
+      operationId: loadSkill
+      parameters:
+        - name: name
+          in: path
+          required: true
+          description: 技能名称
+          schema:
+            type: string
+      responses:
+        '200':
+          description: 成功加载技能
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SkillLoadResult'
+        '400':
+          description: 加载失败
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: 技能不存在
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /mcp/servers:
+    get:
+      tags:
+        - MCP
+      summary: 列出MCP服务器
+      description: 获取所有已注册的MCP服务器列表
+      operationId: listMcpServers
+      responses:
+        '200':
+          description: 成功返回MCP服务器列表
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/McpServerStatus'
+    post:
+      tags:
+        - MCP
+      summary: 注册MCP服务器
+      description: 注册一个新的MCP服务器
+      operationId: registerMcpServer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/McpServerRequest'
+            example:
+              name: "filesystem"
+              server_type: "stdio"
+              command: "mcp-filesystem"
+              args: ["/home/user"]
+              description: "文件系统MCP服务器"
+              timeout: 300
+              enabled: true
+      responses:
+        '200':
+          description: 成功注册MCP服务器
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/McpServerStatus'
+        '400':
+          description: 请求参数错误
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /mcp/servers/{name}:
+    delete:
+      tags:
+        - MCP
+      summary: 注销MCP服务器
+      description: 根据名称注销MCP服务器
+      operationId: unregisterMcpServer
+      parameters:
+        - name: name
+          in: path
+          required: true
+          description: MCP服务器名称
+          schema:
+            type: string
+      responses:
+        '204':
+          description: 成功注销MCP服务器
+        '404':
+          description: MCP服务器不存在
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /mcp/servers/{name}/tools:
+    get:
+      tags:
+        - MCP
+      summary: 列出MCP工具
+      description: 获取指定MCP服务器提供的工具列表
+      operationId: listMcpTools
+      parameters:
+        - name: name
+          in: path
+          required: true
+          description: MCP服务器名称
+          schema:
+            type: string
+      responses:
+        '200':
+          description: 成功返回MCP工具列表
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/McpTool'
+        '404':
+          description: MCP服务器不存在
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /models:
+    get:
+      tags:
+        - Models
+      summary: 列出模型提供商
+      description: 获取所有已配置的模型提供商列表
+      operationId: listModels
+      responses:
+        '200':
+          description: 成功返回模型提供商列表
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/ProviderConfig'
+    post:
+      tags:
+        - Models
+      summary: 添加模型提供商
+      description: 添加一个新的模型提供商配置
+      operationId: addModelProvider
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AddModelProviderRequest'
+            example:
+              name: "openai"
+              api_key: "sk-..."
+              base_url: "https://api.openai.com/v1"
+              models:
+                - name: "gpt-4"
+                  description: "GPT-4模型"
+                  context_window: 8192
+                  temperature: 0.7
+      responses:
+        '200':
+          description: 成功添加模型提供商
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProviderConfig'
+        '400':
+          description: 请求参数错误
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '409':
+          description: 提供商已存在
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /models/{provider}:
+    delete:
+      tags:
+        - Models
+      summary: 删除模型提供商
+      description: 根据名称删除模型提供商
+      operationId: deleteModelProvider
+      parameters:
+        - name: provider
+          in: path
+          required: true
+          description: 提供商名称
+          schema:
+            type: string
+      responses:
+        '204':
+          description: 成功删除模型提供商
+        '404':
+          description: 提供商不存在
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /models/{provider}/{name}:
+    get:
+      tags:
+        - Models
+      summary: 获取模型详情
+      description: 获取指定提供商下的模型详情
+      operationId: getModel
+      parameters:
+        - name: provider
+          in: path
+          required: true
+          description: 提供商名称
+          schema:
+            type: string
+        - name: name
+          in: path
+          required: true
+          description: 模型名称
+          schema:
+            type: string
+      responses:
+        '200':
+          description: 成功返回模型详情
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ModelInfo'
+        '404':
+          description: 模型不存在
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+    put:
+      tags:
+        - Models
+      summary: 更新模型配置
+      description: 更新指定模型的配置
+      operationId: updateModel
+      parameters:
+        - name: provider
+          in: path
+          required: true
+          description: 提供商名称
+          schema:
+            type: string
+        - name: name
+          in: path
+          required: true
+          description: 模型名称
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateModelRequest'
+            example:
+              description: "更新后的描述"
+              temperature: 0.5
+              max_tokens: 4096
+      responses:
+        '200':
+          description: 成功更新模型配置
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ModelInfo'
+        '404':
+          description: 模型不存在
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /ws/{session_id}:
+    get:
+      tags:
+        - Chat
+      summary: WebSocket聊天
+      description: |
+        建立WebSocket连接进行实时聊天。
+        
+        ## 客户端发送消息格式
+        
+        发送聊天消息：
+        ```json
+        {"action": "chat", "content": "你好"}
+        ```
+        
+        取消当前操作：
+        ```json
+        {"action": "cancel"}
+        ```
+        
+        ## 服务端推送消息格式
+        
+        消息事件：
+        ```json
+        {"type": "message", "content": "..."}
+        ```
+        
+        状态事件：
+        ```json
+        {"type": "status", "status": "Completed"}
+        ```
+        
+        错误事件：
+        ```json
+        {"type": "error", "error": "..."}
+        ```
+      operationId: websocket
+      parameters:
+        - name: session_id
+          in: path
+          required: true
+          description: 会话ID
+          schema:
+            type: string
+      responses:
+        '101':
+          description: 切换到WebSocket协议
+
+components:
+  schemas:
+    ToolInfo:
+      type: object
+      required:
+        - name
+        - description
+        - parameters
+      properties:
+        name:
+          type: string
+          description: 工具名称
+        description:
+          type: string
+          description: 工具描述
+        parameters:
+          type: object
+          description: 工具参数JSON Schema
+        annotations:
+          $ref: '#/components/schemas/ToolAnnotations'
+
+    ToolAnnotations:
+      type: object
+      properties:
+        readOnly:
+          type: boolean
+          description: 是否只读
+        destructive:
+          type: boolean
+          description: 是否具有破坏性
+        concurrencySafe:
+          type: boolean
+          description: 是否并发安全
+        toolKind:
+          type: string
+          description: 工具类型
+
+    ToolExecuteRequest:
+      type: object
+      properties:
+        arguments:
+          type: object
+          description: 工具参数
+          default: {}
+
+    ToolExecuteResponse:
+      type: object
+      required:
+        - success
+        - result
+      properties:
+        success:
+          type: boolean
+          description: 执行是否成功
+        result:
+          type: object
+          description: 执行结果
+
+    ChatRequest:
+      type: object
+      required:
+        - message
+      properties:
+        message:
+          type: string
+          description: 用户消息
+        session_id:
+          type: string
+          description: 会话ID（可选，不提供则创建新会话）
+
+    ChatResponse:
+      type: object
+      required:
+        - message
+        - session_id
+      properties:
+        message:
+          type: string
+          description: Agent响应消息
+        session_id:
+          type: string
+          description: 会话ID
+
+    SessionInfo:
+      type: object
+      required:
+        - id
+        - created_at
+      properties:
+        id:
+          type: string
+          description: 会话ID
+        name:
+          type: string
+          description: 会话名称
+        created_at:
+          type: integer
+          format: int64
+          description: 创建时间戳（Unix时间戳，秒）
+        updated_at:
+          type: integer
+          format: int64
+          description: 更新时间戳（Unix时间戳，秒）
+        message_count:
+          type: integer
+          description: 消息数量
+
+    FormattedMessage:
+      type: object
+      required:
+        - role
+        - content
+      properties:
+        role:
+          type: string
+          enum: [user, assistant]
+          description: 消息角色
+        content:
+          type: string
+          description: 消息内容
+
+    CompactionResult:
+      type: object
+      required:
+        - before_count
+        - after_count
+        - strategy
+        - token_ratio_before
+        - token_ratio_after
+      properties:
+        before_count:
+          type: integer
+          description: 压缩前消息数量
+        after_count:
+          type: integer
+          description: 压缩后消息数量
+        strategy:
+          type: string
+          description: 使用的压缩策略
+        token_ratio_before:
+          type: number
+          format: double
+          description: 压缩前token使用比例
+        token_ratio_after:
+          type: number
+          format: double
+          description: 压缩后token使用比例
+
+    SkillInfo:
+      type: object
+      required:
+        - name
+        - description
+      properties:
+        name:
+          type: string
+          description: 技能名称
+        description:
+          type: string
+          description: 技能描述
+
+    AddSkillRequest:
+      type: object
+      required:
+        - name
+        - path
+      properties:
+        name:
+          type: string
+          description: 技能名称
+        path:
+          type: string
+          description: 技能文件路径
+        description:
+          type: string
+          description: 技能描述
+
+    SkillLoadResult:
+      type: object
+      required:
+        - name
+        - status
+      properties:
+        name:
+          type: string
+          description: 技能名称
+        status:
+          type: string
+          description: 加载状态
+        content:
+          type: string
+          description: 技能内容
+
+    McpServerStatus:
+      type: object
+      required:
+        - name
+        - status
+        - tools
+      properties:
+        name:
+          type: string
+          description: MCP服务器名称
+        status:
+          type: string
+          description: 服务器状态（running, stopped, error, disabled）
+        description:
+          type: string
+          description: 服务器描述
+        tools:
+          type: array
+          items:
+            type: string
+          description: 服务器提供的工具列表
+
+    McpServerRequest:
+      type: object
+      required:
+        - name
+        - command
+      properties:
+        name:
+          type: string
+          description: MCP服务器名称
+        server_type:
+          type: string
+          enum: [stdio, sse, http]
+          default: stdio
+          description: 服务器类型
+        description:
+          type: string
+          description: 服务器描述
+        command:
+          type: string
+          description: 启动命令
+        args:
+          type: array
+          items:
+            type: string
+          description: 命令参数
+        env:
+          type: object
+          additionalProperties:
+            type: string
+          description: 环境变量
+        timeout:
+          type: integer
+          default: 300
+          description: 超时时间（秒）
+        enabled:
+          type: boolean
+          default: true
+          description: 是否启用
+
+    McpTool:
+      type: object
+      required:
+        - name
+        - description
+        - inputSchema
+      properties:
+        name:
+          type: string
+          description: 工具名称
+        description:
+          type: string
+          description: 工具描述
+        inputSchema:
+          type: object
+          description: 输入参数JSON Schema
+
+    ProviderConfig:
+      type: object
+      required:
+        - name
+      properties:
+        name:
+          type: string
+          description: 提供商名称
+        api_key:
+          type: string
+          description: API密钥
+        base_url:
+          type: string
+          description: API基础URL
+        models:
+          type: array
+          items:
+            $ref: '#/components/schemas/ModelConfig'
+          description: 模型列表
+
+    ModelConfig:
+      type: object
+      required:
+        - name
+      properties:
+        name:
+          type: string
+          description: 模型名称
+        description:
+          type: string
+          description: 模型描述
+        context_window:
+          type: integer
+          description: 上下文窗口大小
+        temperature:
+          type: number
+          format: float
+          description: 温度参数
+        max_tokens:
+          type: integer
+          description: 最大token数
+
+    ModelInfo:
+      type: object
+      required:
+        - provider
+        - name
+      properties:
+        provider:
+          type: string
+          description: 提供商名称
+        name:
+          type: string
+          description: 模型名称
+        description:
+          type: string
+          description: 模型描述
+        context_window:
+          type: integer
+          description: 上下文窗口大小
+        temperature:
+          type: number
+          format: float
+          description: 温度参数
+        max_tokens:
+          type: integer
+          description: 最大token数
+        api_key:
+          type: string
+          description: API密钥
+        base_url:
+          type: string
+          description: API基础URL
+
+    AddModelProviderRequest:
+      type: object
+      required:
+        - name
+      properties:
+        name:
+          type: string
+          description: 提供商名称
+        api_key:
+          type: string
+          description: API密钥
+        base_url:
+          type: string
+          description: API基础URL
+        models:
+          type: array
+          items:
+            $ref: '#/components/schemas/ModelConfig'
+          description: 模型列表
+
+    UpdateModelRequest:
+      type: object
+      properties:
+        api_key:
+          type: string
+          description: API密钥
+        base_url:
+          type: string
+          description: API基础URL
+        description:
+          type: string
+          description: 模型描述
+        context_window:
+          type: integer
+          description: 上下文窗口大小
+        temperature:
+          type: number
+          format: float
+          description: 温度参数
+        max_tokens:
+          type: integer
+          description: 最大token数
+
+    ErrorResponse:
+      type: object
+      required:
+        - error
+      properties:
+        error:
+          type: object
+          required:
+            - type
+            - message
+          properties:
+            type:
+              type: string
+              description: 错误类型
+            message:
+              type: string
+              description: 错误消息
+
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      description: API Key认证
+
+security:
+  - BearerAuth: []

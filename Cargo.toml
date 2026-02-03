@@ -1,0 +1,144 @@
+[workspace]
+resolver = "2"
+members = ["crates/*", "examples"]
+default-members = ["crates/synthia-cli"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+
+[workspace.dependencies]
+# ============================================
+# 异步运行时
+# ============================================
+tokio = { version = "1.35", features = ["full"] }
+tokio-util = "0.7"
+tokio-stream = "0.1"
+async-trait = "0.1"
+async-stream = "0.3"
+
+# ============================================
+# HTTP 客户端
+# ============================================
+reqwest = { version = "0.12", features = ["json", "stream"] }
+
+# ============================================
+# 异步工具
+# ============================================
+futures = "0.3"
+futures-util = "0.3"
+backoff = { version = "0.4", features = ["futures", "tokio"] }
+dashmap = "6.1"
+ahash = "0.8"
+
+# ============================================
+# 序列化
+# ============================================
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+serde_yaml = "0.9"
+toml = "0.8"
+
+# ============================================
+# 错误处理
+# ============================================
+thiserror = "1.0"
+anyhow = "1.0"
+
+# ============================================
+# 日志和追踪
+# ============================================
+tracing = { version = "0.1", features = ["tracing-attributes"] }
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+# ============================================
+# OpenTelemetry 分布式追踪
+# ============================================
+opentelemetry = { version = "0.22", features = ["logs", "metrics", "trace"] }
+opentelemetry_sdk = { version = "0.22", features = ["logs", "metrics", "rt-tokio", "trace"], package = "opentelemetry-sdk" }
+opentelemetry_semantic_conventions = { version = "0.31", package = "opentelemetry-semantic-conventions" }
+tracing_opentelemetry = { version = "0.22", package = "tracing-opentelemetry" }
+opentelemetry_appender_tracing = { version = "0.4", package = "opentelemetry-appender-tracing" }
+
+# ============================================
+# 工具库
+# ============================================
+chrono = "0.4"
+uuid = { version = "1.4", features = ["v4"] }
+regex = "1.10"
+dotenv = "0.15"
+once_cell = "1.20"
+base64 = "0.22"
+image = "0.25"
+lru = "0.12"
+moka = { version = "0.12", features = ["future"] }
+ignore = "0.4"
+
+# ============================================
+# 数据库
+# ============================================
+sqlx = { version = "0.8", features = ["runtime-tokio", "sqlite"] }
+
+# ============================================
+# 模型和协议
+# ============================================
+rmcp = { version = "0.15", features = ["client", "server", "transport-child-process"] }
+schemars = "1"
+
+# ============================================
+# 开发依赖
+# ============================================
+tokio-test = "0.4"
+tempfile = "3"
+
+[profile.release]
+codegen-units = 1
+strip = "symbols"
+lto = "fat"
+
+[profile.bench]
+debug = true
+
+[workspace.lints.rust]
+unreachable_pub = "deny"
+#missing_debug_implementations = "deny"
+#missing_copy_implementations = "deny"
+
+[workspace.lints.clippy]
+clone_on_ref_ptr = "deny"
+dbg_macro = "deny"
+expect_used = "deny"
+future_not_send = "deny"
+identity_op = "deny"
+manual_clamp = "deny"
+manual_filter = "deny"
+manual_find = "deny"
+manual_flatten = "deny"
+manual_map = "deny"
+manual_memcpy = "deny"
+manual_non_exhaustive = "deny"
+manual_ok_or = "deny"
+manual_range_contains = "deny"
+manual_retain = "deny"
+manual_strip = "deny"
+manual_try_fold = "deny"
+manual_unwrap_or = "deny"
+needless_borrow = "deny"
+needless_borrowed_reference = "deny"
+needless_collect = "deny"
+needless_late_init = "deny"
+needless_option_as_deref = "deny"
+needless_question_mark = "deny"
+needless_update = "deny"
+redundant_clone = "deny"
+redundant_closure = "deny"
+redundant_closure_for_method_calls = "deny"
+redundant_static_lifetimes = "deny"
+todo = "deny"
+trivially_copy_pass_by_ref = "deny"
+uninlined_format_args = "deny"
+unnecessary_filter_map = "deny"
+unnecessary_lazy_evaluations = "deny"
+unnecessary_sort_by = "deny"
+unnecessary_to_owned = "deny"
+unwrap_used = "deny"

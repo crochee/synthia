@@ -1,0 +1,65 @@
+[package]
+name = "synthia-agent"
+version.workspace = true
+edition.workspace = true
+description = "AI agent implementation using synthia-provider"
+
+[features]
+default = []
+
+[dependencies]
+# 使用工作空间依赖
+tokio.workspace = true
+futures.workspace = true
+tokio-util.workspace = true
+tokio-stream.workspace = true
+async-trait.workspace = true
+async-stream.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+serde_yaml.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+chrono.workspace = true
+uuid.workspace = true
+rmcp.workspace = true
+backoff.workspace = true
+regex.workspace = true
+schemars.workspace = true
+dashmap.workspace = true
+moka = { workspace = true, features = ["sync"] }
+ahash.workspace = true
+
+# 本地依赖
+synthia-provider = { path = "../synthia-provider" }
+synthia-job = { path = "../synthia-job" }
+synthia-tracing = { path = "../synthia-tracing" }
+
+# 仅本 crate 使用的依赖
+rustc-hash = "1.1.0"
+sys-locale = "0.3"
+tempfile = "3.10.1"
+rand = "0.8.5"
+dirs = "5.0.1"
+petgraph = "0.8"
+tiktoken-rs = "0.6"
+reqwest = { workspace = true, features = ["json"] }
+parking_lot = "0.12"
+scraper = "0.22"
+url = "2.5"
+glob = "0.3"
+urlencoding = "2.1"
+base64 = "0.22"
+glob-match = "0.2"
+ignore = { workspace = true }
+walkdir = "2.4"
+sqlx = { workspace = true, features = ["runtime-tokio", "sqlite", "chrono"] }
+sha2 = "0.10"
+hostname = "0.4"
+toml = "0.8"
+
+[dev-dependencies]
+tokio-test.workspace = true
+
+[lints]
+workspace = true

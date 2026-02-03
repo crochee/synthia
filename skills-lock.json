@@ -1,0 +1,10 @@
+{
+  "version": 1,
+  "skills": {
+    "agent-estimation": {
+      "source": "ZhangHanDong/agent-estimation",
+      "sourceType": "github",
+      "computedHash": "3706e485f60da1d6f436c292d4fbd630475f5417c540bffcecf62a6071dabbf4"
+    }
+  }
+}

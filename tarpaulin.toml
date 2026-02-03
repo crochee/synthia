@@ -1,0 +1,13 @@
+[test_config]
+output-dir = "./coverage_output"
+
+# Only include files from the crates directory
+include-files = ["crates/synthia-agent/*.rs"]
+
+# Exclude specific files
+exclude-files = ["crates/synthia-agent/src/tool/mcp.rs"]
+
+# Directory where profraw files are stored.
+profraw-folder = "./target/profraw"
+
+workspace = true
