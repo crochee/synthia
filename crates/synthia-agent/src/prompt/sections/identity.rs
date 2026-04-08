@@ -49,7 +49,7 @@ impl PromptSection for IdentitySection {
         };
 
         let mut prompt = template
-            .replace("{agent_name}", ctx.agent_name)
+            .replace("{agent_name}", ctx.agent_name.as_str())
             .replace("{agent_description}", ctx.agent_description)
             .replace("{CYBER_RISK_INSTRUCTION}", CYBER_RISK_INSTRUCTION);
 

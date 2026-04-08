@@ -31,7 +31,7 @@ pub struct ServerEventHandler;
 impl AgentEventHandler for ServerEventHandler {
     async fn on_event(
         &self,
-        _agent_name: &str,
+        _agent_name: &synthia_agent::config::AgentName,
         _event: &synthia_agent::types::AgentEvent,
     ) {
     }

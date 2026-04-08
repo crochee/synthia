@@ -2,7 +2,7 @@
 
 use std::collections::BTreeMap;
 
-use crate::config::AgentConfig;
+use crate::config::{AgentConfig, AgentName};
 
 pub const DEFAULT_ROLE_NAME: &str = "default";
 
@@ -17,7 +17,7 @@ pub mod built_in {
             (
                 DEFAULT_ROLE_NAME.to_string(),
                 AgentConfig {
-                    name: DEFAULT_ROLE_NAME.to_string(),
+                    name: AgentName::Solo,
                     models: Default::default(),
                     description: "Default agent".to_string(),
                     allowed_tools: Default::default(),
@@ -26,12 +26,13 @@ pub mod built_in {
                     workspace_dir: workspace_dir.to_path_buf(),
                     is_subagent: false,
                     guardian: GuardianConfig::default(),
+                    prompt: None,
                 }
             ),
             (
                 "explorer".to_string(),
                 AgentConfig {
-                    name: "explorer".to_string(),
+                    name: AgentName::Custom("explorer".to_string()),
                     models: Default::default(),
                     description: "Code explorer agent for fast and authoritative codebase analysis".to_string(),
                     allowed_tools: vec!["readFile".to_string(), "glob".to_string(), "grep".to_string(), "listDirectory".to_string(), "directoryTree".to_string()],
@@ -40,12 +41,13 @@ pub mod built_in {
                     workspace_dir: workspace_dir.to_path_buf(),
                     is_subagent: false,
                     guardian: GuardianConfig::default(),
+                    prompt: None,
                 }
             ),
             (
                 "worker".to_string(),
                 AgentConfig {
-                    name: "worker".to_string(),
+                    name: AgentName::Custom("worker".to_string()),
                     models: Default::default(),
                     description: r#"Use for execution and production work.
 Typical tasks:
@@ -61,6 +63,7 @@ Rules:
                     workspace_dir: workspace_dir.to_path_buf(),
                     is_subagent: false,
                     guardian: GuardianConfig::default(),
+                    prompt: None,
                 }
             ),
         ])
@@ -93,7 +96,10 @@ mod tests {
         let configs = built_in::configs(&workspace);
 
         let default_config = configs.get(DEFAULT_ROLE_NAME).unwrap();
-        assert_eq!(default_config.name, "default");
+        assert_eq!(
+            default_config.name,
+            AgentName::Custom(DEFAULT_ROLE_NAME.to_string())
+        );
         assert_eq!(default_config.description, "Default agent");
         assert!(!default_config.is_subagent);
         assert_eq!(default_config.workspace_dir, workspace);
@@ -105,7 +111,7 @@ mod tests {
         let configs = built_in::configs(&workspace);
 
         let explorer = configs.get("explorer").unwrap();
-        assert_eq!(explorer.name, "explorer");
+        assert_eq!(explorer.name, AgentName::Custom("explorer".to_string()));
         assert!(explorer.description.contains("Code explorer"));
         // Explorer should have read-only tools allowed
         assert!(explorer.allowed_tools.contains(&"readFile".to_string()));
@@ -124,7 +130,7 @@ mod tests {
         let configs = built_in::configs(&workspace);
 
         let worker = configs.get("worker").unwrap();
-        assert_eq!(worker.name, "worker");
+        assert_eq!(worker.name, AgentName::Custom("worker".to_string()));
         assert!(worker.description.contains("execution"));
         // Worker should have no restrictions by default
         assert!(worker.allowed_tools.is_empty());

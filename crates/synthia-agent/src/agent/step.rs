@@ -12,7 +12,10 @@ use rmcp::model::{SamplingMessage, Tool, ToolUseContent};
 use tokio_util::sync::CancellationToken;
 use tracing::instrument;
 
-use super::Agent;
+use super::{
+    Agent,
+    step_plan::{ExecutionMode, ScheduleBuilder, ToolCallInfo},
+};
 use crate::{
     AgentError,
     Result,
@@ -25,7 +28,16 @@ use crate::{
         },
     },
     config::SessionConfig,
-    hooks::HookEvent,
+    hooks::{
+        HookEvent,
+        events::{
+            AfterToolBatchComplete,
+            PhaseInfo,
+            ScheduleInfo,
+            ToolInfo,
+            ToolSchedulingPlan,
+        },
+    },
     types::{AgentEvent, AgentStatus},
     utils::extract_tool_uses,
 };
@@ -117,52 +129,236 @@ impl Agent {
         max_concurrent: usize,
     ) -> BoxStream<'a, Result<AgentEvent>> {
         if tool_uses.is_empty() {
-            return Box::pin(futures::stream::empty());
+            return Box::pin(futures::stream::empty::<Result<AgentEvent>>());
         }
 
         let session_config = session_config.clone();
         let cancel_token = cancel_token.clone();
         let agent = Arc::new(self.clone());
 
-        tracing::debug!(
-            tool_count = tool_uses.len(),
-            max_concurrent,
-            "Processing tool uses"
+        let stream: BoxStream<'a, Result<AgentEvent>> = Box::pin(
+            async_stream::stream! {
+                // Convert ToolUseContent to ToolCallInfo for scheduling
+                let tool_infos: Result<Vec<ToolCallInfo>, AgentError> = tool_uses
+                    .into_iter()
+                    .map(|tu| {
+                        agent.deps.tools.get_tool(&tu.name)
+                            .ok_or_else(|| AgentError::tool(&tu.name, "tool not found"))
+                            .map(|tool| {
+                                let args_value = serde_json::Value::Object(tu.input.clone());
+                                let is_read_only = tool.is_read_only(&args_value);
+                                let is_concurrency_safe = tool.is_concurrency_safe(&args_value);
+                                ToolCallInfo::new(
+                                    tu.id,
+                                    tu.name,
+                                    serde_json::Value::Object(tu.input),
+                                    is_read_only,
+                                    is_concurrency_safe,
+                                )
+                            })
+                    })
+                    .collect();
+
+                let tool_infos = match tool_infos {
+                    Ok(infos) => infos,
+                    Err(e) => {
+                        yield Err(e);
+                        return;
+                    }
+                };
+
+                // Build the tool schedule
+                let schedule = ScheduleBuilder::new().with_tools(tool_infos).build();
+
+                tracing::debug!(
+                    tool_count = schedule.total_tools,
+                    phases = schedule.phases.len(),
+                    "Built tool schedule"
+                );
+
+                // Pre-extract phase info to avoid lifetime issues with async_stream
+                let phase_infos: Vec<(ExecutionMode, Vec<ToolCallInfo>)> = schedule
+                    .phases
+                    .into_iter()
+                    .map(|p| (p.execution_mode, p.tools))
+                    .collect();
+
+                let total_tools =
+                    phase_infos.iter().map(|(_, tools)| tools.len()).sum();
+                // Emit ToolSchedulingPlan hook after building schedule
+                let turn_id = session_config.id.clone();
+                let session_id = session_config.id.clone();
+
+                // Build schedule event data
+                let schedule_event = ToolSchedulingPlan {
+                    session_id: session_id.clone(),
+                    turn_id: turn_id.clone(),
+                    tools: phase_infos
+                        .iter()
+                        .flat_map(|(_, tools)| tools.iter())
+                        .map(|t| ToolInfo {
+                            id: t.id.clone(),
+                            name: t.name.clone(),
+                            is_read_only: t.is_read_only,
+                            is_concurrency_safe: t.is_concurrency_safe,
+                        })
+                        .collect(),
+                    schedule: ScheduleInfo {
+                        total_tools,
+                        phases: phase_infos
+                            .iter()
+                            .enumerate()
+                            .map(|(idx, (mode, tools))| PhaseInfo {
+                                phase_id: idx as u32,
+                                tool_count: tools.len(),
+                                execution_mode: format!("{mode:?}"),
+                            })
+                            .collect(),
+                    },
+                };
+                agent.deps.hooks.emit_ordered(&HookEvent::ToolSchedulingPlan(schedule_event)).await;
+
+                let mut all_errors = ToolErrorSummary::new();
+
+                // Execute phases in order
+                for (phase_idx, (execution_mode, phase_tools)) in phase_infos.into_iter().enumerate() {
+                    let phase_start_time = std::time::Instant::now();
+                    let batch_id = phase_idx as u32;
+                    let phase_tool_count = phase_tools.len();
+
+                    tracing::debug!(
+                        phase_id = batch_id,
+                        tool_count = phase_tool_count,
+                        mode = ?execution_mode,
+                        "Executing phase"
+                    );
+
+                    match execution_mode {
+                        ExecutionMode::Parallel => {
+                            let tool_futures = phase_tools.into_iter().map(|tool_info| {
+                                let tool_use = ToolUseContent::new(
+                                    tool_info.id,
+                                    tool_info.name.clone(),
+                                    tool_info.args.as_object().cloned().unwrap_or_default(),
+                                );
+                                let tool_name = tool_info.name;
+                                let session_config = session_config.clone();
+                                let cancel_token = cancel_token.clone();
+                                let agent = Arc::clone(&agent);
+
+                                async move {
+                                    Agent::execute_single_tool(
+                                        agent,
+                                        tool_use,
+                                        tool_name,
+                                        session_config,
+                                        cancel_token,
+                                    )
+                                    .await
+                                }
+                            });
+
+                            let max_concurrent = max_concurrent.max(1);
+                            let mut concurrent_stream =
+                                futures::stream::iter(tool_futures)
+                                    .buffer_unordered(max_concurrent);
+
+                            while let Some(Some(execution_result)) =
+                                concurrent_stream.next().await
+                            {
+                                all_errors.add_errors(&execution_result);
+                                for event in execution_result.events {
+                                    yield event;
+                                }
+                            }
+                        }
+                        ExecutionMode::Serial => {
+                            // Serial execution - one at a time
+                            for tool_info in phase_tools {
+                                if cancel_token.is_cancelled() {
+                                    break;
+                                }
+
+                                let tool_use = ToolUseContent::new(
+                                    tool_info.id,
+                                    tool_info.name.clone(),
+                                    tool_info.args.as_object().cloned().unwrap_or_default(),
+                                );
+                                let tool_name = tool_info.name;
+
+                                if let Some(execution_result) = Agent::execute_single_tool(
+                                    Arc::clone(&agent),
+                                    tool_use,
+                                    tool_name,
+                                    session_config.clone(),
+                                    cancel_token.clone(),
+                                )
+                                .await
+                                {
+                                    all_errors.add_errors(&execution_result);
+                                    for event in execution_result.events {
+                                        yield event;
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    // Emit AfterToolBatchComplete for this phase
+                    let phase_has_errors = all_errors.has_errors();
+                    agent
+                        .deps
+                        .hooks
+                        .emit_ordered(&HookEvent::AfterToolBatchComplete(
+                            AfterToolBatchComplete {
+                                session_id: session_id.clone(),
+                                batch_id,
+                                tool_count: phase_tool_count,
+                                has_errors: phase_has_errors,
+                            },
+                        ))
+                        .await;
+
+                    tracing::debug!(
+                        phase_id = batch_id,
+                        elapsed_ms = phase_start_time.elapsed().as_millis(),
+                        "Phase completed"
+                    );
+                }
+
+                let turn_complete_event = AgentEvent::TurnCompleteDetail {
+                    turn_id: turn_id.clone(),
+                    tool_count: total_tools,
+                    has_errors: all_errors.get_summary_message().is_some(),
+                };
+
+                // Emit BeforeTurnComplete hook
+                agent.deps.hooks
+                    .emit_ordered(&HookEvent::BeforeTurnComplete {
+                        session_id: session_id.clone(),
+                        turn_id: turn_id.clone(),
+                    })
+                    .await;
+
+                yield Ok(turn_complete_event);
+
+                // Emit AfterTurnComplete hook
+                agent.deps.hooks
+                    .emit_ordered(&HookEvent::AfterTurnComplete {
+                        session_id: session_id.clone(),
+                        turn_id,
+                        has_errors: all_errors.get_summary_message().is_some(),
+                    })
+                    .await;
+
+                if let Some(summary) = all_errors.get_summary_message() {
+                    tracing::warn!("Tool execution completed with errors: {}", summary);
+                    yield Err(AgentError::tool_error(summary));
+                }
+            },
         );
 
-        let stream = async_stream::stream! {
-            let tool_count = tool_uses.len();
-            let tool_futures = tool_uses.into_iter().map(|tool_use| {
-                let tool_name = tool_use.name.clone();
-                let session_config = session_config.clone();
-                let cancel_token = cancel_token.clone();
-                let agent = Arc::clone(&agent);
-
-                async move { Agent::execute_single_tool(agent, tool_use, tool_name, session_config, cancel_token).await }
-            });
-
-            let mut concurrent_stream = futures::stream::iter(tool_futures).buffer_unordered(max_concurrent);
-            let mut all_errors = ToolErrorSummary::new();
-
-            while let Some(Some(execution_result)) = concurrent_stream.next().await {
-                all_errors.add_errors(&execution_result);
-                for event in execution_result.events { yield event; }
-            }
-
-            let turn_complete_event = AgentEvent::TurnCompleteDetail {
-                turn_id: session_config.id.clone(),
-                tool_count,
-                has_errors: all_errors.to_summary_message().is_some(),
-            };
-            yield Ok(turn_complete_event);
-
-            if let Some(summary) = all_errors.to_summary_message() {
-                tracing::warn!("Tool execution completed with errors: {}", summary);
-                yield Err(AgentError::tool_error(summary));
-            }
-        };
-
-        Box::pin(stream)
+        stream
     }
 
     async fn execute_single_tool(
@@ -182,7 +378,7 @@ impl Agent {
         agent
             .deps
             .hooks
-            .emit(&HookEvent::BeforeToolCall {
+            .emit_ordered(&HookEvent::BeforeToolCall {
                 tool: tool_name.clone(),
                 args: args_value.clone(),
             })
@@ -207,7 +403,7 @@ impl Agent {
         agent
             .deps
             .hooks
-            .emit(&HookEvent::AfterToolCall {
+            .emit_ordered(&HookEvent::AfterToolCall {
                 tool: tool_name.clone(),
                 args: args_value,
                 success,
@@ -236,13 +432,15 @@ impl Agent {
             },
             result_hash: None,
         };
-        if let Ok(mut guard) = agent.loop_detector.write() {
+        if let Ok(mut guard) = agent.loop_detector.try_write() {
             guard.record(pattern);
         }
 
         Some(execution_result)
     }
+}
 
+impl Agent {
     async fn run_tool_stream(
         agent: Arc<Self>,
         tool_use: ToolUseContent,
@@ -355,8 +553,8 @@ mod tests {
     #[test]
     fn test_tool_error_summary_no_errors() {
         // Test ToolErrorSummary behavior when no errors added
-        let summary = ToolErrorSummary::new();
-        assert!(summary.to_summary_message().is_none());
+        let mut summary = ToolErrorSummary::new();
+        assert!(summary.get_summary_message().is_none());
     }
 
     #[test]

@@ -45,10 +45,16 @@ impl PromptSection for SystemSection {
 
 #[cfg(test)]
 mod tests {
-    use std::path::PathBuf;
+    use std::{path::PathBuf, sync::LazyLock};
 
     use super::*;
-    use crate::prompt::{McpServerInfo, PromptContext, SectionCaching};
+    use crate::{
+        config::AgentName,
+        prompt::{McpServerInfo, PromptContext, SectionCaching},
+    };
+
+    static TEST_AGENT_NAME: LazyLock<AgentName> =
+        LazyLock::new(|| AgentName::Custom("TestAgent".to_string()));
 
     fn make_basic_ctx<'a>(
         workspace_dir: &'a PathBuf,
@@ -56,7 +62,7 @@ mod tests {
         mcp_servers: &'a [McpServerInfo],
     ) -> PromptContext<'a> {
         PromptContext {
-            agent_name: "TestAgent",
+            agent_name: &TEST_AGENT_NAME,
             agent_description: "A test agent",
             workspace_dir,
             skill_instructions: String::new(),
@@ -69,6 +75,7 @@ mod tests {
             is_proactive_mode: false,
             model_name: Some("claude-sonnet-4-6"),
             knowledge_cutoff: Some("2026-03-01"),
+            team_info: None,
         }
     }
 

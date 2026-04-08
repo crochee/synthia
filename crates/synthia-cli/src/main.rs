@@ -114,7 +114,9 @@ fn init_logging(log_level: &str) {
         .with_log_level(log_level)
         .with_service_version(VERSION);
 
-    synthia_tracing::init_tracing(config).ok();
+    if let Err(e) = synthia_tracing::init_tracing(config) {
+        eprintln!("Warning: failed to initialize tracing: {}", e);
+    }
 }
 
 fn get_current_dir(
@@ -139,7 +141,10 @@ async fn load_config(
 
 fn print_config(config: &AppConfig, verbose: bool) {
     if verbose {
-        println!("{}", serde_json::to_string_pretty(config).unwrap());
+        match serde_json::to_string_pretty(config) {
+            Ok(json) => println!("{json}"),
+            Err(e) => eprintln!("Failed to serialize config: {}", e),
+        }
     } else {
         println!(
             "Providers: {:?}",

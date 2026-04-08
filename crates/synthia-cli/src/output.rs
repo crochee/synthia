@@ -67,7 +67,11 @@ impl CliEventHandler {
 
 #[async_trait]
 impl AgentEventHandler for CliEventHandler {
-    async fn on_event(&self, agent_name: &str, event: &AgentEvent) {
+    async fn on_event(
+        &self,
+        agent_name: &synthia_agent::config::AgentName,
+        event: &AgentEvent,
+    ) {
         handle_agent_event(agent_name, event, &self.config).await;
     }
 }
@@ -101,7 +105,7 @@ pub async fn print_with_rate(text: &str, color: Option<&str>, delay_ms: u64) {
 }
 
 pub async fn handle_agent_event(
-    agent_name: &str,
+    agent_name: &synthia_agent::config::AgentName,
     event: &AgentEvent,
     config: &OutputConfig,
 ) {

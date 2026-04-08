@@ -15,6 +15,8 @@ pub mod exec;
 pub mod fs;
 pub mod mcp;
 pub mod registry;
+pub mod search;
+pub mod send_user_message;
 pub mod shared;
 pub mod skill;
 pub mod storage;
@@ -47,10 +49,20 @@ pub use cron::{
     register_cron_tools,
 };
 pub use exec::ExecTool;
-pub use mcp::{McpToolCollector, get_mcp_tools};
+pub use mcp::{
+    ListMcpResourcesTool,
+    McpAuthTool,
+    McpToolCollector,
+    ReadMcpResourceTool,
+    RemoteTriggerTool,
+    get_mcp_tools,
+};
 pub use registry::ToolRegistry;
+pub use search::ToolSearchTool;
+pub use send_user_message::SendUserMessageTool;
 pub use skill::SkillTool;
 pub use subagent::{
+    Agent,
     ExecutorConfig,
     SubagentExecutor,
     SubagentRequest,
@@ -116,6 +128,88 @@ pub fn value_to_object(value: Value) -> JsonObject {
         Value::Object(map) => map,
         _ => JsonObject::new(),
     }
+}
+
+// =============================================================================
+// Mode-Aware Tool Registration
+// =============================================================================
+
+/// Common message tools used by both Team Lead and Team Member
+fn create_common_message_tools(
+    agent_name: Option<String>,
+) -> Vec<std::sync::Arc<dyn Tool>> {
+    vec![
+        team::create_send_message_tool(agent_name.clone()),
+        team::create_read_inbox_tool(agent_name),
+    ]
+}
+
+/// Common task query tools used by both Team Lead and Team Member
+fn create_common_task_query_tools() -> Vec<std::sync::Arc<dyn Tool>> {
+    vec![
+        task::create_task_get_tool(),
+        task::create_task_list_tool(),
+        task::create_task_update_tool(),
+    ]
+}
+
+/// Register tools for Solo mode.
+pub async fn register_solo_tools(
+    registry: &ToolRegistry,
+    subagent_executor: std::sync::Arc<SubagentExecutor>,
+) {
+    let subagent_tool = SubagentTool::new(subagent_executor);
+    registry.register(std::sync::Arc::new(subagent_tool)).await;
+}
+
+/// Register tools for Team Lead mode.
+pub async fn register_team_lead_tools(registry: &ToolRegistry) {
+    let mut tools: Vec<std::sync::Arc<dyn Tool>> = vec![
+        // Teammate management
+        team::create_spawn_teammate_tool(),
+        team::create_list_teammates_tool(),
+        // Broadcast (lead only)
+        team::create_broadcast_tool(),
+        // Protocol tools
+        team::create_shutdown_request_tool(),
+        team::create_shutdown_response_tool(),
+        team::create_plan_approval_tool(),
+        // Idle tool
+        team::create_idle_tool(),
+        // Team management tools
+        team::create_team_create_tool(),
+        team::create_team_list_tool(),
+        team::create_team_assign_tool(),
+        team::create_team_status_tool(),
+        team::create_team_update_tool(),
+        team::create_team_delete_tool(),
+        // Task creation tools (lead only)
+        task::create_task_create_tool(),
+        task::create_task_delete_tool(),
+        task::create_task_stop_tool(),
+        task::create_task_delegate_tool(),
+    ];
+    // Common tools
+    tools.extend(create_common_message_tools(None));
+    tools.extend(create_common_task_query_tools());
+    registry.registers(tools.into_iter()).await;
+}
+
+/// Register tools for Team Member mode.
+pub async fn register_team_member_tools(
+    registry: &ToolRegistry,
+    agent_name: String,
+) {
+    let mut tools: Vec<std::sync::Arc<dyn Tool>> = vec![
+        // Idle tool
+        team::create_idle_tool(),
+        // Task claim (member only)
+        task::create_claim_task_tool(),
+    ];
+    // Common tools
+    tools.extend(create_common_message_tools(Some(agent_name)));
+    tools.extend(create_common_task_query_tools());
+    registry.registers(tools.into_iter()).await;
 }
 
 #[cfg(test)]
@@ -473,5 +567,140 @@ mod tests {
     fn test_tool_trait_object() {
         fn assert_send_sync<T: Send + Sync>() {}
         assert_send_sync::<Box<dyn Tool>>();
+    }
+
+    // =============================================================================
+    // Mode-Aware Tool Registration Tests
+    // =============================================================================
+
+    #[tokio::test]
+    async fn test_register_team_lead_tools() {
+        let registry = ToolRegistry::new();
+        register_team_lead_tools(&registry).await;
+
+        // Verify expected tools are present
+        assert!(registry.contains("spawn_teammate"));
+        assert!(registry.contains("list_teammates"));
+        assert!(registry.contains("send_message"));
+        assert!(registry.contains("read_inbox"));
+        assert!(registry.contains("broadcast"));
+        assert!(registry.contains("shutdown_request"));
+        assert!(registry.contains("shutdown_response"));
+        assert!(registry.contains("plan_approval"));
+        assert!(registry.contains("idle"));
+        assert!(registry.contains("team_create"));
+        assert!(registry.contains("team_list"));
+        assert!(registry.contains("team_assign"));
+        assert!(registry.contains("team_status"));
+        assert!(registry.contains("team_update"));
+        assert!(registry.contains("team_delete"));
+        assert!(registry.contains("task_create"));
+        assert!(registry.contains("task_get"));
+        assert!(registry.contains("task_list"));
+        assert!(registry.contains("task_update"));
+        assert!(registry.contains("task_delete"));
+        assert!(registry.contains("task_stop"));
+        assert!(registry.contains("task_delegate"));
+
+        // Verify claim_task is NOT present (reserved for members)
+        assert!(!registry.contains("claim_task"));
+    }
+
+    #[tokio::test]
+    async fn test_register_team_member_tools() {
+        let registry = ToolRegistry::new();
+        register_team_member_tools(&registry, "test-member".to_string()).await;
+
+        // Verify expected tools are present
+        assert!(registry.contains("send_message"));
+        assert!(registry.contains("read_inbox"));
+        assert!(registry.contains("idle"));
+        assert!(registry.contains("claim_task"));
+        assert!(registry.contains("task_get"));
+        assert!(registry.contains("task_list"));
+        assert!(registry.contains("task_update"));
+
+        // Verify lead-only tools are NOT present
+        assert!(!registry.contains("spawn_teammate"));
+        assert!(!registry.contains("broadcast"));
+        assert!(!registry.contains("task_create"));
+        assert!(!registry.contains("team_create"));
+        assert!(!registry.contains("shutdown_request"));
+        assert!(!registry.contains("plan_approval"));
+    }
+
+    #[tokio::test]
+    async fn test_register_solo_tools() {
+        // Create a minimal SubagentExecutor for testing
+        use std::sync::Arc;
+
+        use crate::{
+            agent::Guards,
+            context::DefaultContextManager,
+            hooks::HookRegistry,
+            model_router::{FirstModelRouter, ModelRouter},
+            session::SessionFileStore,
+            tools::subagent::{ExecutorConfig, SubagentExecutor},
+        };
+
+        let registry = Arc::new(ToolRegistry::new());
+        let model_router: Arc<dyn ModelRouter> =
+            Arc::new(FirstModelRouter::default());
+        let context_manager =
+            Arc::new(DefaultContextManager::new(Arc::clone(&model_router)));
+        let session_manager = Arc::new(SessionFileStore::new());
+        let hook_registry = Arc::new(HookRegistry::new());
+        let skill_tool =
+            Arc::new(SkillTool::new(std::path::PathBuf::from(".")));
+        // Use a closure as event handler
+        let event_handler = Arc::new(
+            |_agent_name: &crate::config::AgentName,
+             _event: &crate::types::AgentEvent| {},
+        )
+            as Arc<dyn crate::event_handler::AgentEventHandler>;
+        let guards = Arc::new(Guards::new(Some(5)));
+
+        let executor = SubagentExecutor::new(ExecutorConfig {
+            tool_registry: Arc::clone(&registry),
+            context_manager,
+            session_manager,
+            model_router,
+            hook_registry,
+            skill_tool,
+            event_handler,
+            guards,
+        });
+
+        register_solo_tools(&registry, Arc::new(executor)).await;
+
+        // Verify subagent tool is present
+        assert!(registry.contains("Agent"));
+
+        // Verify team tools are NOT present
+        assert!(!registry.contains("spawn_teammate"));
+        assert!(!registry.contains("broadcast"));
+        assert!(!registry.contains("claim_task"));
+        assert!(!registry.contains("task_create"));
+    }
+
+    #[tokio::test]
+    async fn test_tool_count_by_mode() {
+        // Team Lead should have the most tools
+        let lead_registry = ToolRegistry::new();
+        register_team_lead_tools(&lead_registry).await;
+        let lead_count = lead_registry.tool_count().await;
+
+        // Team Member should have fewer tools
+        let member_registry = ToolRegistry::new();
+        register_team_member_tools(&member_registry, "test-member".to_string())
+            .await;
+        let member_count = member_registry.tool_count().await;
+
+        // Verify lead has more tools than member
+        assert!(lead_count > member_count);
+
+        // Verify expected counts
+        assert_eq!(lead_count, 22); // 15 team tools + 7 task tools
+        assert_eq!(member_count, 7); // 3 message/idle tools + 4 task tools
     }
 }

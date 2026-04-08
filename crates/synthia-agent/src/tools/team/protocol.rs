@@ -24,6 +24,7 @@ impl ShutdownRequestTool {
     }
 
     #[cfg(test)]
+    #[allow(dead_code)]
     pub(crate) fn new_with_storage(storage: TeamStorage) -> Self {
         Self { storage }
     }
@@ -104,6 +105,7 @@ impl ShutdownResponseTool {
     }
 
     #[cfg(test)]
+    #[allow(dead_code)]
     pub(crate) fn new_with_storage(storage: TeamStorage) -> Self {
         Self { storage }
     }
@@ -181,6 +183,7 @@ impl PlanApprovalTool {
     }
 
     #[cfg(test)]
+    #[allow(dead_code)]
     pub(crate) fn new_with_storage(storage: TeamStorage) -> Self {
         Self { storage }
     }

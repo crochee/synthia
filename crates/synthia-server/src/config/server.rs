@@ -98,7 +98,7 @@ impl ServerConfig {
         self.agents
             .iter()
             .map(|(name, config)| synthia_agent::config::AgentConfig {
-                name: name.clone(),
+                name: synthia_agent::config::AgentName::Custom(name.clone()),
                 description: config.description.clone().unwrap_or_default(),
                 is_subagent: true,
                 allowed_tools: config.allowed_tools.clone(),

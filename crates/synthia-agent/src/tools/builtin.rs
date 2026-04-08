@@ -7,7 +7,18 @@ use std::sync::Arc;
 
 use crate::{
     shell::LocalShellExecutor,
-    tools::{Tool, ToolRegistry, exec::ExecTool, fs, thinking, todo, tom, web},
+    tools::{
+        Tool,
+        ToolRegistry,
+        exec::ExecTool,
+        fs,
+        search,
+        send_user_message,
+        thinking,
+        todo,
+        tom,
+        web,
+    },
 };
 
 type ToolFactory = fn() -> Arc<dyn Tool>;
@@ -20,6 +31,7 @@ const READ_ONLY_TOOLS: &[ToolFactory] = &[
     || Arc::new(fs::DirectoryTreeTool::new()),
     || Arc::new(web::WebSearchTool::new()),
     || Arc::new(web::WebFetchTool::new()),
+    || Arc::new(send_user_message::SendUserMessageTool::new()),
 ];
 
 const WRITE_TOOLS: &[ToolFactory] = &[
@@ -37,7 +49,7 @@ const OTHER_TOOLS: &[ToolFactory] = &[
     || Arc::new(tom::ContextInjectTool::new()),
 ];
 
-pub async fn register_builtin_tools(registry: &ToolRegistry) {
+pub async fn register_builtin_tools(registry: &Arc<ToolRegistry>) {
     let mut tools: Vec<Arc<dyn Tool>> = Vec::new();
 
     for make_tool in READ_ONLY_TOOLS {
@@ -51,6 +63,11 @@ pub async fn register_builtin_tools(registry: &ToolRegistry) {
     for make_tool in OTHER_TOOLS {
         tools.push(make_tool());
     }
+
+    // ToolSearchTool needs the actual registry, so we create it here
+    tools.push(Arc::new(search::ToolSearchTool::new(
+        std::sync::Arc::downgrade(registry),
+    )));
 
     registry.registers(tools.into_iter()).await;
 }

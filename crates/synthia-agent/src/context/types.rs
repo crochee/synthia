@@ -52,6 +52,31 @@ impl std::fmt::Display for CompactionStrategy {
     }
 }
 
+/// Reason for compaction triggering
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[allow(dead_code)]
+pub(crate) enum CompactionReason {
+    /// Compaction triggered by token threshold
+    TokenThreshold,
+    /// Compaction triggered by mid-turn pressure
+    MidTurnPressure,
+    /// Compaction triggered by emergency truncation
+    Emergency,
+    /// Compaction triggered by manual request
+    Manual,
+}
+
+impl std::fmt::Display for CompactionReason {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            CompactionReason::TokenThreshold => write!(f, "token_threshold"),
+            CompactionReason::MidTurnPressure => write!(f, "mid_turn_pressure"),
+            CompactionReason::Emergency => write!(f, "emergency"),
+            CompactionReason::Manual => write!(f, "manual"),
+        }
+    }
+}
+
 /// Metadata for a compaction operation
 #[derive(Clone, Debug)]
 pub struct CompactionMetadata {

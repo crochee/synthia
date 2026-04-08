@@ -16,14 +16,14 @@ use futures::StreamExt;
 pub use service::ChatService;
 use synthia_agent::types::AgentEvent;
 use tokio_util::sync::CancellationToken;
-pub use types::{ChatRequest, ChatResponse};
+pub use types::{ChatRequest, DetailedChatResponse, ToolProgress};
 
 use crate::{AppState, error::ServerError, utils::extract_text};
 
 pub async fn chat(
     State(state): State<AppState>,
     Json(req): Json<ChatRequest>,
-) -> Result<Json<ChatResponse>, ServerError> {
+) -> Result<Json<DetailedChatResponse>, ServerError> {
     let service = ChatService::new(Arc::new(state.clone()));
     let session_id = service.get_or_create_session(req.session_id).await?;
     let session_config = service.create_session_config(session_id.clone());
@@ -33,12 +33,15 @@ pub async fn chat(
 
     service.add_message(&session_id, &user_msg).await?;
 
+    let agent_name = req.agent.unwrap_or_else(|| "code".to_string());
     let stream = state
         .agent
         .reply(user_msg, &session_config, cancel_token)
         .await?;
 
     let mut full_response = String::new();
+    let mut tool_progress = Vec::new();
+
     tokio::pin!(stream);
     while let Some(event_result) = stream.next().await {
         match event_result {
@@ -55,6 +58,9 @@ pub async fn chat(
                     break;
                 }
             }
+            Ok(AgentEvent::ToolProgress { tool, progress }) => {
+                tool_progress.push(ToolProgress { tool, progress });
+            }
             Err(e) => {
                 return Err(ServerError::AgentError(e.to_string()));
             }
@@ -62,10 +68,14 @@ pub async fn chat(
         }
     }
 
-    Ok(Json(ChatResponse {
+    let response = DetailedChatResponse {
         message: full_response,
         session_id,
-    }))
+        tool_progress,
+        agent: agent_name,
+    };
+
+    Ok(Json(response))
 }
 
 pub async fn chat_stream(

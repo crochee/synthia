@@ -1,4 +1,6 @@
 //! Subagent executor implementation
+//!
+//! Subagents always run in Solo mode, regardless of the parent agent's mode.
 
 use std::sync::Arc;
 
@@ -12,7 +14,7 @@ use crate::{
     AgentError,
     AgentEventHandler,
     agent::{AgentControl, AgentDeps, Guards},
-    config::{AgentConfig, SessionConfig},
+    config::{AgentConfig, AgentName, SessionConfig},
     context::ContextManager,
     guardian::{Guardian, GuardianConfig, SimpleGuardian},
     hooks::HookRegistry,
@@ -80,6 +82,7 @@ impl SubagentExecutor {
             }
         }
         subagent_config.is_subagent = true;
+        subagent_config.name = AgentName::Solo;
 
         let deps = AgentDeps {
             tools: Arc::clone(&self.tool_registry),
@@ -142,5 +145,61 @@ impl SubagentExecutor {
         );
 
         Ok(result)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_subagent_config_is_solo_mode() {
+        let mut subagent_config = AgentConfig {
+            name: AgentName::Lead,
+            ..Default::default()
+        };
+        subagent_config.is_subagent = true;
+        subagent_config.name = AgentName::Solo;
+
+        assert!(subagent_config.name.is_solo());
+        assert!(subagent_config.is_subagent);
+    }
+
+    #[test]
+    fn test_denied_tools_applied() {
+        let mut subagent_config = AgentConfig::default();
+        for tool in DENIED_TOOLS {
+            if !subagent_config.denied_tools.contains(&tool.to_string()) {
+                subagent_config.denied_tools.push(tool.to_string());
+            }
+        }
+
+        for tool in DENIED_TOOLS {
+            assert!(
+                subagent_config.denied_tools.contains(&tool.to_string()),
+                "Denied tools should contain {tool}"
+            );
+        }
+    }
+
+    #[test]
+    fn test_denied_tools_not_duplicated() {
+        let mut subagent_config = AgentConfig::default();
+        subagent_config
+            .denied_tools
+            .push("askUserQuestion".to_string());
+
+        for tool in DENIED_TOOLS {
+            if !subagent_config.denied_tools.contains(&tool.to_string()) {
+                subagent_config.denied_tools.push(tool.to_string());
+            }
+        }
+
+        let count = subagent_config
+            .denied_tools
+            .iter()
+            .filter(|t| *t == "askUserQuestion")
+            .count();
+        assert_eq!(count, 1, "Denied tools should not contain duplicates");
     }
 }

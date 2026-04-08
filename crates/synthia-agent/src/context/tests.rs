@@ -962,3 +962,288 @@ mod integration_tests {
         assert!(long_tokens > short_tokens);
     }
 }
+
+// =============================================================================
+// Context Compression - Micro Compact Tests
+// =============================================================================
+
+#[cfg(test)]
+mod micro_compact_tests {
+    use super::*;
+
+    #[test]
+    fn test_micro_compact_preserves_recent_tool_results() {
+        let mut messages = vec![
+            create_tool_use_message("tool-1", "read"),
+            create_tool_result_message("tool-1", vec!["Old result 1"]),
+            create_tool_use_message("tool-2", "write"),
+            create_tool_result_message("tool-2", vec!["Old result 2"]),
+            create_tool_use_message("tool-3", "search"),
+            create_tool_result_message("tool-3", vec!["Old result 3"]),
+            create_tool_use_message("tool-4", "edit"),
+            create_tool_result_message("tool-4", vec!["Recent result"]),
+        ];
+
+        micro_compact(&mut messages, 1);
+
+        let cleared_count = messages
+            .iter()
+            .filter(|m| {
+                if let SamplingContent::Single(
+                    SamplingMessageContent::ToolResult(r),
+                ) = &m.content
+                {
+                    r.content.len() == 1
+                        && r.content[0]
+                            .as_text()
+                            .map(|t| t.text == "[cleared]")
+                            .unwrap_or(false)
+                } else {
+                    false
+                }
+            })
+            .count();
+
+        assert_eq!(cleared_count, 3, "Should clear all but 1 tool result");
+    }
+
+    #[test]
+    fn test_micro_compact_with_zero_keep_recent() {
+        let mut messages = vec![
+            create_tool_use_message("tool-1", "read"),
+            create_tool_result_message("tool-1", vec!["Result 1"]),
+            create_tool_use_message("tool-2", "write"),
+            create_tool_result_message("tool-2", vec!["Result 2"]),
+        ];
+
+        micro_compact(&mut messages, 0);
+
+        let cleared_count = messages
+            .iter()
+            .filter(|m| {
+                if let SamplingContent::Single(
+                    SamplingMessageContent::ToolResult(r),
+                ) = &m.content
+                {
+                    r.content.len() == 1
+                        && r.content[0]
+                            .as_text()
+                            .map(|t| t.text == "[cleared]")
+                            .unwrap_or(false)
+                } else {
+                    false
+                }
+            })
+            .count();
+
+        assert_eq!(
+            cleared_count, 2,
+            "Should clear all tool results when keep_recent is 0"
+        );
+    }
+
+    #[test]
+    fn test_micro_compact_preserves_text_messages() {
+        let mut messages = vec![
+            create_text_message(Role::User, "Hello"),
+            create_tool_use_message("tool-1", "read"),
+            create_tool_result_message("tool-1", vec!["Result"]),
+            create_text_message(Role::Assistant, "Done"),
+        ];
+
+        micro_compact(&mut messages, 1);
+
+        assert_eq!(messages[0], create_text_message(Role::User, "Hello"));
+        assert_eq!(messages[3], create_text_message(Role::Assistant, "Done"));
+    }
+
+    #[test]
+    fn test_micro_compact_does_not_remove_messages() {
+        let mut messages = vec![
+            create_tool_use_message("tool-1", "read"),
+            create_tool_result_message("tool-1", vec!["Result 1"]),
+            create_tool_use_message("tool-2", "write"),
+            create_tool_result_message("tool-2", vec!["Result 2"]),
+        ];
+
+        let original_len = messages.len();
+        micro_compact(&mut messages, 2);
+        assert_eq!(messages.len(), original_len);
+    }
+
+    #[test]
+    fn test_micro_compact_multiple_runs_idempotent() {
+        let mut messages = vec![
+            create_tool_use_message("tool-1", "read"),
+            create_tool_result_message("tool-1", vec!["Result 1"]),
+            create_tool_use_message("tool-2", "write"),
+            create_tool_result_message("tool-2", vec!["Result 2"]),
+            create_tool_use_message("tool-3", "search"),
+            create_tool_result_message("tool-3", vec!["Result 3"]),
+        ];
+
+        micro_compact(&mut messages, 1);
+        let first_pass = messages.clone();
+        micro_compact(&mut messages, 1);
+        assert_eq!(messages.len(), first_pass.len());
+    }
+}
+
+// =============================================================================
+// Token Estimation Accuracy Tests
+// =============================================================================
+
+#[cfg(test)]
+mod token_estimation_tests {
+    use super::*;
+
+    #[test]
+    fn test_estimate_tokens_empty() {
+        let tokens = estimate_tokens(&[]);
+        assert_eq!(tokens, 0, "Empty message list should return 0 tokens");
+    }
+
+    #[test]
+    fn test_estimate_tokens_proportional_to_length() {
+        let short_msg = create_text_message(Role::User, "Hi");
+        let long_msg =
+            create_text_message(Role::User, "This is a much longer text");
+
+        let short_tokens = estimate_tokens(&[short_msg]);
+        let long_tokens = estimate_tokens(&[long_msg]);
+
+        assert!(
+            long_tokens > short_tokens,
+            "Longer text should have more tokens"
+        );
+    }
+
+    #[test]
+    fn test_estimate_tokens_tool_use() {
+        let messages = vec![
+            create_tool_use_message("tool-1", "read_file"),
+            create_tool_use_message("tool-2", "write_file"),
+        ];
+
+        let tokens = estimate_tokens(&messages);
+        assert!(tokens > 0, "Tool use messages should have token cost");
+    }
+
+    #[test]
+    fn test_estimate_tokens_tool_result_with_lines() {
+        let single_line = create_tool_result_message("tool-1", vec!["Single"]);
+        let multi_line = create_tool_result_message(
+            "tool-1",
+            vec!["Line 1", "Line 2", "Line 3", "Line 4", "Line 5"],
+        );
+
+        let single_tokens = estimate_tokens(&[single_line]);
+        let multi_tokens = estimate_tokens(&[multi_line]);
+
+        assert!(
+            multi_tokens > single_tokens,
+            "More lines should have more tokens"
+        );
+    }
+
+    #[test]
+    fn test_estimate_tokens_accumulation() {
+        let messages: Vec<_> = (0..5)
+            .map(|i| create_text_message(Role::User, &format!("Message {i}")))
+            .collect();
+
+        let total_tokens = estimate_tokens(&messages);
+        let sum_tokens =
+            estimate_tokens(&messages[..2]) + estimate_tokens(&messages[2..]);
+        assert_eq!(total_tokens, sum_tokens, "Token count should be additive");
+    }
+
+    #[test]
+    fn test_estimate_tokens_role_consistency() {
+        let user_msg = create_text_message(Role::User, "Same text");
+        let assistant_msg = create_text_message(Role::Assistant, "Same text");
+
+        let user_tokens = estimate_tokens(&[user_msg]);
+        let assistant_tokens = estimate_tokens(&[assistant_msg]);
+
+        assert_eq!(user_tokens, assistant_tokens);
+    }
+}
+
+// =============================================================================
+// Edge Case Tests
+// =============================================================================
+
+#[cfg(test)]
+mod edge_case_tests {
+    use super::*;
+
+    #[test]
+    fn test_estimate_tokens_with_empty_text() {
+        let msg = SamplingMessage {
+            role: Role::User,
+            content: SamplingContent::Single(SamplingMessageContent::Text(
+                rmcp::model::RawTextContent {
+                    text: String::new(),
+                    meta: None,
+                },
+            )),
+            meta: None,
+        };
+        let tokens = estimate_tokens(&[msg]);
+        assert!(tokens == 0);
+    }
+
+    #[test]
+    fn test_estimate_tokens_with_very_long_text() {
+        let long_text = "a".repeat(10_000);
+        let msg = create_text_message(Role::User, &long_text);
+        let tokens = estimate_tokens(&[msg]);
+        assert!(tokens > 0);
+    }
+
+    #[test]
+    fn test_estimate_tokens_with_special_characters() {
+        let special_text = "Hello! @#$% Chinese 中文";
+        let msg = create_text_message(Role::User, special_text);
+        let tokens = estimate_tokens(&[msg]);
+        assert!(tokens > 0);
+    }
+
+    #[test]
+    fn test_estimate_tokens_tool_use_with_args() {
+        let msg = SamplingMessage {
+            role: Role::Assistant,
+            content: SamplingContent::Single(SamplingMessageContent::ToolUse(
+                ToolUseContent::new(
+                    "tool-1",
+                    "read_file",
+                    serde_json::json!({"path": "/tmp/test.txt"})
+                        .as_object()
+                        .cloned()
+                        .unwrap_or_default(),
+                ),
+            )),
+            meta: None,
+        };
+        let tokens = estimate_tokens(&[msg]);
+        assert!(tokens > 0);
+    }
+
+    #[test]
+    fn test_normalize_with_single_message() {
+        let mut messages = vec![create_text_message(Role::User, "Hello")];
+        normalize_history(&mut messages, true);
+        assert_eq!(messages.len(), 1);
+    }
+
+    #[test]
+    fn test_normalize_does_not_infinite_loop() {
+        let mut messages = vec![
+            create_tool_use_message("tool-1", "test"),
+            create_tool_result_message("tool-1", vec!["result"]),
+        ];
+        normalize_history(&mut messages, true);
+        assert_eq!(messages.len(), 2);
+    }
+}

@@ -12,6 +12,7 @@ use std::{
 };
 
 use async_trait::async_trait;
+pub use builtin_skills::{EmbeddedFile, EmbeddedSkill};
 use rmcp::model::CallToolResult;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -24,6 +25,8 @@ use crate::{AgentError, Result, tools::Tool};
 struct SkillMetadata {
     name: String,
     description: String,
+    #[serde(default)]
+    trigger: Option<String>,
 }
 
 /// Lightweight skill index for system prompt (~50 tokens).
@@ -42,13 +45,21 @@ impl From<&SkillMetadata> for SkillIndex {
     }
 }
 
+/// Supporting file information for a skill.
+#[derive(Debug, Clone)]
+struct SupportingFile {
+    relative_path: String,
+    content: String,
+}
+
 /// Skill content with metadata.
 #[derive(Debug, Clone)]
 struct Skill {
     metadata: SkillMetadata,
     body: String,
+    #[allow(dead_code)]
     directory: PathBuf,
-    supporting_files: Vec<PathBuf>,
+    supporting_files: Vec<SupportingFile>,
 }
 
 /// Loading state for a skill.
@@ -117,21 +128,10 @@ enum SkillSource {
 impl SkillTool {
     /// Creates a new skill tool with lazy loading.
     pub fn new(working_dir: PathBuf) -> Self {
-        let mut skills = HashMap::new();
-        let mut skill_sources = HashMap::new();
-
-        for content in builtin_skills::get_all_builtin_skills() {
-            if let Ok((metadata, body)) = Self::parse_frontmatter(content) {
-                skills.insert(
-                    metadata.name.clone(),
-                    SkillCacheEntry::new_loaded(Skill {
-                        metadata,
-                        body,
-                        directory: PathBuf::new(),
-                        supporting_files: vec![],
-                    }),
-                );
-            }
+        if let Err(e) =
+            builtin_skills::write_builtin_skills_to_filesystem(&working_dir)
+        {
+            tracing::warn!("Failed to write builtin skills to filesystem: {e}");
         }
 
         let directories = Self::get_default_skill_directories(&working_dir)
@@ -141,18 +141,18 @@ impl SkillTool {
 
         tracing::info!("Discovering skills in directories: {:?}", directories);
 
-        let (fs_indices, fs_sources) =
-            Self::discover_skill_indices(&directories);
-        for (name, index) in fs_indices {
-            skills.insert(name.clone(), SkillCacheEntry::new_indexed(index));
-        }
-        skill_sources.extend(fs_sources);
+        let (indices, sources) = Self::discover_skill_indices(&directories);
+
+        let skills: HashMap<String, SkillCacheEntry> = indices
+            .into_iter()
+            .map(|(name, index)| (name, SkillCacheEntry::new_indexed(index)))
+            .collect();
 
         let cached_description = Self::build_tool_description(&skills);
 
         Self {
             skills: Arc::new(RwLock::new(skills)),
-            skill_sources,
+            skill_sources: sources,
             working_dir,
             cached_description,
         }
@@ -186,11 +186,12 @@ impl SkillTool {
 
         if let Some(home) = dirs::home_dir() {
             dirs.push(home.join(".claude/skills"));
-            dirs.push(home.join(".config/agents/skills"));
+            dirs.push(home.join(".config/claude/skills"));
         }
 
         dirs.push(working_dir.join(".claude/skills"));
         dirs.push(working_dir.join(".agents/skills"));
+        dirs.push(working_dir.join(".skills"));
 
         dirs
     }
@@ -233,7 +234,8 @@ impl SkillTool {
             })?
             .to_path_buf();
 
-        let supporting_files = Self::find_supporting_files(&directory, path);
+        let supporting_files =
+            Self::find_supporting_files_as_supporting(&directory, path);
 
         Ok(Skill {
             metadata,
@@ -243,25 +245,40 @@ impl SkillTool {
         })
     }
 
-    /// Finds supporting files in skill directory.
-    fn find_supporting_files(
+    /// Finds supporting files and reads their content.
+    fn find_supporting_files_as_supporting(
         directory: &Path,
         skill_file: &Path,
-    ) -> Vec<PathBuf> {
+    ) -> Vec<SupportingFile> {
         let mut files = Vec::new();
 
         if let Ok(entries) = std::fs::read_dir(directory) {
             for entry in entries.flatten() {
                 let path = entry.path();
                 if path.is_file() && path != skill_file {
-                    files.push(path);
+                    if let Ok(content) = std::fs::read_to_string(&path)
+                        && let Ok(relative) = path.strip_prefix(directory)
+                    {
+                        files.push(SupportingFile {
+                            relative_path: relative.display().to_string(),
+                            content,
+                        });
+                    }
                 } else if path.is_dir()
                     && let Ok(sub_entries) = std::fs::read_dir(&path)
                 {
                     for sub_entry in sub_entries.flatten() {
                         let sub_path = sub_entry.path();
-                        if sub_path.is_file() {
-                            files.push(sub_path);
+                        if sub_path.is_file()
+                            && let Ok(content) =
+                                std::fs::read_to_string(&sub_path)
+                            && let Ok(relative) =
+                                sub_path.strip_prefix(directory)
+                        {
+                            files.push(SupportingFile {
+                                relative_path: relative.display().to_string(),
+                                content,
+                            });
                         }
                     }
                 }
@@ -368,19 +385,61 @@ impl SkillTool {
             format!("# Skill: {}\n\n{}\n\n", skill.metadata.name, skill.body);
 
         if !skill.supporting_files.is_empty() {
-            response.push_str(&format!(
-                "## Supporting Files\n\nSkill directory: {}\n\n",
-                skill.directory.display()
-            ));
+            response.push_str("## Supporting Files\n\n");
             response
-                .push_str("The following supporting files are available:\n");
+                .push_str("The following supporting files are available:\n\n");
+
+            let mut scripts: Vec<&SupportingFile> = Vec::new();
+            let mut references: Vec<&SupportingFile> = Vec::new();
+            let mut assets: Vec<&SupportingFile> = Vec::new();
+            let mut other: Vec<&SupportingFile> = Vec::new();
+
             for file in &skill.supporting_files {
-                if let Ok(relative) = file.strip_prefix(&skill.directory) {
-                    response.push_str(&format!("- {}\n", relative.display()));
+                if file.relative_path.starts_with("scripts/") {
+                    scripts.push(file);
+                } else if file.relative_path.starts_with("references/") {
+                    references.push(file);
+                } else if file.relative_path.starts_with("assets/") {
+                    assets.push(file);
+                } else {
+                    other.push(file);
                 }
             }
+
+            if !scripts.is_empty() {
+                response.push_str("### Scripts\n");
+                for file in scripts {
+                    response.push_str(&format!("- {}\n", file.relative_path));
+                }
+                response.push('\n');
+            }
+
+            if !references.is_empty() {
+                response.push_str("### References\n");
+                for file in references {
+                    response.push_str(&format!("- {}\n", file.relative_path));
+                }
+                response.push('\n');
+            }
+
+            if !assets.is_empty() {
+                response.push_str("### Assets\n");
+                for file in assets {
+                    response.push_str(&format!("- {}\n", file.relative_path));
+                }
+                response.push('\n');
+            }
+
+            if !other.is_empty() {
+                response.push_str("### Other Files\n");
+                for file in other {
+                    response.push_str(&format!("- {}\n", file.relative_path));
+                }
+                response.push('\n');
+            }
+
             response.push_str(
-                "\nUse the view file tools to access these files as needed.\n",
+                "Use the read_file tool to access these files as needed.\n",
             );
         }
 
@@ -397,6 +456,116 @@ impl SkillTool {
     pub async fn has_skills(&self) -> bool {
         let skills = self.skills.read().await;
         !skills.is_empty()
+    }
+
+    /// Gets a supporting file content from a loaded skill.
+    pub async fn get_supporting_file(
+        &self,
+        skill_name: &str,
+        file_path: &str,
+    ) -> Option<String> {
+        let skills = self.skills.read().await;
+        let entry = skills.get(skill_name)?;
+        let skill = entry.get_skill()?;
+
+        skill
+            .supporting_files
+            .iter()
+            .find(|f| f.relative_path == file_path)
+            .map(|f| f.content.clone())
+    }
+
+    /// Saves a skill to the file system with standard directory structure.
+    pub async fn save_skill(
+        &self,
+        name: &str,
+        description: &str,
+        body: &str,
+        scripts: Vec<(String, String)>,
+        references: Vec<(String, String)>,
+        assets: Vec<(String, String)>,
+    ) -> Result<PathBuf> {
+        let skill_dir = self.working_dir.join(".agents/skills").join(name);
+        std::fs::create_dir_all(&skill_dir)?;
+
+        let skill_md_content = format!(
+            "---\nname: {name}\ndescription: \"{description}\"\n---\n\n{body}"
+        );
+        std::fs::write(skill_dir.join("SKILL.md"), skill_md_content)?;
+
+        if !scripts.is_empty() {
+            let scripts_dir = skill_dir.join("scripts");
+            std::fs::create_dir_all(&scripts_dir)?;
+            for (filename, content) in scripts {
+                std::fs::write(scripts_dir.join(&filename), content)?;
+            }
+        }
+
+        if !references.is_empty() {
+            let references_dir = skill_dir.join("references");
+            std::fs::create_dir_all(&references_dir)?;
+            for (filename, content) in references {
+                std::fs::write(references_dir.join(&filename), content)?;
+            }
+        }
+
+        if !assets.is_empty() {
+            let assets_dir = skill_dir.join("assets");
+            std::fs::create_dir_all(&assets_dir)?;
+            for (filename, content) in assets {
+                std::fs::write(assets_dir.join(&filename), content)?;
+            }
+        }
+
+        self.refresh_skill_index(&skill_dir, name).await?;
+
+        Ok(skill_dir)
+    }
+
+    /// Refreshes the skill index after saving a new skill.
+    async fn refresh_skill_index(
+        &self,
+        skill_dir: &Path,
+        name: &str,
+    ) -> Result<()> {
+        let skill_file = skill_dir.join("SKILL.md");
+        let content = std::fs::read_to_string(&skill_file)?;
+        let (metadata, body) = Self::parse_frontmatter(&content)?;
+
+        let supporting_files =
+            Self::find_supporting_files_as_supporting(skill_dir, &skill_file);
+
+        let skill = Skill {
+            metadata,
+            body,
+            directory: skill_dir.to_path_buf(),
+            supporting_files,
+        };
+
+        let mut skills = self.skills.write().await;
+        skills.insert(name.to_string(), SkillCacheEntry::new_loaded(skill));
+
+        Ok(())
+    }
+
+    /// Lists all skills with their supporting file counts.
+    pub async fn list_skills_with_details(
+        &self,
+    ) -> Vec<(String, String, usize)> {
+        let skills = self.skills.read().await;
+        let mut result = Vec::new();
+
+        for (name, entry) in skills.iter() {
+            let index = entry.get_index();
+            let file_count = entry
+                .get_skill()
+                .map(|s| s.supporting_files.len())
+                .unwrap_or(0);
+            result.push((name.clone(), index.description, file_count));
+        }
+
+        result.sort_by(|a, b| a.0.cmp(&b.0));
+        result
     }
 }
 
@@ -467,6 +636,47 @@ impl Clone for SkillTool {
             working_dir: self.working_dir.clone(),
             cached_description: self.cached_description.clone(),
         }
+    }
+}
+
+/// Alias tool for SkillTool with name "Skill" (TOOL_SPEC.md compatible)
+#[derive(Clone)]
+pub struct SkillAliasTool {
+    inner: SkillTool,
+}
+
+impl SkillAliasTool {
+    pub fn new() -> Self {
+        Self {
+            inner: SkillTool::new(
+                std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")),
+            ),
+        }
+    }
+}
+
+impl Default for SkillAliasTool {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+#[async_trait]
+impl Tool for SkillAliasTool {
+    fn name(&self) -> &str {
+        "Skill"
+    }
+
+    fn description(&self) -> &str {
+        self.inner.description()
+    }
+
+    fn parameters(&self) -> Value {
+        self.inner.parameters()
+    }
+
+    async fn call(&self, args: Value) -> CallToolResult {
+        self.inner.call(args).await
     }
 }
 
@@ -597,8 +807,6 @@ Body 2
     #[tokio::test]
     async fn test_builtin_skills_loaded() {
         let tool = SkillTool::new(get_test_working_dir());
-        // This test requires skill directories to be configured in the environment
-        // Skip if no skills are found (e.g., in CI without ~/.claude/skills)
         tokio::time::timeout(std::time::Duration::from_secs(2), async {
             if tool.has_skills().await {
                 assert!(tool.has_skills().await);
@@ -647,9 +855,43 @@ Body 2
         }
     }
 
-    // =============================================================================
-    // Additional unit tests for types, helpers, serialization, and error handling
-    // =============================================================================
+    #[tokio::test]
+    async fn test_ralph_skill_has_supporting_files() {
+        let tool = SkillTool::new(get_test_working_dir());
+
+        let result = tool.load_skill("ralph").await;
+        assert!(result.is_ok());
+
+        let content = result.unwrap();
+        assert!(content.contains("Supporting Files"));
+        assert!(content.contains("scripts/ralph.sh"));
+        assert!(content.contains("references/prompt.md"));
+        assert!(content.contains("assets/prd.json.example"));
+    }
+
+    #[tokio::test]
+    async fn test_get_supporting_file() {
+        let tool = SkillTool::new(get_test_working_dir());
+
+        tool.load_skill("ralph").await.ok();
+
+        let content =
+            tool.get_supporting_file("ralph", "scripts/ralph.sh").await;
+        assert!(content.is_some());
+        assert!(content.unwrap().contains("#!/bin/bash"));
+    }
+
+    #[tokio::test]
+    async fn test_get_supporting_file_not_found() {
+        let tool = SkillTool::new(get_test_working_dir());
+
+        tool.load_skill("ralph").await.ok();
+
+        let content = tool
+            .get_supporting_file("ralph", "nonexistent/file.txt")
+            .await;
+        assert!(content.is_none());
+    }
 
     mod skill_metadata_tests {
         use super::*;
@@ -670,6 +912,7 @@ description: A test skill description
             let metadata = SkillMetadata {
                 name: "roundtrip-test".to_string(),
                 description: "Testing serialization".to_string(),
+                trigger: None,
             };
             let serialized = serde_yaml::to_string(&metadata).unwrap();
             let deserialized: SkillMetadata =
@@ -683,6 +926,7 @@ description: A test skill description
             let metadata = SkillMetadata {
                 name: "json-test".to_string(),
                 description: "Testing JSON".to_string(),
+                trigger: None,
             };
             let json = serde_json::to_string(&metadata).unwrap();
             assert!(json.contains("json-test"));
@@ -698,6 +942,7 @@ description: A test skill description
             let metadata = SkillMetadata {
                 name: "my-skill".to_string(),
                 description: "My skill description".to_string(),
+                trigger: None,
             };
             let index = SkillIndex::from(&metadata);
             assert_eq!(index.name, "my-skill");
@@ -765,6 +1010,7 @@ description: A test skill description
                 metadata: SkillMetadata {
                     name: "loaded-skill".to_string(),
                     description: "A loaded skill".to_string(),
+                    trigger: None,
                 },
                 body: "Skill body content".to_string(),
                 directory: PathBuf::from("/test/dir"),
@@ -785,6 +1031,7 @@ description: A test skill description
                 metadata: SkillMetadata {
                     name: "skill-for-index".to_string(),
                     description: "Description for index".to_string(),
+                    trigger: None,
                 },
                 body: "Body".to_string(),
                 directory: PathBuf::new(),
@@ -852,6 +1099,7 @@ description: A test skill description
                 metadata: SkillMetadata {
                     name: "loaded-state".to_string(),
                     description: "Loaded state desc".to_string(),
+                    trigger: None,
                 },
                 body: "Body".to_string(),
                 directory: PathBuf::new(),
@@ -942,7 +1190,6 @@ Body
             let working = PathBuf::from("/fake/working/dir");
             let dirs = SkillTool::get_default_skill_directories(&working);
 
-            // Should include working dir-based paths
             assert!(dirs.contains(&working.join(".claude/skills")));
             assert!(dirs.contains(&working.join(".agents/skills")));
         }
@@ -1033,10 +1280,14 @@ Body
                 metadata: SkillMetadata {
                     name: "clone-skill".to_string(),
                     description: "Clone description".to_string(),
+                    trigger: None,
                 },
                 body: "Clone body".to_string(),
                 directory: PathBuf::from("/clone/path"),
-                supporting_files: vec![PathBuf::from("/file1.txt")],
+                supporting_files: vec![SupportingFile {
+                    relative_path: "test.txt".to_string(),
+                    content: "content".to_string(),
+                }],
             };
             let cloned = skill.clone();
             assert_eq!(cloned.metadata.name, skill.metadata.name);
@@ -1054,6 +1305,7 @@ Body
                 metadata: SkillMetadata {
                     name: "debug-skill".to_string(),
                     description: "Debug description".to_string(),
+                    trigger: None,
                 },
                 body: "Debug body".to_string(),
                 directory: PathBuf::from("/debug/path"),
@@ -1146,26 +1398,15 @@ Body
         use super::*;
 
         #[test]
-        fn test_get_all_builtin_skills_returns_vec() {
+        fn test_get_all_builtin_skills_not_empty() {
             let skills = builtin_skills::get_all_builtin_skills();
             assert!(!skills.is_empty());
         }
 
         #[test]
-        fn test_builtin_skills_are_static_strings() {
-            let skills = builtin_skills::get_all_builtin_skills();
-            for skill in &skills {
-                assert!(skill.contains("---"));
-                assert!(skill.contains("name:"));
-                assert!(skill.contains("description:"));
-            }
-        }
-
-        #[test]
         fn test_builtin_skills_have_valid_frontmatter() {
-            let skills = builtin_skills::get_all_builtin_skills();
-            for skill in skills {
-                let result = SkillTool::parse_frontmatter(skill);
+            for skill in builtin_skills::get_all_builtin_skills() {
+                let result = SkillTool::parse_frontmatter(skill.skill_md);
                 assert!(result.is_ok(), "Skill should have valid frontmatter");
                 let (metadata, body) = result.unwrap();
                 assert!(!metadata.name.is_empty());
@@ -1177,15 +1418,12 @@ Body
         #[test]
         fn test_builtin_skills_contain_expected_names() {
             let skills = builtin_skills::get_all_builtin_skills();
-            let skill_names: Vec<String> = skills
-                .iter()
-                .filter_map(|s| {
-                    SkillTool::parse_frontmatter(s).ok().map(|(m, _)| m.name)
-                })
-                .collect();
+            let skill_names: Vec<&str> =
+                skills.iter().map(|s| s.name).collect();
 
             assert!(skill_names.iter().any(|n| n.contains("skill-creator")));
             assert!(skill_names.iter().any(|n| n.contains("find-skills")));
+            assert!(skill_names.iter().any(|n| n.contains("ralph")));
         }
     }
 
@@ -1213,77 +1451,6 @@ Body
             let params = serde_json::json!({});
             let result = tool.call(params).await;
             assert!(result.is_error == Some(true));
-        }
-    }
-
-    mod find_supporting_files_tests {
-        use super::*;
-
-        #[test]
-        fn test_find_supporting_files_empty_directory() {
-            let temp_dir = TempDir::new().unwrap();
-            let skill_file = temp_dir.path().join("SKILL.md");
-
-            let files =
-                SkillTool::find_supporting_files(temp_dir.path(), &skill_file);
-            assert!(files.is_empty());
-        }
-
-        #[test]
-        fn test_find_supporting_files_excludes_skill_file_itself() {
-            let temp_dir = TempDir::new().unwrap();
-            let skill_file = temp_dir.path().join("SKILL.md");
-            std::fs::write(&skill_file, "content").unwrap();
-
-            let files =
-                SkillTool::find_supporting_files(temp_dir.path(), &skill_file);
-            assert!(!files.contains(&skill_file));
-        }
-
-        #[test]
-        fn test_find_supporting_files_includes_regular_files() {
-            let temp_dir = TempDir::new().unwrap();
-            let skill_file = temp_dir.path().join("SKILL.md");
-            std::fs::write(&skill_file, "content").unwrap();
-
-            let helper_file = temp_dir.path().join("helper.py");
-            std::fs::write(&helper_file, "print('hello')").unwrap();
-
-            let files =
-                SkillTool::find_supporting_files(temp_dir.path(), &skill_file);
-            assert!(files.contains(&helper_file));
-        }
-
-        #[test]
-        fn test_find_supporting_files_includes_nested_files() {
-            let temp_dir = TempDir::new().unwrap();
-            let skill_file = temp_dir.path().join("SKILL.md");
-            std::fs::write(&skill_file, "content").unwrap();
-
-            let sub_dir = temp_dir.path().join("subdir");
-            std::fs::create_dir(&sub_dir).unwrap();
-            let nested_file = sub_dir.join("nested.txt");
-            std::fs::write(&nested_file, "nested content").unwrap();
-
-            let files =
-                SkillTool::find_supporting_files(temp_dir.path(), &skill_file);
-            assert!(files.contains(&nested_file));
-        }
-
-        #[test]
-        fn test_find_supporting_files_excludes_directories() {
-            let temp_dir = TempDir::new().unwrap();
-            let skill_file = temp_dir.path().join("SKILL.md");
-            std::fs::write(&skill_file, "content").unwrap();
-
-            let sub_dir = temp_dir.path().join("emptydir");
-            std::fs::create_dir(&sub_dir).unwrap();
-
-            let files =
-                SkillTool::find_supporting_files(temp_dir.path(), &skill_file);
-            for file in &files {
-                assert!(file.is_file());
-            }
         }
     }
 

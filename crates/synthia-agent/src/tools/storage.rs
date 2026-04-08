@@ -248,14 +248,14 @@ pub struct StoragePaths {
 
 impl StoragePaths {
     pub fn new() -> Self {
-        let base_data_dir = dirs::data_dir()
-            .unwrap_or_else(|| PathBuf::from("."))
-            .join(".agent");
-
-        Self { base_data_dir }
+        // Use .agents directory in current working directory for project-local storage
+        Self {
+            base_data_dir: PathBuf::from(".agents"),
+        }
     }
 
     pub fn with_base(base: PathBuf) -> Self {
+        // with_base keeps backwards compatibility: <base>/data
         Self {
             base_data_dir: base.join("data"),
         }

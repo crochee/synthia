@@ -34,6 +34,45 @@ impl Default for TaskDeleteTool {
     }
 }
 
+/// Alias tool for TaskDeleteTool with name "task_stop"
+#[derive(Clone)]
+pub struct TaskStopTool {
+    inner: TaskDeleteTool,
+}
+
+impl TaskStopTool {
+    pub fn new() -> Self {
+        Self {
+            inner: TaskDeleteTool::new(),
+        }
+    }
+}
+
+impl Default for TaskStopTool {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+#[async_trait]
+impl Tool for TaskStopTool {
+    fn name(&self) -> &str {
+        "task_stop"
+    }
+
+    fn description(&self) -> &str {
+        "Stop and delete a task by ID."
+    }
+
+    fn parameters(&self) -> Value {
+        self.inner.parameters()
+    }
+
+    async fn call(&self, args: Value) -> CallToolResult {
+        self.inner.call(args).await
+    }
+}
+
 #[async_trait]
 impl Tool for TaskDeleteTool {
     fn name(&self) -> &str {

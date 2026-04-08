@@ -164,7 +164,10 @@ pub use tools::{
     get_mcp_tools,
     register_background_tools,
     register_cron_tools,
+    register_solo_tools,
     register_task_tools,
+    register_team_lead_tools,
+    register_team_member_tools,
     register_team_tools,
     register_worktree_tools,
 };

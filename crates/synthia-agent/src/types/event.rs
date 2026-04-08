@@ -28,6 +28,8 @@ pub enum AgentStatus {
     LoopDetected(String),
     /// Agent has reached max tokens budget
     MaxTokensReached(u64),
+    /// Agent step was cancelled
+    StepCancelled(u32),
 }
 
 #[derive(Clone, Debug, Serialize)]

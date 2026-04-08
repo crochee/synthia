@@ -8,15 +8,16 @@
 //!
 //! ```rust,ignore
 //! use synthia_agent::event_handler::AgentEventHandler;
+//! use synthia_agent::config::AgentName;
 //! use synthia_agent::types::AgentEvent;
 //!
 //! // Using a closure
-//! let handler = |agent_name: &str, event: &AgentEvent| {
-//!     println!("Agent {}: {:?}", agent_name, event);
+//! let handler = |agent_name: &AgentName, event: &AgentEvent| {
+//!     println!("Agent {}: {:?}", agent_name.as_str(), event);
 //! };
 //!
 //! // Using the trait directly
-//! async fn handle_event(handler: &dyn AgentEventHandler, name: &str, event: &AgentEvent) {
+//! async fn handle_event(handler: &dyn AgentEventHandler, name: &AgentName, event: &AgentEvent) {
 //!     handler.on_event(name, event).await;
 //! }
 //! ```
@@ -28,7 +29,7 @@ use std::sync::Arc;
 use async_trait::async_trait;
 
 // Local imports
-use crate::types::AgentEvent;
+use crate::{config::AgentName, types::AgentEvent};
 
 /// Trait for handling agent events.
 ///
@@ -42,7 +43,7 @@ pub trait AgentEventHandler: Send + Sync {
     ///
     /// * `agent_name` - The name of the agent that generated the event
     /// * `event` - The event to handle
-    async fn on_event(&self, agent_name: &str, event: &AgentEvent);
+    async fn on_event(&self, agent_name: &AgentName, event: &AgentEvent);
 }
 
 /// Implementation of [`AgentEventHandler`] for function pointers.
@@ -51,9 +52,9 @@ pub trait AgentEventHandler: Send + Sync {
 #[async_trait]
 impl<F> AgentEventHandler for F
 where
-    F: Fn(&str, &AgentEvent) + Send + Sync,
+    F: Fn(&AgentName, &AgentEvent) + Send + Sync,
 {
-    async fn on_event(&self, agent_name: &str, event: &AgentEvent) {
+    async fn on_event(&self, agent_name: &AgentName, event: &AgentEvent) {
         self(agent_name, event)
     }
 }
@@ -62,8 +63,8 @@ where
 ///
 /// This allows sharing event handlers across multiple agents.
 #[async_trait]
-impl AgentEventHandler for Arc<dyn Fn(&str, &AgentEvent) + Send + Sync> {
-    async fn on_event(&self, agent_name: &str, event: &AgentEvent) {
+impl AgentEventHandler for Arc<dyn Fn(&AgentName, &AgentEvent) + Send + Sync> {
+    async fn on_event(&self, agent_name: &AgentName, event: &AgentEvent) {
         self(agent_name, event)
     }
 }
@@ -105,11 +106,11 @@ mod tests {
 
     #[async_trait]
     impl AgentEventHandler for TestEventHandler {
-        async fn on_event(&self, agent_name: &str, event: &AgentEvent) {
+        async fn on_event(&self, agent_name: &AgentName, event: &AgentEvent) {
             self.events
                 .lock()
                 .unwrap()
-                .push((agent_name.to_string(), event.clone()));
+                .push((agent_name.as_str().to_string(), event.clone()));
         }
     }
 
@@ -130,12 +131,13 @@ mod tests {
     async fn test_agent_event_handler_trait() {
         let handler = TestEventHandler::new();
         let event = AgentEvent::Status(crate::types::AgentStatus::Running);
+        let agent_name = AgentName::Solo;
 
-        handler.on_event("test-agent", &event).await;
+        handler.on_event(&agent_name, &event).await;
 
         let events = handler.get_events();
         assert_eq!(events.len(), 1);
-        assert_eq!(events[0].0, "test-agent");
+        assert_eq!(events[0].0, "solo");
     }
 
     #[tokio::test]
@@ -143,15 +145,16 @@ mod tests {
         let events = Arc::new(std::sync::Mutex::new(Vec::new()));
         let events_clone = Arc::clone(&events);
 
-        let handler = move |agent_name: &str, event: &AgentEvent| {
+        let handler = move |agent_name: &AgentName, event: &AgentEvent| {
             events_clone
                 .lock()
                 .unwrap()
-                .push((agent_name.to_string(), event.clone()));
+                .push((agent_name.as_str().to_string(), event.clone()));
         };
 
         let event = AgentEvent::Status(crate::types::AgentStatus::Completed);
-        handler.on_event("func-agent", &event).await;
+        let agent_name = AgentName::Custom("func-agent".to_string());
+        handler.on_event(&agent_name, &event).await;
 
         let captured = events.lock().unwrap();
         assert_eq!(captured.len(), 1);
@@ -160,20 +163,21 @@ mod tests {
 
     #[tokio::test]
     async fn test_agent_event_handler_arc_function_pointer() {
-        type EventHandler = Arc<dyn Fn(&str, &AgentEvent) + Send + Sync>;
+        type EventHandler = Arc<dyn Fn(&AgentName, &AgentEvent) + Send + Sync>;
         let events = Arc::new(std::sync::Mutex::new(Vec::new()));
         let events_clone = Arc::clone(&events);
 
         let handler: EventHandler =
-            Arc::new(move |agent_name: &str, event: &AgentEvent| {
+            Arc::new(move |agent_name: &AgentName, event: &AgentEvent| {
                 events_clone
                     .lock()
                     .unwrap()
-                    .push((agent_name.to_string(), event.clone()));
+                    .push((agent_name.as_str().to_string(), event.clone()));
             });
 
         let event = AgentEvent::Status(crate::types::AgentStatus::Running);
-        handler.on_event("arc-agent", &event).await;
+        let agent_name = AgentName::Custom("arc-agent".to_string());
+        handler(&agent_name, &event);
 
         let captured = events.lock().unwrap();
         assert_eq!(captured.len(), 1);
@@ -186,11 +190,14 @@ mod tests {
 
         let msg = make_test_message();
         handler
-            .on_event("agent1", &AgentEvent::Message(msg.clone()))
+            .on_event(
+                &AgentName::Custom("agent1".to_string()),
+                &AgentEvent::Message(msg.clone()),
+            )
             .await;
         handler
             .on_event(
-                "agent2",
+                &AgentName::Custom("agent2".to_string()),
                 &AgentEvent::Status(crate::types::AgentStatus::Running),
             )
             .await;
@@ -214,7 +221,7 @@ mod tests {
 
         handler
             .on_event(
-                "agent",
+                &AgentName::Custom("agent".to_string()),
                 &AgentEvent::ModelChange {
                     model: "claude-3".to_string(),
                     mode: "chat".to_string(),
@@ -238,7 +245,7 @@ mod tests {
 
         handler
             .on_event(
-                "agent",
+                &AgentName::Custom("agent".to_string()),
                 &AgentEvent::TurnStarted {
                     turn_id: "turn-1".to_string(),
                 },
@@ -264,7 +271,10 @@ mod tests {
             data: None,
         };
         handler
-            .on_event("agent", &AgentEvent::SystemNotification(notification))
+            .on_event(
+                &AgentName::Custom("agent".to_string()),
+                &AgentEvent::SystemNotification(notification),
+            )
             .await;
 
         let events = handler.get_events();
@@ -283,7 +293,7 @@ mod tests {
         let msg = make_test_message();
         handler
             .on_event(
-                "agent",
+                &AgentName::Custom("agent".to_string()),
                 &AgentEvent::TurnComplete {
                     turn_id: "turn-2".to_string(),
                     message: msg.clone(),
@@ -310,7 +320,7 @@ mod tests {
 
         handler
             .on_event(
-                "agent",
+                &AgentName::Custom("agent".to_string()),
                 &AgentEvent::TurnAborted {
                     turn_id: "turn-3".to_string(),
                     reason: "timeout".to_string(),
@@ -331,10 +341,11 @@ mod tests {
     #[tokio::test]
     async fn test_agent_event_handler_tool_progress() {
         let handler = TestEventHandler::new();
+        let agent_name = AgentName::Custom("agent".to_string());
 
         handler
             .on_event(
-                "agent",
+                &agent_name,
                 &AgentEvent::ToolProgress {
                     tool: "grep".to_string(),
                     progress: "50%".to_string(),

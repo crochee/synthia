@@ -17,6 +17,8 @@ use super::{
     SkillSection,
     SystemSection,
     TaskExecutionSection,
+    TeamModeSection,
+    TeamPromptInfo,
     TokenBudgetSection,
     ToolUsageSection,
 };
@@ -167,6 +169,45 @@ impl PromptBuilder {
             .add_section(Box::new(LanguageSection::default()))
             .add_section(Box::new(ProactiveSection::new()))
             .add_section(Box::new(TokenBudgetSection::new()))
+            .add_section(Box::new(TeamModeSection::new(
+                crate::config::AgentName::Solo,
+                TeamPromptInfo {
+                    role: String::new(),
+                    team_id: String::new(),
+                    member_id: None,
+                },
+            )))
+    }
+
+    /// Builds prompt sections for a specific agent name.
+    pub fn build_for_name(name: &crate::config::AgentName) -> Self {
+        let team_info = TeamPromptInfo {
+            role: match name {
+                crate::config::AgentName::Solo => "Solo".to_string(),
+                crate::config::AgentName::Lead => "Lead".to_string(),
+                crate::config::AgentName::Custom(_) => "Member".to_string(),
+            },
+            team_id: String::new(),
+            member_id: None,
+        };
+
+        Self::new()
+            .add_section(Box::new(IdentitySection))
+            .add_section(Box::new(SystemSection))
+            .add_section(Box::new(TaskExecutionSection))
+            .add_section(Box::new(ToolUsageSection))
+            .add_section(Box::new(EnvironmentSection::new()))
+            .add_section(Box::new(MemorySection::new()))
+            .add_section(Box::new(SkillSection::new()))
+            .add_section(Box::new(DynamicMcpInstructionsSection::new(vec![])))
+            .add_section(Box::new(OutputStyleSection::default()))
+            .add_section(Box::new(LanguageSection::default()))
+            .add_section(Box::new(ProactiveSection::new()))
+            .add_section(Box::new(TokenBudgetSection::new()))
+            .add_section(Box::new(TeamModeSection::new(
+                name.clone(),
+                team_info,
+            )))
     }
 
     pub fn add_section(mut self, section: Box<dyn PromptSection>) -> Self {
@@ -327,7 +368,21 @@ impl PromptBuilder {
 
         let resolved = self.resolve(ctx, state)?;
 
-        let mut final_prompt = resolved.full_prompt();
+        let mut final_prompt = if let Some(ref prompt) = effective_config.prompt
+        {
+            if resolved.dynamic_content.is_empty() {
+                prompt.clone()
+            } else {
+                format!(
+                    "{}\n\n{}\n\n{}",
+                    prompt,
+                    SYSTEM_PROMPT_DYNAMIC_BOUNDARY,
+                    resolved.dynamic_content
+                )
+            }
+        } else {
+            resolved.full_prompt()
+        };
 
         if let Some(ref agent_prompt) = effective_config.agent_prompt {
             final_prompt.push_str("\n\n");
@@ -356,6 +411,9 @@ pub struct EffectivePromptConfig {
     pub custom_prompt: Option<String>,
     pub append_prompt: Option<String>,
     pub use_coordinator_mode: bool,
+    /// Static base prompt. When set, this replaces the resolved prompt sections
+    /// as the static portion, with dynamic content appended after.
+    pub prompt: Option<String>,
 }
 
 impl EffectivePromptConfig {
@@ -392,16 +450,29 @@ impl EffectivePromptConfig {
         self.use_coordinator_mode = enabled;
         self
     }
+
+    pub fn with_prompt(mut self, prompt: String) -> Self {
+        self.prompt = Some(prompt);
+        self
+    }
 }
 
 #[cfg(test)]
 mod tests {
+    use std::sync::LazyLock;
+
     use super::*;
-    use crate::prompt::{PromptContext, PromptSection};
+    use crate::{
+        config::AgentName,
+        prompt::{PromptContext, PromptSection},
+    };
+
+    static TEST_AGENT_NAME: LazyLock<AgentName> =
+        LazyLock::new(|| AgentName::Custom("TestAgent".to_string()));
 
     fn make_test_context() -> PromptContext<'static> {
         PromptContext {
-            agent_name: "TestAgent",
+            agent_name: &TEST_AGENT_NAME,
             agent_description: "A test agent",
             workspace_dir: std::path::Path::new("/tmp/test"),
             skill_instructions: String::new(),
@@ -414,6 +485,7 @@ mod tests {
             is_proactive_mode: false,
             model_name: Some("claude-sonnet"),
             knowledge_cutoff: Some("2024-01"),
+            team_info: None,
         }
     }
 
@@ -1338,5 +1410,53 @@ mod tests {
         let result2 = builder2.resolve(&ctx, &mut state2).unwrap();
 
         assert_eq!(result1.static_hash, result2.static_hash);
+    }
+
+    #[test]
+    fn test_effective_prompt_config_with_prompt() {
+        let config = EffectivePromptConfig::new()
+            .with_prompt("static base prompt".to_string());
+        assert_eq!(config.prompt, Some("static base prompt".to_string()));
+    }
+
+    #[test]
+    fn test_build_effective_prompt_with_prompt_and_dynamic() {
+        let builder =
+            PromptBuilder::new().add_section(Box::new(MockSection::new(
+                "dynamic",
+                SectionCaching::Volatile,
+                "dynamic content",
+            )));
+
+        let ctx = make_test_context();
+        let mut state = PromptState::new();
+        let config =
+            EffectivePromptConfig::new().with_prompt("static base".to_string());
+
+        let result = builder
+            .build_effective_prompt(&ctx, &mut state, config)
+            .unwrap();
+
+        assert!(result.contains("static base"));
+        assert!(result.contains(SYSTEM_PROMPT_DYNAMIC_BOUNDARY));
+        assert!(result.contains("dynamic content"));
+    }
+
+    #[test]
+    fn test_build_effective_prompt_with_prompt_no_dynamic() {
+        let builder = PromptBuilder::new();
+        // No sections at all → resolved dynamic content will be empty
+
+        let ctx = make_test_context();
+        let mut state = PromptState::new();
+        let config =
+            EffectivePromptConfig::new().with_prompt("static only".to_string());
+
+        let result = builder
+            .build_effective_prompt(&ctx, &mut state, config)
+            .unwrap();
+
+        // No dynamic content, so prompt is used directly without boundary
+        assert_eq!(result, "static only");
     }
 }

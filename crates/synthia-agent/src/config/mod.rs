@@ -8,9 +8,10 @@ mod context;
 mod prompt_cache;
 mod remote_config;
 mod session;
+mod skill;
 mod tool;
 
-pub use agent::AgentConfig;
+pub use agent::{AgentConfig, AgentName};
 pub use context::{ContextConfig, ToolImportance, classify_tool_default};
 pub use prompt_cache::{
     PromptCache1hCache,
@@ -33,4 +34,5 @@ pub use remote_config::{
     set_config_cache,
 };
 pub use session::SessionConfig;
+pub use skill::SkillConfig;
 pub use tool::ToolConfig;

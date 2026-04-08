@@ -235,6 +235,11 @@ pub enum MessageType {
     StatusUpdate,
     CoordinationRequest,
     CoordinationResponse,
+    TaskFailed,
+    /// Member reports progress on a task (includes task_id, status, output, confidence)
+    ProgressReport,
+    /// Member submits a plan for Lead approval
+    PlanSubmitted,
 }
 
 impl MessageType {
@@ -251,6 +256,9 @@ impl MessageType {
             MessageType::StatusUpdate => "status_update",
             MessageType::CoordinationRequest => "coordination_request",
             MessageType::CoordinationResponse => "coordination_response",
+            MessageType::TaskFailed => "task_failed",
+            MessageType::ProgressReport => "progress_report",
+            MessageType::PlanSubmitted => "plan_submitted",
         }
     }
 
@@ -267,8 +275,59 @@ impl MessageType {
             "status_update" => Some(MessageType::StatusUpdate),
             "coordination_request" => Some(MessageType::CoordinationRequest),
             "coordination_response" => Some(MessageType::CoordinationResponse),
+            "task_failed" => Some(MessageType::TaskFailed),
+            "progress_report" => Some(MessageType::ProgressReport),
+            "plan_submitted" => Some(MessageType::PlanSubmitted),
             _ => None,
         }
+    }
+}
+
+/// Message priority levels for queue ordering
+#[derive(
+    Debug,
+    Clone,
+    Copy,
+    PartialEq,
+    Eq,
+    PartialOrd,
+    Ord,
+    Default,
+    Serialize,
+    Deserialize,
+    JsonSchema,
+)]
+pub enum MessagePriority {
+    /// High priority - urgent messages like task failures
+    High,
+    /// Normal priority - default for most messages
+    #[default]
+    Normal,
+    /// Low priority - informational messages
+    Low,
+}
+
+impl MessagePriority {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            MessagePriority::High => "high",
+            MessagePriority::Normal => "normal",
+            MessagePriority::Low => "low",
+        }
+    }
+
+    pub fn from_db_string(s: &str) -> Self {
+        match s {
+            "high" => MessagePriority::High,
+            "low" => MessagePriority::Low,
+            _ => MessagePriority::Normal,
+        }
+    }
+}
+
+impl std::fmt::Display for MessagePriority {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.as_str())
     }
 }
 
@@ -282,6 +341,7 @@ pub struct TeamMessage {
     pub timestamp: f64,
     pub request_id: Option<String>,
     pub read: bool,
+    pub priority: MessagePriority,
 }
 
 impl TeamMessage {
@@ -297,14 +357,20 @@ impl TeamMessage {
             msg_type,
             sender: sender.into(),
             content: content.into(),
-            timestamp: chrono::Utc::now().timestamp() as f64,
+            timestamp: chrono::Utc::now().timestamp_millis() as f64 / 1000.0,
             request_id: None,
             read: false,
+            priority: MessagePriority::default(),
         }
     }
 
     pub fn with_request_id(mut self, request_id: impl Into<String>) -> Self {
         self.request_id = Some(request_id.into());
+        self
+    }
+
+    pub fn with_priority(mut self, priority: MessagePriority) -> Self {
+        self.priority = priority;
         self
     }
 }
@@ -586,6 +652,9 @@ mod tests {
             MessageType::CoordinationResponse.as_str(),
             "coordination_response"
         );
+        assert_eq!(MessageType::TaskFailed.as_str(), "task_failed");
+        assert_eq!(MessageType::ProgressReport.as_str(), "progress_report");
+        assert_eq!(MessageType::PlanSubmitted.as_str(), "plan_submitted");
     }
 
     #[test]
@@ -601,6 +670,18 @@ mod tests {
         assert_eq!(
             MessageType::from_db_string("shutdown_request"),
             Some(MessageType::ShutdownRequest)
+        );
+        assert_eq!(
+            MessageType::from_db_string("task_failed"),
+            Some(MessageType::TaskFailed)
+        );
+        assert_eq!(
+            MessageType::from_db_string("progress_report"),
+            Some(MessageType::ProgressReport)
+        );
+        assert_eq!(
+            MessageType::from_db_string("plan_submitted"),
+            Some(MessageType::PlanSubmitted)
         );
         assert_eq!(MessageType::from_db_string("unknown"), None);
     }
@@ -639,5 +720,59 @@ mod tests {
         assert!(patch.status.is_none());
         assert!(patch.lead.is_none());
         assert!(patch.task_ids.is_none());
+    }
+
+    #[test]
+    fn test_message_priority_as_str() {
+        assert_eq!(MessagePriority::High.as_str(), "high");
+        assert_eq!(MessagePriority::Normal.as_str(), "normal");
+        assert_eq!(MessagePriority::Low.as_str(), "low");
+    }
+
+    #[test]
+    fn test_message_priority_from_db_string() {
+        assert_eq!(
+            MessagePriority::from_db_string("high"),
+            MessagePriority::High
+        );
+        assert_eq!(
+            MessagePriority::from_db_string("low"),
+            MessagePriority::Low
+        );
+        assert_eq!(
+            MessagePriority::from_db_string("normal"),
+            MessagePriority::Normal
+        );
+        assert_eq!(
+            MessagePriority::from_db_string("unknown"),
+            MessagePriority::Normal
+        );
+    }
+
+    #[test]
+    fn test_message_priority_ordering() {
+        // Note: Ord is derived based on definition order
+        // High=0, Normal=1, Low=2, so High < Normal < Low
+        assert!(MessagePriority::High < MessagePriority::Normal);
+        assert!(MessagePriority::Normal < MessagePriority::Low);
+        assert!(MessagePriority::High < MessagePriority::Low);
+    }
+
+    #[test]
+    fn test_message_priority_default() {
+        assert_eq!(MessagePriority::default(), MessagePriority::Normal);
+    }
+
+    #[test]
+    fn test_team_message_with_priority() {
+        let msg = TeamMessage::new(
+            "lead",
+            MessageType::TaskFailed,
+            "member1",
+            "Task failed",
+        )
+        .with_priority(MessagePriority::High);
+
+        assert_eq!(msg.priority, MessagePriority::High);
     }
 }

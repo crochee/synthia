@@ -224,10 +224,18 @@ impl NonInteractiveRunner {
                 println!("---");
             }
             OutputFormat::Json => {
-                println!("{}", serde_json::to_string_pretty(result).unwrap());
+                if let Ok(json) = serde_json::to_string_pretty(result) {
+                    println!("{json}");
+                } else {
+                    eprintln!("Failed to serialize query result");
+                }
             }
             OutputFormat::Jsonl => {
-                println!("{}", serde_json::to_string(result).unwrap());
+                if let Ok(json) = serde_json::to_string(result) {
+                    println!("{json}");
+                } else {
+                    eprintln!("Failed to serialize query result");
+                }
             }
         }
     }
@@ -241,11 +249,19 @@ impl NonInteractiveRunner {
                 }
             }
             OutputFormat::Json => {
-                println!("{}", serde_json::to_string_pretty(results).unwrap());
+                if let Ok(json) = serde_json::to_string_pretty(results) {
+                    println!("{json}");
+                } else {
+                    eprintln!("Failed to serialize results");
+                }
             }
             OutputFormat::Jsonl => {
                 for result in results {
-                    println!("{}", serde_json::to_string(result).unwrap());
+                    if let Ok(json) = serde_json::to_string(result) {
+                        println!("{json}");
+                    } else {
+                        eprintln!("Failed to serialize result");
+                    }
                 }
             }
         }

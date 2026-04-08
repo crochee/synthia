@@ -1,6 +1,6 @@
 //! Local shell executor implementation
 
-use std::{process::Stdio, time::Duration};
+use std::{collections::VecDeque, process::Stdio, time::Duration};
 
 use async_trait::async_trait;
 use tokio::{
@@ -78,8 +78,8 @@ impl ShellExecutor for LocalShellExecutor {
         let mut stdout_reader = BufReader::new(stdout).lines();
         let mut stderr_reader = BufReader::new(stderr).lines();
 
-        let mut stdout_lines = Vec::new();
-        let mut stderr_lines = Vec::new();
+        let mut stdout_lines: VecDeque<String> = VecDeque::new();
+        let mut stderr_lines: VecDeque<String> = VecDeque::new();
 
         let timeout_duration = cmd.timeout.unwrap_or(Duration::from_secs(300));
 
@@ -89,9 +89,9 @@ impl ShellExecutor for LocalShellExecutor {
                     ShellError::ReadError(format!("Failed to read stdout: {e}"))
                 })?
             {
-                stdout_lines.push(line);
+                stdout_lines.push_back(line);
                 if stdout_lines.len() > MAX_OUTPUT_LINES {
-                    stdout_lines.remove(0);
+                    stdout_lines.pop_front();
                 }
             }
 
@@ -100,9 +100,9 @@ impl ShellExecutor for LocalShellExecutor {
                     ShellError::ReadError(format!("Failed to read stderr: {e}"))
                 })?
             {
-                stderr_lines.push(line);
+                stderr_lines.push_back(line);
                 if stderr_lines.len() > MAX_OUTPUT_LINES {
-                    stderr_lines.remove(0);
+                    stderr_lines.pop_front();
                 }
             }
 
@@ -122,8 +122,8 @@ impl ShellExecutor for LocalShellExecutor {
 
         Ok(ShellOutput {
             exit_code,
-            stdout: stdout_lines,
-            stderr: stderr_lines,
+            stdout: stdout_lines.into_iter().collect(),
+            stderr: stderr_lines.into_iter().collect(),
         })
     }
 

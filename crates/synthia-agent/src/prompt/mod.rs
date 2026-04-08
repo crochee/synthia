@@ -71,9 +71,11 @@ pub struct McpServerInfo {
     pub instructions: Option<String>,
 }
 
+use crate::config::AgentName;
+
 #[derive(Clone)]
 pub struct PromptContext<'a> {
-    pub agent_name: &'a str,
+    pub agent_name: &'a AgentName,
     pub agent_description: &'a str,
     pub workspace_dir: &'a std::path::Path,
     pub skill_instructions: String,
@@ -86,6 +88,7 @@ pub struct PromptContext<'a> {
     pub is_proactive_mode: bool,
     pub model_name: Option<&'a str>,
     pub knowledge_cutoff: Option<&'a str>,
+    pub team_info: Option<TeamPromptInfo>,
 }
 
 impl std::fmt::Debug for PromptContext<'_> {
@@ -101,6 +104,7 @@ impl std::fmt::Debug for PromptContext<'_> {
             .field("additional_dirs", &self.additional_dirs.len())
             .field("model_name", &self.model_name)
             .field("knowledge_cutoff", &self.knowledge_cutoff)
+            .field("team_info", &self.team_info.is_some())
             .finish_non_exhaustive()
     }
 }
@@ -141,7 +145,7 @@ mod tests {
     #[test]
     fn test_prompt_context_debug() {
         let ctx = PromptContext {
-            agent_name: "test",
+            agent_name: &AgentName::Custom("test".to_string()),
             agent_description: "test agent",
             workspace_dir: std::path::Path::new("/tmp"),
             skill_instructions: String::new(),
@@ -154,6 +158,7 @@ mod tests {
             is_proactive_mode: false,
             model_name: None,
             knowledge_cutoff: None,
+            team_info: None,
         };
 
         let debug = format!("{ctx:?}");

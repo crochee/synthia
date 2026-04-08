@@ -3,6 +3,9 @@
 //! This module provides adapters for MCP (Model Context Protocol) tools.
 
 mod adapter;
+pub mod mcp_auth;
+pub mod mcp_resource_tools;
+pub mod remote_trigger;
 
 #[cfg(test)]
 mod tests;
@@ -10,7 +13,13 @@ mod tests;
 use std::{collections::HashMap, sync::Arc};
 
 pub use adapter::McpToolAdapter;
-use rmcp::service::ServerSink;
+pub use mcp_auth::McpAuthTool;
+pub use mcp_resource_tools::{ListMcpResourcesTool, ReadMcpResourceTool};
+pub use remote_trigger::RemoteTriggerTool;
+use rmcp::{
+    model::{ReadResourceRequestParams, Resource},
+    service::ServerSink,
+};
 use tokio::sync::RwLock;
 
 use crate::AgentError;
@@ -78,6 +87,61 @@ impl McpToolCollector {
         } else {
             None
         }
+    }
+
+    /// List all connected server names
+    pub async fn list_all_servers(&self) -> Vec<String> {
+        let servers = self.servers.read().await;
+        servers.keys().cloned().collect()
+    }
+
+    /// List all resources from a specific server
+    pub async fn list_server_resources(
+        &self,
+        server_name: &str,
+    ) -> Result<Vec<Resource>, AgentError> {
+        let servers = self.servers.read().await;
+        let server = servers.get(server_name).ok_or_else(|| {
+            AgentError::InvalidOperation(format!(
+                "Server '{server_name}' not found"
+            ))
+        })?;
+
+        server.list_all_resources().await.map_err(|e| {
+            AgentError::InvalidOperation(format!(
+                "Failed to list resources: {e}"
+            ))
+        })
+    }
+
+    /// Read a resource from a specific server
+    pub async fn read_server_resource(
+        &self,
+        server_name: &str,
+        uri: &str,
+    ) -> Result<Vec<rmcp::model::ResourceContents>, AgentError> {
+        use rmcp::model::ReadResourceResult;
+
+        let servers = self.servers.read().await;
+        let server = servers.get(server_name).ok_or_else(|| {
+            AgentError::InvalidOperation(format!(
+                "Server '{server_name}' not found"
+            ))
+        })?;
+
+        let result: ReadResourceResult = server
+            .read_resource(ReadResourceRequestParams {
+                meta: None,
+                uri: uri.to_string(),
+            })
+            .await
+            .map_err(|e| {
+                AgentError::InvalidOperation(format!(
+                    "Failed to read resource: {e}"
+                ))
+            })?;
+
+        Ok(result.contents)
     }
 }
 

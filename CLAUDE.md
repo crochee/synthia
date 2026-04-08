@@ -2,6 +2,8 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+核心原则：**绝对的正确和清晰** - 不妥协，不兼容历史包袱
+
 ## Project Overview
 
 Synthia is a modular AI agent framework in Rust, implementing the ReAct (Reasoning + Acting) pattern. It provides language model integration with streaming, flexible tool execution, context management, model routing, job scheduling, and distributed tracing.
@@ -86,3 +88,4 @@ src/
 - **Edition**: 2024
 - **Toolchain**: stable
 - **Rust MSRV**: 1.70+
+

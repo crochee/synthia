@@ -40,6 +40,12 @@ use tokio::sync::RwLock;
 
 use crate::Result;
 
+pub mod events;
+pub mod phases;
+
+pub use events::*;
+pub use phases::{HookPhase, PhaseOrder};
+
 /// Trait for implementing custom hooks.
 ///
 /// Hooks are called at various points during the agent lifecycle
@@ -76,6 +82,22 @@ pub enum HookEvent {
         tokens_used: Option<u64>,
         success: bool,
     },
+    /// Emitted before a ReAct step begins
+    BeforeStep { session_id: String, step: u32 },
+    /// Emitted after a ReAct step completes
+    AfterStep {
+        session_id: String,
+        step: u32,
+        tool_count: usize,
+    },
+    /// Emitted before a turn completes (all tools finished)
+    BeforeTurnComplete { session_id: String, turn_id: String },
+    /// Emitted after a turn completes
+    AfterTurnComplete {
+        session_id: String,
+        turn_id: String,
+        has_errors: bool,
+    },
     /// Emitted before executing a tool
     BeforeToolCall { tool: String, args: Value },
     /// Emitted after a tool execution completes
@@ -104,6 +126,10 @@ pub enum HookEvent {
         args: Value,
         result: String,
     },
+    /// Emitted when tool scheduling plan is created
+    ToolSchedulingPlan(events::ToolSchedulingPlan),
+    /// Emitted after a batch of tools completes (within a phase)
+    AfterToolBatchComplete(events::AfterToolBatchComplete),
 }
 
 /// Type alias for a pointer to a Hook trait object.
@@ -203,9 +229,45 @@ impl HookRegistry {
     pub async fn hook_count(&self) -> usize {
         self.hooks.read().await.len()
     }
-}
 
-/// A built-in hook that logs all events.
+    /// Emits an event to all registered hooks in phase-aware order.
+    ///
+    /// Hooks are executed concurrently, but this method ensures that events
+    /// are processed in the correct phase order as defined by HookPhase.
+    /// Errors are logged but do not stop other hooks from executing.
+    ///
+    /// # Arguments
+    ///
+    /// * `event` - The event to emit
+    pub async fn emit_ordered(&self, event: &HookEvent) {
+        let hooks = self.hooks.read().await;
+
+        if hooks.is_empty() {
+            return;
+        }
+
+        // For now, emit all hooks concurrently maintaining backward compatibility.
+        // The phase ordering is a hint for external coordination.
+        let futures: FuturesUnordered<_> = hooks
+            .iter()
+            .map(|hook| {
+                let hook = Arc::clone(hook);
+                let event = event.clone();
+                async move {
+                    if let Err(e) = hook.on_event(&event).await {
+                        tracing::warn!(
+                            hook_name = hook.name(),
+                            error = %e,
+                            "Hook execution failed"
+                        );
+                    }
+                }
+            })
+            .collect();
+
+        futures.collect::<()>().await;
+    }
+}
 #[derive(Debug, Clone, Copy)]
 pub struct LoggingHook;
 
@@ -252,6 +314,29 @@ impl Hook for LoggingHook {
             } => {
                 tracing::debug!(model = %model, tokens_used = ?tokens_used, success = success, "LLM call completed");
             }
+            HookEvent::BeforeStep { session_id, step } => {
+                tracing::debug!(session_id = %session_id, step = step, "Step starting");
+            }
+            HookEvent::AfterStep {
+                session_id,
+                step,
+                tool_count,
+            } => {
+                tracing::debug!(session_id = %session_id, step = step, tool_count = tool_count, "Step completed");
+            }
+            HookEvent::BeforeTurnComplete {
+                session_id,
+                turn_id,
+            } => {
+                tracing::debug!(session_id = %session_id, turn_id = %turn_id, "Turn completing");
+            }
+            HookEvent::AfterTurnComplete {
+                session_id,
+                turn_id,
+                has_errors,
+            } => {
+                tracing::debug!(session_id = %session_id, turn_id = %turn_id, has_errors = has_errors, "Turn completed");
+            }
             HookEvent::BeforeToolCall { tool, args } => {
                 tracing::debug!(tool = %tool, args = ?args, "Tool call starting");
             }
@@ -286,6 +371,24 @@ impl Hook for LoggingHook {
             }
             HookEvent::AfterToolUse { tool, args, result } => {
                 tracing::info!(tool = %tool, args = ?args, result = %result, "Tool use completed");
+            }
+            HookEvent::ToolSchedulingPlan(plan) => {
+                tracing::debug!(
+                    session_id = %plan.session_id,
+                    turn_id = %plan.turn_id,
+                    tool_count = plan.tools.len(),
+                    total_phases = plan.schedule.phases.len(),
+                    "Tool scheduling plan created"
+                );
+            }
+            HookEvent::AfterToolBatchComplete(batch) => {
+                tracing::debug!(
+                    session_id = %batch.session_id,
+                    batch_id = batch.batch_id,
+                    tool_count = batch.tool_count,
+                    has_errors = batch.has_errors,
+                    "Tool batch complete"
+                );
             }
         }
         Ok(())
@@ -516,6 +619,24 @@ mod tests {
                 tokens_used: Some(100),
                 success: true,
             },
+            HookEvent::BeforeStep {
+                session_id: "s1".to_string(),
+                step: 1,
+            },
+            HookEvent::AfterStep {
+                session_id: "s1".to_string(),
+                step: 1,
+                tool_count: 3,
+            },
+            HookEvent::BeforeTurnComplete {
+                session_id: "s1".to_string(),
+                turn_id: "t1".to_string(),
+            },
+            HookEvent::AfterTurnComplete {
+                session_id: "s1".to_string(),
+                turn_id: "t1".to_string(),
+                has_errors: false,
+            },
             HookEvent::BeforeToolCall {
                 tool: "bash".to_string(),
                 args: serde_json::json!({"cmd": "ls"}),
@@ -636,6 +757,24 @@ mod tests {
                 model: "gpt-4o".to_string(),
                 tokens_used: None,
                 success: true,
+            },
+            HookEvent::BeforeStep {
+                session_id: "step-session".to_string(),
+                step: 5,
+            },
+            HookEvent::AfterStep {
+                session_id: "step-session".to_string(),
+                step: 5,
+                tool_count: 3,
+            },
+            HookEvent::BeforeTurnComplete {
+                session_id: "turn-session".to_string(),
+                turn_id: "turn-1".to_string(),
+            },
+            HookEvent::AfterTurnComplete {
+                session_id: "turn-session".to_string(),
+                turn_id: "turn-1".to_string(),
+                has_errors: true,
             },
             HookEvent::BeforeToolCall {
                 tool: "filesystem_read".to_string(),

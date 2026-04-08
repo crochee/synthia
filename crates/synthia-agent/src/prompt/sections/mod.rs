@@ -85,6 +85,7 @@ pub mod proactive;
 pub mod skills;
 pub mod system;
 pub mod task_execution;
+pub mod team_mode;
 pub mod token_budget;
 pub mod tools_usage;
 
@@ -98,20 +99,27 @@ pub use proactive::ProactiveSection;
 pub use skills::SkillSection;
 pub use system::SystemSection;
 pub use task_execution::TaskExecutionSection;
+pub use team_mode::{TeamModeSection, TeamPromptInfo};
 pub use token_budget::TokenBudgetSection;
 pub use tools_usage::ToolUsageSection;
 
 #[cfg(test)]
 mod tests {
-    use std::path::PathBuf;
+    use std::{path::PathBuf, sync::LazyLock};
 
     use super::*;
-    use crate::prompt::{
-        McpServerInfo,
-        OutputStyleConfig,
-        PromptContext,
-        SectionCaching,
+    use crate::{
+        config::AgentName,
+        prompt::{
+            McpServerInfo,
+            OutputStyleConfig,
+            PromptContext,
+            SectionCaching,
+        },
     };
+
+    static TEST_AGENT_NAME: LazyLock<AgentName> =
+        LazyLock::new(|| AgentName::Custom("TestAgent".to_string()));
 
     // Helper to create a PromptContext with static lifetime for simple string slices
     fn make_basic_ctx<'a>(
@@ -120,7 +128,7 @@ mod tests {
         mcp_servers: &'a [McpServerInfo],
     ) -> PromptContext<'a> {
         PromptContext {
-            agent_name: "TestAgent",
+            agent_name: &TEST_AGENT_NAME,
             agent_description: "A test agent",
             workspace_dir,
             skill_instructions: String::new(),
@@ -133,6 +141,7 @@ mod tests {
             is_proactive_mode: false,
             model_name: Some("claude-sonnet-4-6"),
             knowledge_cutoff: Some("2026-03-01"),
+            team_info: None,
         }
     }
 

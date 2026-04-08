@@ -35,6 +35,8 @@ pub struct AgentConfig {
     pub workspace_dir: PathBuf,
     pub is_subagent: bool,
     pub guardian: GuardianConfig,
+    pub prompt: Option<String>,
+    pub mode: AgentMode,
 }
 ```
 

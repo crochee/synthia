@@ -152,7 +152,14 @@ impl MainLoopHandler {
         while let Some(event_result) = event_stream.next().await {
             match event_result {
                 Ok(event) => {
-                    handle_agent_event("main", &event, &config_clone).await
+                    handle_agent_event(
+                        &synthia_agent::config::AgentName::Custom(
+                            "main".to_string(),
+                        ),
+                        &event,
+                        &config_clone,
+                    )
+                    .await
                 }
                 Err(e) => {
                     print_error(&e);

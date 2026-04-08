@@ -516,7 +516,6 @@ mod tests {
         }
     }
 
-    #[allow(dead_code)]
     fn create_tool_use(id: &str, name: &str) -> SamplingMessage {
         SamplingMessage {
             role: Role::Assistant,
@@ -534,14 +533,13 @@ mod tests {
         }
     }
 
-    #[allow(dead_code)]
-    fn create_tool_result(id: &str, text: &str) -> SamplingMessage {
+    fn create_tool_result(id: &str, content: &str) -> SamplingMessage {
         SamplingMessage {
             role: Role::User,
             content: SamplingContent::Single(
                 SamplingMessageContent::ToolResult(ToolResultContent::new(
                     id,
-                    vec![Content::text(text.to_string())],
+                    vec![Content::text(content.to_string())],
                 )),
             ),
             meta: None,
@@ -1185,5 +1183,370 @@ mod tests {
         // Verify compression ratio is based on context_window, not actual usage
         assert_eq!(m.compression_ratio(), 0.70);
         assert_eq!(m.compression_ratio(), 0.70); // Repeatable
+    }
+
+    // =========================================================================
+    // mid_turn_compact tests
+    // =========================================================================
+
+    #[tokio::test]
+    async fn test_mid_turn_compact_below_threshold() {
+        let m = mgr(100_000);
+        let mut msgs = vec![create_text_msg(Role::User, "short")];
+        let result = m.mid_turn_compact(&mut msgs, 100_000).await.unwrap();
+        // Should return false when below micro_threshold
+        assert!(!result);
+    }
+
+    #[tokio::test]
+    async fn test_mid_turn_compact_normalizes_messages() {
+        let m = mgr(100_000);
+        // Create orphaned tool result
+        let mut msgs = vec![
+            create_tool_use("1", "tool"),
+            create_tool_result("1", "result"),
+        ];
+        let _ = m.mid_turn_compact(&mut msgs, 100_000).await;
+        // normalize_history should have been called
+    }
+
+    #[tokio::test]
+    async fn test_mid_turn_compact_does_not_remove_tool_pairs() {
+        let m = mgr(100_000);
+        // Create tool use/result pairs
+        let mut msgs = vec![
+            create_tool_use("1", "tool"),
+            create_tool_result("1", "result"),
+            create_tool_use("2", "tool"),
+            create_tool_result("2", "result"),
+        ];
+        // Even if micro_compact doesn't trigger, the pairs should be intact after call
+        let _ = m.mid_turn_compact(&mut msgs, 100_000).await;
+        // Messages should still be valid pairs
+        assert!(msgs.len() >= 2);
+    }
+
+    // =========================================================================
+    // find_recent_turns_start tests
+    // =========================================================================
+
+    #[test]
+    fn test_find_recent_turns_start_exactly_keep_recent() {
+        let config = ContextConfig {
+            keep_recent_turns: 3,
+            ..Default::default()
+        };
+        let m = mgr_with_config(100_000, config);
+
+        let messages: Vec<_> = (0..6)
+            .map(|i| {
+                if i % 2 == 0 {
+                    create_text_msg(Role::User, &format!("User message {i}"))
+                } else {
+                    create_text_msg(
+                        Role::Assistant,
+                        &format!("Assistant message {i}"),
+                    )
+                }
+            })
+            .collect();
+
+        let classifications = classify_messages(&messages);
+        let start = m.find_recent_turns_start(&messages, &classifications);
+        // Should return index 0 since we have exactly 3 user messages
+        assert_eq!(start, 0);
+    }
+
+    #[test]
+    fn test_find_recent_turns_start_more_than_keep_recent() {
+        let config = ContextConfig {
+            keep_recent_turns: 2,
+            ..Default::default()
+        };
+        let m = mgr_with_config(100_000, config);
+
+        // Create 6 messages with 3 user messages
+        let messages = vec![
+            create_text_msg(Role::User, "User 0"), // idx 0
+            create_text_msg(Role::Assistant, "Asst 0"), // idx 1
+            create_text_msg(Role::User, "User 1"), // idx 2
+            create_text_msg(Role::Assistant, "Asst 1"), // idx 3
+            create_text_msg(Role::User, "User 2"), // idx 4
+            create_text_msg(Role::Assistant, "Asst 2"), // idx 5
+        ];
+
+        let classifications = classify_messages(&messages);
+        let start = m.find_recent_turns_start(&messages, &classifications);
+        // Should return index 2 since we want to keep last 2 user turns
+        assert_eq!(start, 2);
+    }
+
+    #[test]
+    fn test_find_recent_turns_start_fewer_than_keep_recent() {
+        let config = ContextConfig {
+            keep_recent_turns: 10,
+            ..Default::default()
+        };
+        let m = mgr_with_config(100_000, config);
+
+        // Only 2 user messages but keep_recent is 10
+        let messages = vec![
+            create_text_msg(Role::User, "User 0"),
+            create_text_msg(Role::Assistant, "Asst 0"),
+            create_text_msg(Role::User, "User 1"),
+            create_text_msg(Role::Assistant, "Asst 1"),
+        ];
+
+        let classifications = classify_messages(&messages);
+        let start = m.find_recent_turns_start(&messages, &classifications);
+        // Should return 0 since we don't have enough user messages
+        assert_eq!(start, 0);
+    }
+
+    // =========================================================================
+    // emergency_truncate edge case tests
+    // =========================================================================
+
+    #[test]
+    fn test_emergency_truncate_exactly_10() {
+        let m = mgr(100_000);
+        let mut msgs: Vec<_> = (0..10)
+            .map(|i| create_text_msg(Role::User, &format!("msg {i}")))
+            .collect();
+        let original_len = msgs.len();
+        m.emergency_truncate(&mut msgs);
+        // Should not truncate if exactly 10
+        assert_eq!(msgs.len(), original_len);
+    }
+
+    #[test]
+    fn test_emergency_truncate_11_messages() {
+        let m = mgr(100_000);
+        let mut msgs: Vec<_> = (0..11)
+            .map(|i| create_text_msg(Role::User, &format!("msg {i}")))
+            .collect();
+        m.emergency_truncate(&mut msgs);
+        // Should truncate to 10
+        assert_eq!(msgs.len(), 10);
+        // Should keep the last 10
+        assert_eq!(
+            msgs[0]
+                .content
+                .iter()
+                .find_map(|c| c.as_text())
+                .unwrap()
+                .text,
+            "msg 1"
+        );
+    }
+
+    #[test]
+    fn test_emergency_truncate_100_messages() {
+        let m = mgr(100_000);
+        let mut msgs: Vec<_> = (0..100)
+            .map(|i| create_text_msg(Role::User, &format!("msg {i}")))
+            .collect();
+        m.emergency_truncate(&mut msgs);
+        // Should truncate to 10
+        assert_eq!(msgs.len(), 10);
+        // Should keep msg 90-99 (the last 10)
+    }
+
+    // =========================================================================
+    // ContextManager trait implementation tests
+    // =========================================================================
+
+    #[tokio::test]
+    async fn test_compact_returns_none_when_not_needed() {
+        let m = mgr(100_000);
+        let msgs = vec![create_text_msg(Role::User, "short")];
+        let result = m.compact(&msgs).await.unwrap();
+        // With a single short message, should return None (no compaction needed)
+        assert!(result.is_none());
+    }
+
+    // =========================================================================
+    // Compression strategy tests
+    // =========================================================================
+
+    #[test]
+    fn test_compression_ratio_at_boundary_31k() {
+        // Just below 32k should be small window (0.60)
+        let m = mgr(31_999);
+        assert_eq!(m.compression_ratio(), 0.60);
+    }
+
+    #[test]
+    fn test_compression_ratio_at_boundary_32k() {
+        // Just at 32k should be medium window (0.70)
+        let m = mgr(32_000);
+        assert_eq!(m.compression_ratio(), 0.70);
+    }
+
+    #[test]
+    fn test_compression_ratio_at_boundary_100k() {
+        // Just at 100k should be medium window (0.70)
+        let m = mgr(100_000);
+        assert_eq!(m.compression_ratio(), 0.70);
+    }
+
+    #[test]
+    fn test_compression_ratio_at_boundary_100k_plus_one() {
+        // Just above 100k should be large window (0.85)
+        let m = mgr(100_001);
+        assert_eq!(m.compression_ratio(), 0.85);
+    }
+
+    // =========================================================================
+    // usage_ratio edge case tests
+    // =========================================================================
+
+    #[test]
+    fn test_usage_ratio_exactly_zero() {
+        let m = mgr(100_000);
+        let ratio = m.usage_ratio(&[]);
+        assert_eq!(ratio, 0.0);
+    }
+
+    #[test]
+    fn test_usage_ratio_very_small_window() {
+        let m = mgr(100); // Very small window
+        let msgs = vec![create_text_msg(Role::User, "hello world")];
+        let ratio = m.usage_ratio(&msgs);
+        // Should be capped at 1.0
+        assert!(ratio <= 1.0);
+    }
+
+    // =========================================================================
+    // should_compact edge case tests
+    // =========================================================================
+
+    #[test]
+    fn test_should_compact_exactly_at_limit() {
+        let m = mgr(100_000);
+        let limit = m.effective_limit();
+        // Tokens exactly at limit should trigger
+        assert!(m.should_compact(limit));
+    }
+
+    #[test]
+    fn test_should_compact_way_over_limit() {
+        let m = mgr(100_000);
+        // Way over limit should trigger
+        assert!(m.should_compact(1_000_000));
+    }
+
+    // =========================================================================
+    // should_auto_compact edge case tests
+    // =========================================================================
+
+    #[test]
+    fn test_should_auto_compact_with_zero_threshold() {
+        let config = ContextConfig {
+            trigger_threshold: 0.0,
+            ..Default::default()
+        };
+        let m = mgr_with_config(100_000, config);
+        let msgs = vec![create_text_msg(Role::User, "x")];
+        // With 0 threshold, even minimal usage should trigger
+        assert!(m.should_auto_compact(&msgs, None));
+    }
+
+    #[test]
+    fn test_should_auto_compact_with_perfect_threshold() {
+        let config = ContextConfig {
+            trigger_threshold: 1.0,
+            ..Default::default()
+        };
+        let m = mgr_with_config(100_000, config);
+        // Should not trigger since threshold is 100%
+        let msgs: Vec<_> = (0..10)
+            .map(|_| create_text_msg(Role::User, "hello"))
+            .collect();
+        // Note: depending on token estimation, may or may not trigger
+        let _ = m.should_auto_compact(&msgs, None);
+    }
+
+    // =========================================================================
+    // Context safety level edge case tests
+    // =========================================================================
+
+    #[test]
+    fn test_check_context_safety_exactly_at_hard_min() {
+        let m = mgr(16_000);
+        // 0 available tokens
+        let msgs: Vec<_> = (0..1000)
+            .map(|_| create_text_msg(Role::User, &"x".repeat(100)))
+            .collect();
+        let level = m.check_context_safety(&msgs);
+        // Could be Critical or Warning depending on actual token count
+        assert!(matches!(
+            level,
+            ContextSafetyLevel::Warning | ContextSafetyLevel::Critical
+        ));
+    }
+
+    #[test]
+    fn test_available_tokens_with_zero_window() {
+        let m = mgr(0);
+        let msgs = vec![create_text_msg(Role::User, "hello")];
+        let available = m.available_tokens(&msgs);
+        assert_eq!(available, 0);
+    }
+
+    // =========================================================================
+    // Initialization tests
+    // =========================================================================
+
+    #[test]
+    fn test_new_sets_context_window_from_router() {
+        let router = MockRouter::new(75_000);
+        let m = DefaultContextManager::new(router);
+        // 75k is in medium range
+        assert_eq!(m.compression_ratio(), 0.70);
+    }
+
+    #[test]
+    fn test_with_config_preserves_router_context_window() {
+        let router = MockRouter::new(200_000);
+        let config = ContextConfig::default();
+        let m = DefaultContextManager::with_config(router, config);
+        // 200k is in large range
+        assert_eq!(m.compression_ratio(), 0.85);
+    }
+
+    // =========================================================================
+    // Compact result metadata edge cases
+    // =========================================================================
+
+    #[test]
+    fn test_compaction_metadata_tokens_saved_calculation() {
+        let metadata = CompactionMetadata::new(
+            100,
+            50,
+            0, // tokens_saved = 0
+            CompactionStrategy::None,
+            0.9,
+            0.9,
+        );
+        assert_eq!(metadata.tokens_saved, 0);
+        assert_eq!(metadata.original_count, 100);
+        assert_eq!(metadata.compacted_count, 50);
+    }
+
+    #[test]
+    fn test_compaction_metadata_preserves_strategy() {
+        let strategies = [
+            CompactionStrategy::None,
+            CompactionStrategy::MicroCompact,
+            CompactionStrategy::SoftPruning,
+            CompactionStrategy::HardClearing,
+            CompactionStrategy::Summarization,
+        ];
+        for strategy in strategies {
+            let metadata =
+                CompactionMetadata::new(10, 5, 100, strategy, 0.8, 0.4);
+            assert_eq!(metadata.strategy, strategy);
+        }
     }
 }

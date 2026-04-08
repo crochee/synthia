@@ -67,6 +67,7 @@ pub(crate) struct ToolErrorSummary {
     tool_name: Option<String>,
     error_count: usize,
     errors: Vec<String>,
+    cached_summary: Option<String>,
 }
 
 impl ToolErrorSummary {
@@ -80,18 +81,26 @@ impl ToolErrorSummary {
         }
         self.error_count += result.errors.len();
         self.errors.extend(result.errors.iter().cloned());
+        self.cached_summary = None;
     }
 
-    pub(crate) fn to_summary_message(&self) -> Option<String> {
+    pub(crate) fn get_summary_message(&mut self) -> Option<String> {
         if self.error_count == 0 {
             return None;
         }
+        if let Some(ref cached) = self.cached_summary {
+            return Some(cached.clone());
+        }
 
         let tool_name = self.tool_name.as_deref().unwrap_or("unknown");
-        Some(if self.error_count == 1 {
+        let summary = if self.error_count == 1 {
             format!(
                 "Tool '{}' encountered an error: {}",
-                tool_name, self.errors[0]
+                tool_name,
+                self.errors
+                    .first()
+                    .map(String::as_str)
+                    .unwrap_or("unknown error")
             )
         } else {
             format!(
@@ -99,7 +108,13 @@ impl ToolErrorSummary {
                 self.error_count,
                 self.errors.join("; ")
             )
-        })
+        };
+        self.cached_summary = Some(summary.clone());
+        Some(summary)
+    }
+
+    pub(crate) fn has_errors(&self) -> bool {
+        self.error_count > 0
     }
 }
 
@@ -381,7 +396,7 @@ mod tests {
     fn test_tool_error_summary() {
         let mut summary = ToolErrorSummary::new();
 
-        assert!(summary.to_summary_message().is_none());
+        assert!(summary.get_summary_message().is_none());
 
         let result1 = ToolExecutionResult {
             tool_name: "tool1".to_string(),
@@ -389,9 +404,9 @@ mod tests {
             errors: vec!["First error".to_string()],
         };
         summary.add_errors(&result1);
-        assert!(summary.to_summary_message().is_some());
+        assert!(summary.get_summary_message().is_some());
 
-        let msg = summary.to_summary_message();
+        let msg = summary.get_summary_message();
         assert!(msg.is_some());
         assert!(msg.unwrap().contains("tool1"));
 
@@ -401,8 +416,71 @@ mod tests {
             errors: vec!["Second error".to_string()],
         };
         summary.add_errors(&result2);
-        let msg = summary.to_summary_message();
+        let msg = summary.get_summary_message();
         assert!(msg.is_some());
         assert!(msg.unwrap().contains("Multiple tool errors"));
+    }
+
+    #[test]
+    fn test_tool_error_summary_single_error_with_empty_errors_list() {
+        // Test the panic case when error_count == 1 but errors vec is empty
+        // This should not panic due to index out of bounds on errors[0]
+        let mut summary = ToolErrorSummary {
+            tool_name: Some("test_tool".to_string()),
+            error_count: 1, // indicates 1 error
+            errors: vec![], // but errors list is empty
+            cached_summary: None,
+        };
+
+        // This should handle the edge case gracefully without panicking
+        let result = summary.get_summary_message();
+        // When errors vec is empty but error_count > 0, it should still
+        // avoid indexing into an empty vec
+        if let Some(msg) = result {
+            assert!(msg.contains("test_tool"));
+        }
+    }
+
+    #[test]
+    fn test_tool_error_summary_caching() {
+        let mut summary = ToolErrorSummary::new();
+
+        let result1 = ToolExecutionResult {
+            tool_name: "tool1".to_string(),
+            events: vec![],
+            errors: vec!["First error".to_string()],
+        };
+        summary.add_errors(&result1);
+
+        // First call computes and caches
+        let msg1 = summary.get_summary_message();
+
+        // Second call should return cached value
+        let msg2 = summary.get_summary_message();
+
+        assert_eq!(msg1, msg2);
+    }
+
+    #[test]
+    fn test_tool_error_summary_multiple_errors_formats_correctly() {
+        let mut summary = ToolErrorSummary::new();
+
+        let result = ToolExecutionResult {
+            tool_name: "multi_tool".to_string(),
+            events: vec![],
+            errors: vec![
+                "Error A".to_string(),
+                "Error B".to_string(),
+                "Error C".to_string(),
+            ],
+        };
+        summary.add_errors(&result);
+
+        let msg = summary.get_summary_message().unwrap();
+        assert!(msg.contains("3 total"));
+        assert!(msg.contains("Error A"));
+        assert!(msg.contains("Error B"));
+        assert!(msg.contains("Error C"));
+        assert!(msg.contains("Error A; Error B; Error C"));
     }
 }

@@ -477,6 +477,7 @@ mod tests {
     };
 
     use super::*;
+    use crate::config::ToolImportance;
 
     // =============================================================================
     // Test Helpers
@@ -1666,5 +1667,495 @@ mod tests {
         ];
         let critical = extract_critical_tool_results(&messages);
         assert_eq!(critical, vec![1]);
+    }
+
+    // =============================================================================
+    // extract_critical_tool_results edge cases
+    // =============================================================================
+
+    #[test]
+    fn test_extract_critical_tool_results_empty_content() {
+        let messages =
+            vec![create_tool_result_message(Role::User, "tool-1", "")];
+        let critical = extract_critical_tool_results(&messages);
+        assert!(critical.is_empty());
+    }
+
+    #[test]
+    fn test_extract_critical_tool_results_file_prefix_case_sensitive() {
+        // File: prefix should be case-sensitive
+        let messages = vec![create_tool_result_message(
+            Role::User,
+            "tool-1",
+            "file: some content", // lowercase
+        )];
+        let critical = extract_critical_tool_results(&messages);
+        assert!(critical.is_empty());
+    }
+
+    #[test]
+    fn test_extract_critical_tool_results_multiple_patterns() {
+        let messages = vec![create_tool_result_message(
+            Role::User,
+            "tool-1",
+            "[read] File: result.txt\n```\ncode\n```",
+        )];
+        let critical = extract_critical_tool_results(&messages);
+        assert_eq!(critical, vec![0]);
+    }
+
+    #[test]
+    fn test_extract_critical_tool_results_boundary_length() {
+        // Exactly CRITICAL_CONTENT_MIN_LENGTH (1000) should NOT be critical
+        let messages = vec![create_tool_result_message(
+            Role::User,
+            "tool-1",
+            &"a".repeat(1000),
+        )];
+        let critical = extract_critical_tool_results(&messages);
+        assert!(critical.is_empty());
+
+        // 1001 should be critical
+        let messages = vec![create_tool_result_message(
+            Role::User,
+            "tool-1",
+            &"a".repeat(1001),
+        )];
+        let critical = extract_critical_tool_results(&messages);
+        assert_eq!(critical, vec![0]);
+    }
+
+    // =============================================================================
+    // fix_tool_pairs edge cases
+    // =============================================================================
+
+    #[test]
+    fn test_fix_tool_pairs_empty() {
+        let messages: Vec<SamplingMessage> = vec![];
+        let fixed = fix_tool_pairs(&messages);
+        assert!(fixed.is_empty());
+    }
+
+    #[test]
+    fn test_fix_tool_pairs_single_tool_use() {
+        let messages = vec![create_tool_use_message(
+            Role::Assistant,
+            "tool-1",
+            "read",
+            serde_json::json!({}),
+        )];
+        let fixed = fix_tool_pairs(&messages);
+        // Single tool use is kept
+        assert_eq!(fixed.len(), 1);
+    }
+
+    #[test]
+    fn test_fix_tool_pairs_duplicate_tool_use_ids() {
+        // Two tool uses with same ID, one result
+        let messages = vec![
+            create_tool_use_message(
+                Role::Assistant,
+                "tool-1",
+                "read",
+                serde_json::json!({}),
+            ),
+            create_tool_use_message(
+                Role::Assistant,
+                "tool-1",
+                "write",
+                serde_json::json!({}),
+            ),
+            create_tool_result_message(Role::User, "tool-1", "result"),
+        ];
+        let fixed = fix_tool_pairs(&messages);
+        // Result should be kept since it matches pending tool
+        assert_eq!(fixed.len(), 3);
+    }
+
+    #[test]
+    fn test_fix_tool_pairs_multiple_results_same_id() {
+        // Tool use followed by multiple results for same ID
+        // Only the first result is kept because after it's consumed, pending is empty
+        let messages = vec![
+            create_tool_use_message(
+                Role::Assistant,
+                "tool-1",
+                "read",
+                serde_json::json!({}),
+            ),
+            create_tool_result_message(Role::User, "tool-1", "result1"),
+            create_tool_result_message(Role::User, "tool-1", "result2"),
+        ];
+        let fixed = fix_tool_pairs(&messages);
+        // First result kept (pending still has tool-1), second discarded (pending empty)
+        assert_eq!(fixed.len(), 2);
+    }
+
+    #[test]
+    fn test_fix_tool_pairs_result_before_tool() {
+        // Orphan result that appears before its tool use
+        let messages = vec![
+            create_tool_result_message(Role::User, "tool-1", "orphan result"),
+            create_tool_use_message(
+                Role::Assistant,
+                "tool-1",
+                "read",
+                serde_json::json!({}),
+            ),
+            create_tool_result_message(Role::User, "tool-1", "valid result"),
+        ];
+        let fixed = fix_tool_pairs(&messages);
+        // First orphan result removed, others kept
+        assert_eq!(fixed.len(), 2);
+    }
+
+    // =============================================================================
+    // micro_compact edge cases
+    // =============================================================================
+
+    #[test]
+    fn test_micro_compact_with_single_tool_result() {
+        let mut messages = vec![
+            create_tool_use_message(
+                Role::Assistant,
+                "tool-1",
+                "read",
+                serde_json::json!({}),
+            ),
+            create_tool_result_message(Role::User, "tool-1", "result1"),
+        ];
+        micro_compact(&mut messages, 1);
+        // With keep_recent=1 and only 1 result, nothing should be cleared
+        if let SamplingContent::Single(SamplingMessageContent::ToolResult(
+            result,
+        )) = &messages[1].content
+        {
+            assert_eq!(result.content[0].as_text().unwrap().text, "result1");
+        } else {
+            panic!("Expected ToolResult");
+        }
+    }
+
+    #[test]
+    fn test_micro_compact_keeps_all_when_equal_to_keep_recent() {
+        let mut messages = vec![
+            create_tool_use_message(
+                Role::Assistant,
+                "tool-1",
+                "read",
+                serde_json::json!({}),
+            ),
+            create_tool_result_message(Role::User, "tool-1", "result1"),
+            create_tool_use_message(
+                Role::Assistant,
+                "tool-2",
+                "write",
+                serde_json::json!({}),
+            ),
+            create_tool_result_message(Role::User, "tool-2", "result2"),
+        ];
+        micro_compact(&mut messages, 2);
+        // With keep_recent=2 and exactly 2 results, nothing should be cleared
+        let result_count = messages
+            .iter()
+            .filter(|m| {
+                matches!(
+                    &m.content,
+                    SamplingContent::Single(
+                        SamplingMessageContent::ToolResult(_)
+                    )
+                )
+            })
+            .count();
+        assert_eq!(result_count, 2);
+    }
+
+    // =============================================================================
+    // MessageClassification edge cases
+    // =============================================================================
+
+    #[test]
+    fn test_classify_messages_empty() {
+        let messages: Vec<SamplingMessage> = vec![];
+        let classified = classify_messages(&messages);
+        assert!(classified.is_empty());
+    }
+
+    #[test]
+    fn test_classify_messages_single_message() {
+        let messages = vec![create_user_text_message(Role::User, "Hello")];
+        let classified = classify_messages(&messages);
+        assert_eq!(classified.len(), 1);
+        assert_eq!(classified[0].0, 0);
+        assert_eq!(classified[0].1, MessageClassification::UserText);
+    }
+
+    #[test]
+    fn test_classify_messages_system_role() {
+        // System role is not User or Assistant, so it should be Other
+        let msg = SamplingMessage {
+            role: Role::Assistant,
+            content: SamplingContent::Single(SamplingMessageContent::Text(
+                RawTextContent {
+                    text: "Assistant text".to_string(),
+                    meta: None,
+                },
+            )),
+            meta: None,
+        };
+        let messages = vec![msg];
+        let classified = classify_messages(&messages);
+        // Assistant role with text should be classified as AssistantText
+        assert_eq!(classified[0].1, MessageClassification::AssistantText);
+    }
+
+    // =============================================================================
+    // Tool ID extraction edge cases
+    // =============================================================================
+
+    #[test]
+    fn test_get_tool_use_id_multiple_tool_uses() {
+        let msg = SamplingMessage {
+            role: Role::Assistant,
+            content: SamplingContent::Multiple(vec![
+                SamplingMessageContent::ToolUse(ToolUseContent::new(
+                    "tool-1",
+                    "read",
+                    serde_json::json!({})
+                        .as_object()
+                        .cloned()
+                        .unwrap_or_default(),
+                )),
+                SamplingMessageContent::ToolUse(ToolUseContent::new(
+                    "tool-2",
+                    "write",
+                    serde_json::json!({})
+                        .as_object()
+                        .cloned()
+                        .unwrap_or_default(),
+                )),
+            ]),
+            meta: None,
+        };
+        // Should return the first tool use ID
+        assert_eq!(get_tool_use_id(&msg), Some("tool-1".to_string()));
+    }
+
+    #[test]
+    fn test_get_tool_result_id_multiple_tool_results() {
+        let msg = SamplingMessage {
+            role: Role::User,
+            content: SamplingContent::Multiple(vec![
+                SamplingMessageContent::ToolResult(ToolResultContent::new(
+                    "tool-1",
+                    vec![Content::text("result1")],
+                )),
+                SamplingMessageContent::ToolResult(ToolResultContent::new(
+                    "tool-2",
+                    vec![Content::text("result2")],
+                )),
+            ]),
+            meta: None,
+        };
+        // Should return the first tool result ID
+        assert_eq!(get_tool_result_id(&msg), Some("tool-1".to_string()));
+    }
+
+    // =============================================================================
+    // Tool pair matching edge cases
+    // =============================================================================
+
+    #[test]
+    fn test_find_tool_use_for_result_no_matching_tool() {
+        let messages = vec![
+            create_tool_use_message(
+                Role::Assistant,
+                "tool-1",
+                "read",
+                serde_json::json!({}),
+            ),
+            create_tool_result_message(Role::User, "tool-2", "result"), // Different ID
+        ];
+        assert_eq!(find_tool_use_for_result(&messages, 1), None);
+    }
+
+    #[test]
+    fn test_find_result_for_tool_use_no_matching_result() {
+        let messages = vec![
+            create_tool_use_message(
+                Role::Assistant,
+                "tool-1",
+                "read",
+                serde_json::json!({}),
+            ),
+            create_tool_use_message(
+                Role::Assistant,
+                "tool-2",
+                "write",
+                serde_json::json!({}),
+            ),
+        ];
+        assert_eq!(find_result_for_tool_use(&messages, 0), None);
+        assert_eq!(find_result_for_tool_use(&messages, 1), None);
+    }
+
+    #[test]
+    fn test_find_tool_use_for_result_with_multiple_tools() {
+        let messages = vec![
+            create_tool_use_message(
+                Role::Assistant,
+                "tool-1",
+                "read",
+                serde_json::json!({}),
+            ),
+            create_tool_use_message(
+                Role::Assistant,
+                "tool-2",
+                "write",
+                serde_json::json!({}),
+            ),
+            create_tool_result_message(Role::User, "tool-2", "result2"),
+        ];
+        // Should find tool-2 for result at index 2
+        assert_eq!(find_tool_use_for_result(&messages, 2), Some(1));
+    }
+
+    // =============================================================================
+    // prune_tool_result_by_level additional edge cases
+    // =============================================================================
+
+    #[test]
+    fn test_prune_tool_result_by_level_preserves_order() {
+        let result = ToolResultContent::new(
+            "tool-1",
+            vec![
+                Content::text("First"),
+                Content::text("Second"),
+                Content::text("Third"),
+                Content::text("Fourth"),
+                Content::text("Fifth"),
+            ],
+        );
+        let pruned = prune_tool_result_by_level(
+            &result,
+            "\n... [3 items truncated] ...\n",
+        );
+        assert_eq!(pruned.content.len(), 3);
+        assert_eq!(pruned.content[0].as_text().unwrap().text, "First");
+        assert_eq!(
+            pruned.content[1].as_text().unwrap().text,
+            "\n... [3 items truncated] ...\n"
+        );
+        assert_eq!(pruned.content[2].as_text().unwrap().text, "Fifth");
+    }
+
+    // =============================================================================
+    // prune_tools_with_importance additional edge cases
+    // =============================================================================
+
+    #[test]
+    fn test_prune_tools_with_importance_all_levels() {
+        // Use multi-item messages to avoid underflow in soft_prune_tool_result
+        let messages = vec![
+            create_tool_result_message_multi(
+                Role::User,
+                "tool-critical",
+                vec!["critical data"],
+            ),
+            create_tool_result_message_multi(
+                Role::User,
+                "tool-high",
+                vec!["item1", "item2", "item3", "item4"],
+            ),
+            create_tool_result_message_multi(
+                Role::User,
+                "tool-normal",
+                vec!["item1", "item2", "item3", "item4"],
+            ),
+            create_tool_result_message_multi(
+                Role::User,
+                "tool-low",
+                vec!["low data"],
+            ),
+        ];
+        let importance = |name: &str| match name {
+            "tool-critical" => ToolImportance::Critical,
+            "tool-high" => ToolImportance::High,
+            "tool-normal" => ToolImportance::Normal,
+            "tool-low" => ToolImportance::Low,
+            _ => ToolImportance::Normal,
+        };
+        let pruned = prune_tools_with_importance(&messages, importance);
+
+        // Critical - unchanged
+        if let SamplingContent::Single(SamplingMessageContent::ToolResult(r)) =
+            &pruned[0].content
+        {
+            assert_eq!(r.content[0].as_text().unwrap().text, "critical data");
+        }
+
+        // High - soft pruned (keeps first and last with truncated hint)
+        if let SamplingContent::Single(SamplingMessageContent::ToolResult(r)) =
+            &pruned[1].content
+        {
+            assert_eq!(r.content.len(), 3);
+        }
+
+        // Normal - hard pruned (keeps first and last with [content truncated])
+        if let SamplingContent::Single(SamplingMessageContent::ToolResult(r)) =
+            &pruned[2].content
+        {
+            assert_eq!(r.content.len(), 3);
+            assert_eq!(
+                r.content[1].as_text().unwrap().text,
+                "\n[content truncated]\n"
+            );
+        }
+
+        // Low - cleared
+        if let SamplingContent::Single(SamplingMessageContent::ToolResult(r)) =
+            &pruned[3].content
+        {
+            assert_eq!(
+                r.content[0].as_text().unwrap().text,
+                "[tool result cleared]"
+            );
+        }
+    }
+
+    // =============================================================================
+    // extract_tool_use_ids and extract_tool_result_ids edge cases
+    // =============================================================================
+
+    #[test]
+    fn test_extract_tool_use_ids_empty_message() {
+        let msg = SamplingMessage {
+            role: Role::Assistant,
+            content: SamplingContent::Single(SamplingMessageContent::Text(
+                RawTextContent {
+                    text: "No tool here".to_string(),
+                    meta: None,
+                },
+            )),
+            meta: None,
+        };
+        let ids = extract_tool_use_ids(&msg);
+        assert!(ids.is_empty());
+    }
+
+    #[test]
+    fn test_extract_tool_result_ids_empty_message() {
+        let msg = SamplingMessage {
+            role: Role::User,
+            content: SamplingContent::Single(SamplingMessageContent::Text(
+                RawTextContent {
+                    text: "No result here".to_string(),
+                    meta: None,
+                },
+            )),
+            meta: None,
+        };
+        let ids = extract_tool_result_ids(&msg);
+        assert!(ids.is_empty());
     }
 }

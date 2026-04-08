@@ -99,7 +99,7 @@ impl AppConfig {
         self.agents
             .iter()
             .map(|(name, v)| AgentConfig {
-                name: name.clone(),
+                name: synthia_agent::config::AgentName::Custom(name.clone()),
                 models: self.get_all_models(),
                 description: v.description.clone(),
                 allowed_tools: v.allowed_tools.clone().unwrap_or_default(),
@@ -108,6 +108,7 @@ impl AppConfig {
                 workspace_dir: current_dir.to_path_buf(),
                 is_subagent: true,
                 guardian: synthia_agent::GuardianConfig::default(),
+                prompt: None,
             })
             .collect()
     }
@@ -347,7 +348,10 @@ hidden = false
         let agents = config.get_agents(temp_file.path().parent().unwrap());
 
         assert_eq!(agents.len(), 1);
-        assert_eq!(agents[0].name, "assistant");
+        assert_eq!(
+            agents[0].name,
+            synthia_agent::config::AgentName::Custom("assistant".to_string())
+        );
         assert_eq!(agents[0].description, "Test assistant".to_string());
     }
 

@@ -90,6 +90,14 @@ impl Tool for ExecTool {
 
         let timeout_seconds = request.timeout.unwrap_or(60).min(MAX_TIMEOUT);
         let cwd = request.current_dir.unwrap_or_else(|| ".".to_string());
+
+        // Validate that cwd is an absolute path to prevent path traversal
+        if !PathBuf::from(&cwd).is_absolute() {
+            return CallToolResult::error(vec![Content::text(
+                "current_dir must be an absolute path",
+            )]);
+        }
+
         let timeout = Duration::from_secs(timeout_seconds);
 
         let cmd = ShellCommand::new(request.command, PathBuf::from(cwd))

@@ -12,8 +12,30 @@ use crate::{
     tools::{SkillTool, ToolRegistry},
 };
 
+/// Dynamic subagent request matching TOOL_SPEC.md Agent tool schema
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SubagentRequest {
+    /// Human-readable description of the task
+    pub description: String,
+    /// Task instructions for the subagent
+    pub prompt: String,
+    /// Optional subagent type/class to use
+    #[serde(default)]
+    pub subagent_type: Option<String>,
+    /// Optional name for the subagent instance
+    #[serde(default)]
+    pub name: Option<String>,
+    /// Optional model to use for this subagent
+    #[serde(default)]
+    pub model: Option<String>,
+    /// Optional context to prepend
+    #[serde(default)]
+    pub context: Option<String>,
+}
+
+/// Legacy request format for backward compatibility
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub(crate) struct SubagentRequestLegacy {
     pub subagent: String,
     pub prompt: String,
     #[serde(default)]

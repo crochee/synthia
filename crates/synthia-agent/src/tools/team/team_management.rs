@@ -11,10 +11,22 @@ use super::{
 };
 use crate::tools::{Tool, shared::ok_result};
 
+/// Task definition for team creation (per TOOL_SPEC.md)
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
+struct TeamTask {
+    prompt: String,
+    #[serde(default)]
+    description: Option<String>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
 struct TeamCreateInput {
     name: String,
+    #[serde(default)]
     lead: Option<String>,
+    /// Tasks to create for this team (per TOOL_SPEC.md TeamCreate)
+    #[serde(default)]
+    tasks: Vec<TeamTask>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
@@ -23,6 +35,9 @@ struct TeamCreateOutput {
     name: String,
     lead: Option<String>,
     status: String,
+    /// IDs of spawned teammates for the tasks
+    #[serde(default)]
+    task_ids: Vec<String>,
 }
 
 pub(super) struct TeamCreateTool {
@@ -37,6 +52,7 @@ impl TeamCreateTool {
     }
 
     #[cfg(test)]
+    #[allow(dead_code)]
     pub(super) fn new_with_storage(storage: TeamStorage) -> Self {
         Self { storage }
     }
@@ -83,11 +99,72 @@ impl Tool for TeamCreateTool {
             Err(e) => return err_result(format!("Failed to create team: {e}")),
         };
 
-        let output = TeamCreateOutput {
-            team_id: team.team_id,
-            name: team.name,
-            lead: team.lead,
-            status: team.status.as_str().to_string(),
+        // Spawn teammates for each task if provided (per TOOL_SPEC.md)
+        let mut task_ids = Vec::new();
+        for task in &args.tasks {
+            let role = task.description.as_deref().unwrap_or("worker");
+            let teammate_name =
+                format!("{}-task-{}", team.team_id, task_ids.len());
+            match self
+                .storage
+                .teammate_store
+                .spawn_teammate(&teammate_name, role)
+                .await
+            {
+                Ok(teammate) => {
+                    // Associate teammate with the team
+                    if let Err(e) = self
+                        .storage
+                        .teammate_store
+                        .update_teammate(
+                            &teammate.name,
+                            Some(&team.team_id),
+                            None,
+                            None,
+                        )
+                        .await
+                    {
+                        tracing::warn!(
+                            "Failed to associate teammate with team: {e}"
+                        );
+                    }
+                    task_ids.push(teammate.name.clone());
+                }
+                Err(e) => {
+                    tracing::warn!("Failed to spawn teammate for task: {e}");
+                }
+            }
+        }
+
+        // Update team's task_ids if any tasks were created
+        let output = if !task_ids.is_empty() {
+            let patch = TeamPatch {
+                task_ids: Some(task_ids.clone()),
+                ..Default::default()
+            };
+            if let Err(e) = self
+                .storage
+                .team_store
+                .update_team(&team.team_id, &patch)
+                .await
+            {
+                tracing::warn!("Failed to update team with task_ids: {e}");
+            }
+            TeamCreateOutput {
+                team_id: team.team_id,
+                name: team.name,
+                lead: team.lead,
+                status: team.status.as_str().to_string(),
+                task_ids,
+            }
+        } else {
+            TeamCreateOutput {
+                team_id: team.team_id,
+                name: team.name,
+                lead: team.lead,
+                status: team.status.as_str().to_string(),
+                task_ids: Vec::new(),
+            }
         };
 
         ok_result(&output)
@@ -120,6 +197,7 @@ impl TeamListTool {
     }
 
     #[cfg(test)]
+    #[allow(dead_code)]
     pub(super) fn new_with_storage(storage: TeamStorage) -> Self {
         Self { storage }
     }
@@ -271,6 +349,7 @@ impl TeamStatusTool {
     }
 
     #[cfg(test)]
+    #[allow(dead_code)]
     pub(super) fn new_with_storage(storage: TeamStorage) -> Self {
         Self { storage }
     }
@@ -343,6 +422,7 @@ impl TeamUpdateTool {
     }
 
     #[cfg(test)]
+    #[allow(dead_code)]
     pub(super) fn new_with_storage(storage: TeamStorage) -> Self {
         Self { storage }
     }
@@ -443,6 +523,7 @@ impl TeamDeleteTool {
     }
 
     #[cfg(test)]
+    #[allow(dead_code)]
     pub(super) fn new_with_storage(storage: TeamStorage) -> Self {
         Self { storage }
     }

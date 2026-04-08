@@ -225,7 +225,9 @@ impl AgentSetup {
 
         let built_in_agents = builtins::built_in::configs(&self.current_dir);
         for (name, agent_config) in built_in_agents {
-            if !all_agents.iter().any(|a| a.name == *name) {
+            let agent_name =
+                synthia_agent::config::AgentName::Custom(name.clone());
+            if !all_agents.iter().any(|a| a.name == agent_name) {
                 let config: AgentConfig = agent_config.clone();
                 all_agents.push(config);
             }

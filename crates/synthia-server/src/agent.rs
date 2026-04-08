@@ -138,7 +138,8 @@ pub async fn build_agent(
     let mut all_agents = config.get_agents(current_dir);
     let built_in_agents = builtins::built_in::configs(current_dir);
     for (name, agent_config) in built_in_agents {
-        if !all_agents.iter().any(|a| a.name == *name) {
+        let agent_name = synthia_agent::config::AgentName::Custom(name.clone());
+        if !all_agents.iter().any(|a| a.name == agent_name) {
             all_agents.push(agent_config.clone());
         }
     }

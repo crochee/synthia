@@ -16,7 +16,7 @@ use tokio_util::sync::CancellationToken;
 use super::loop_detector::LoopDetector;
 use crate::{
     Result,
-    config::{AgentConfig, SessionConfig},
+    config::{AgentConfig, AgentName, SessionConfig},
     context::ContextManager,
     guardian::Guardian,
     hooks::HookRegistry,
@@ -70,6 +70,7 @@ pub struct Agent {
 impl Agent {
     pub fn new(config: Arc<AgentConfig>, deps: AgentDeps) -> Self {
         let loop_detector = LoopDetector::new(100, 3);
+
         Self {
             config,
             deps,
@@ -96,14 +97,46 @@ impl std::fmt::Debug for Agent {
 }
 
 impl Agent {
+    /// Tools denied in Team Lead mode
+    const LEAD_DENIED_TOOLS: &'static [&'static str] = &["claim_task"];
+    /// Tools denied in Team Member mode
+    const MEMBER_DENIED_TOOLS: &'static [&'static str] =
+        &["task_create", "broadcast", "spawn_teammate"];
+    /// Tools denied in Solo mode
+    const SOLO_DENIED_TOOLS: &'static [&'static str] =
+        &["spawn_teammate", "team_create", "team_assign", "claim_task"];
+
+    /// Get the list of tools denied based on the agent name.
+    fn denied_tools_for_name(name: &AgentName) -> Vec<String> {
+        let tools = match name {
+            AgentName::Solo => Self::SOLO_DENIED_TOOLS,
+            AgentName::Lead => Self::LEAD_DENIED_TOOLS,
+            AgentName::Custom(_) => Self::MEMBER_DENIED_TOOLS,
+        };
+        tools.iter().map(ToString::to_string).collect()
+    }
+
+    /// Get the list of tools denied based on the agent name.
+    pub fn get_name_specific_denied_tools(&self) -> Vec<String> {
+        Self::denied_tools_for_name(&self.config.name)
+    }
+
     pub async fn get_filtered_tools(&self) -> Vec<rmcp::model::Tool> {
+        // Get name-specific denied tools
+        let name_denied = self.get_name_specific_denied_tools();
+
+        // Merge with config denied_tools
+        let mut all_denied = self.config.denied_tools.clone();
+        for tool in name_denied {
+            if !all_denied.contains(&tool) {
+                all_denied.push(tool);
+            }
+        }
+
         let mut tools: Vec<rmcp::model::Tool> = self
             .deps
             .tools
-            .filtered_tools(
-                &self.config.allowed_tools,
-                &self.config.denied_tools,
-            )
+            .filtered_tools(&self.config.allowed_tools, &all_denied)
             .await
             .into_iter()
             .map(|tool| {
@@ -134,6 +167,7 @@ impl Agent {
             is_proactive_mode: false,
             model_name: None,
             knowledge_cutoff: None,
+            team_info: None,
         };
 
         let mut state = match self.prompt_state.write() {
@@ -141,7 +175,11 @@ impl Agent {
             Err(_) => return String::new(),
         };
 
-        let effective_config = EffectivePromptConfig::new();
+        let effective_config = if let Some(ref prompt) = self.config.prompt {
+            EffectivePromptConfig::new().with_prompt(prompt.clone())
+        } else {
+            EffectivePromptConfig::new()
+        };
 
         PromptBuilder::default_with_sections()
             .build_effective_prompt(&ctx, &mut state, effective_config)
@@ -682,5 +720,33 @@ mod tests {
         assert_eq!(pattern.args_hash, 12345);
         assert!(pattern.result_hash.is_some());
         assert_eq!(pattern.result_hash.unwrap(), 67890);
+    }
+
+    #[test]
+    fn test_denied_tools_for_name_solo() {
+        let denied = Agent::denied_tools_for_name(&AgentName::Solo);
+        assert!(denied.contains(&"spawn_teammate".to_string()));
+        assert!(denied.contains(&"team_create".to_string()));
+        assert!(denied.contains(&"team_assign".to_string()));
+        assert!(denied.contains(&"claim_task".to_string()));
+        assert_eq!(denied.len(), 4);
+    }
+
+    #[test]
+    fn test_denied_tools_for_name_lead() {
+        let denied = Agent::denied_tools_for_name(&AgentName::Lead);
+        assert!(denied.contains(&"claim_task".to_string()));
+        assert_eq!(denied.len(), 1);
+    }
+
+    #[test]
+    fn test_denied_tools_for_name_custom() {
+        let denied = Agent::denied_tools_for_name(&AgentName::Custom(
+            "member".to_string(),
+        ));
+        assert!(denied.contains(&"task_create".to_string()));
+        assert!(denied.contains(&"broadcast".to_string()));
+        assert!(denied.contains(&"spawn_teammate".to_string()));
+        assert_eq!(denied.len(), 3);
     }
 }

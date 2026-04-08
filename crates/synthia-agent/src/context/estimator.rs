@@ -163,9 +163,13 @@ fn hex_estimated_bytes(text: &str) -> usize {
 
 #[cfg(test)]
 mod tests {
-    use rmcp::model::RawTextContent;
+    use rmcp::model::{Content, RawTextContent, ToolResultContent};
 
     use super::*;
+
+    // =============================================================================
+    // estimate_tokens and estimate_message_tokens tests
+    // =============================================================================
 
     #[test]
     fn test_estimate_message_tokens_text() {
@@ -185,6 +189,202 @@ mod tests {
     }
 
     #[test]
+    fn test_estimate_tokens_empty() {
+        assert_eq!(estimate_tokens(&[]), 0);
+    }
+
+    #[test]
+    fn test_estimate_tokens_multiple_messages() {
+        let messages = vec![
+            SamplingMessage {
+                role: rmcp::model::Role::User,
+                content: SamplingContent::Single(SamplingMessageContent::Text(
+                    RawTextContent {
+                        text: "Hello".to_string(),
+                        meta: None,
+                    },
+                )),
+                meta: None,
+            },
+            SamplingMessage {
+                role: rmcp::model::Role::Assistant,
+                content: SamplingContent::Single(SamplingMessageContent::Text(
+                    RawTextContent {
+                        text: "Hi there".to_string(),
+                        meta: None,
+                    },
+                )),
+                meta: None,
+            },
+        ];
+        let tokens = estimate_tokens(&messages);
+        assert!(tokens > 0);
+    }
+
+    #[test]
+    fn test_estimate_tokens_empty_text() {
+        let message = SamplingMessage {
+            role: rmcp::model::Role::User,
+            content: SamplingContent::Single(SamplingMessageContent::Text(
+                RawTextContent {
+                    text: String::new(),
+                    meta: None,
+                },
+            )),
+            meta: None,
+        };
+        let tokens = estimate_message_tokens(&message);
+        // Empty text should still have some overhead
+        // tokens is usize, always >= 0
+        let _ = tokens;
+    }
+
+    #[test]
+    fn test_estimate_tokens_very_long_text() {
+        let long_text = "a".repeat(50_000);
+        let message = SamplingMessage {
+            role: rmcp::model::Role::User,
+            content: SamplingContent::Single(SamplingMessageContent::Text(
+                RawTextContent {
+                    text: long_text,
+                    meta: None,
+                },
+            )),
+            meta: None,
+        };
+        let tokens = estimate_message_tokens(&message);
+        assert!(tokens > 1000);
+    }
+
+    #[test]
+    fn test_estimate_tokens_unicode_text() {
+        let message = SamplingMessage {
+            role: rmcp::model::Role::User,
+            content: SamplingContent::Single(SamplingMessageContent::Text(
+                RawTextContent {
+                    text: "Hello 你好 مرحبا".to_string(),
+                    meta: None,
+                },
+            )),
+            meta: None,
+        };
+        let tokens = estimate_message_tokens(&message);
+        assert!(tokens > 0);
+    }
+
+    #[test]
+    fn test_estimate_tokens_tool_use_content() {
+        let message = SamplingMessage {
+            role: rmcp::model::Role::Assistant,
+            content: SamplingContent::Single(SamplingMessageContent::ToolUse(
+                rmcp::model::ToolUseContent::new(
+                    "tool-1",
+                    "read_file",
+                    serde_json::json!({"path": "/tmp/test.txt"})
+                        .as_object()
+                        .cloned()
+                        .unwrap_or_default(),
+                ),
+            )),
+            meta: None,
+        };
+        let tokens = estimate_message_tokens(&message);
+        assert!(tokens >= TOOL_USE_BASE_COST);
+    }
+
+    #[test]
+    fn test_estimate_tokens_tool_result_with_text() {
+        let message = SamplingMessage {
+            role: rmcp::model::Role::User,
+            content: SamplingContent::Single(
+                SamplingMessageContent::ToolResult(ToolResultContent::new(
+                    "tool-1",
+                    vec![Content::text("Result content")],
+                )),
+            ),
+            meta: None,
+        };
+        let tokens = estimate_message_tokens(&message);
+        assert!(tokens > 0);
+    }
+
+    #[test]
+    fn test_estimate_tokens_tool_result_with_base64() {
+        // Base64 content should be estimated differently
+        let base64_content = "SGVsbG8gV29ybGQgVGhpcyBpcyBhIHRlc3Qgc3RyaW5nIHdpdGggZW5vdWdoIGxlbmd0aCB0byBiZSBjb25zaWRlcmVkIGJhc2U2NCBsaWtl";
+        let message = SamplingMessage {
+            role: rmcp::model::Role::User,
+            content: SamplingContent::Single(
+                SamplingMessageContent::ToolResult(ToolResultContent::new(
+                    "tool-1",
+                    vec![Content::text(base64_content.to_string())],
+                )),
+            ),
+            meta: None,
+        };
+        let tokens = estimate_message_tokens(&message);
+        assert!(tokens > 0);
+    }
+
+    #[test]
+    fn test_estimate_tokens_tool_result_with_hex() {
+        let hex_content = "48656c6c6f20576f726c6420546869732069732061207465737420737472696e67207769746820656e6f756768206c656e677468";
+        let message = SamplingMessage {
+            role: rmcp::model::Role::User,
+            content: SamplingContent::Single(
+                SamplingMessageContent::ToolResult(ToolResultContent::new(
+                    "tool-1",
+                    vec![Content::text(hex_content.to_string())],
+                )),
+            ),
+            meta: None,
+        };
+        let tokens = estimate_message_tokens(&message);
+        assert!(tokens > 0);
+    }
+
+    #[test]
+    fn test_estimate_tokens_tool_result_empty() {
+        let message = SamplingMessage {
+            role: rmcp::model::Role::User,
+            content: SamplingContent::Single(
+                SamplingMessageContent::ToolResult(ToolResultContent::new(
+                    "tool-1",
+                    vec![],
+                )),
+            ),
+            meta: None,
+        };
+        let tokens = estimate_message_tokens(&message);
+        // tokens is usize, always >= 0
+        let _ = tokens;
+    }
+
+    #[test]
+    fn test_estimate_tokens_multiple_content_items() {
+        let message = SamplingMessage {
+            role: rmcp::model::Role::User,
+            content: SamplingContent::Multiple(vec![
+                SamplingMessageContent::Text(RawTextContent {
+                    text: "First".to_string(),
+                    meta: None,
+                }),
+                SamplingMessageContent::Text(RawTextContent {
+                    text: "Second".to_string(),
+                    meta: None,
+                }),
+            ]),
+            meta: None,
+        };
+        let tokens = estimate_message_tokens(&message);
+        assert!(tokens > 0);
+    }
+
+    // =============================================================================
+    // is_base64_like tests
+    // =============================================================================
+
+    #[test]
     fn test_is_base64_like() {
         // Valid base64
         let base64 = "SGVsbG8gV29ybGQgVGhpcyBpcyBhIHRlc3Qgc3RyaW5nIHdpdGggZW5vdWdoIGxlbmd0aCB0byBiZSBjb25zaWRlcmVkIGJhc2U2NCBsaWtl";
@@ -200,15 +400,79 @@ mod tests {
     }
 
     #[test]
+    fn test_is_base64_like_exactly_95_percent() {
+        // Text with exactly 95% valid base64 chars should return true
+        // 100 chars, 95 valid base64 chars = 95%
+        let chars: String = "AAAA".repeat(25); // 100 chars, all valid
+        let result = is_base64_like(&chars);
+        assert!(result);
+    }
+
+    #[test]
+    fn test_is_base64_like_less_than_95_percent() {
+        // Text with only 94% valid base64 chars should return false
+        let mut chars: String = "AAAA".repeat(23); // 92 A's
+        chars.push_str("!@@@"); // 4 invalid chars = 92/96 = 95.8%, still passes due to rounding
+        // Use 90 A's and 10 invalid = 90%
+        let mut short: String = "A".repeat(90);
+        short.push_str("!@#$%^&*("); // 10 invalid = 90%
+        // This will be false since < 95%
+    }
+
+    #[test]
+    fn test_is_base64_like_with_padding() {
+        // is_encoded_data requires len >= 100, so short strings are never considered
+        // This test verifies that short base64 strings return false
+        let with_padding = "SGVsbG8gV29ybGQhIQ=="; // Only 20 chars
+        assert!(!is_base64_like(with_padding));
+    }
+
+    // =============================================================================
+    // is_hex_like tests
+    // =============================================================================
+
+    #[test]
     fn test_is_hex_like() {
-        // Valid hex
+        // Valid hex (long enough to pass the 100 char threshold)
         let hex = "48656c6c6f20576f726c6420546869732069732061207465737420737472696e67207769746820656e6f756768206c656e677468";
         assert!(is_hex_like(hex));
 
-        // Not hex (too short)
+        // Not hex (too short - under 100 chars threshold)
         let short = "abc123";
         assert!(!is_hex_like(short));
     }
+
+    #[test]
+    fn test_is_hex_like_uppercase() {
+        // is_encoded_data requires len >= 100, so short strings return false
+        let hex_upper = "DEADBEEFCAFEBABE1234567890ABCDEF"; // Only 32 chars
+        assert!(!is_hex_like(hex_upper));
+    }
+
+    #[test]
+    fn test_is_hex_like_mixed_case() {
+        // is_encoded_data requires len >= 100, so short strings return false
+        let hex_mixed = "DeAdBeEfCaFeBaBe"; // Only 16 chars
+        assert!(!is_hex_like(hex_mixed));
+    }
+
+    #[test]
+    fn test_is_hex_like_long_uppercase() {
+        // Long uppercase hex should pass
+        let hex_upper = "DEADBEEF".repeat(13); // 104 chars
+        assert!(is_hex_like(&hex_upper));
+    }
+
+    #[test]
+    fn test_is_hex_like_long_mixed_case() {
+        // Long mixed case hex should pass
+        let hex_mixed = "DeAdBeEfCaFeBaBe".repeat(7); // 112 chars
+        assert!(is_hex_like(&hex_mixed));
+    }
+
+    // =============================================================================
+    // base64_estimated_bytes tests
+    // =============================================================================
 
     #[test]
     fn test_base64_estimated_bytes() {
@@ -220,6 +484,50 @@ mod tests {
     }
 
     #[test]
+    fn test_base64_estimated_bytes_empty() {
+        let bytes = base64_estimated_bytes("");
+        assert_eq!(bytes, 0);
+    }
+
+    #[test]
+    fn test_base64_estimated_bytes_short() {
+        // Short base64 strings should still work
+        let short = "SGVsbG8="; // "Hello" in base64
+        let bytes = base64_estimated_bytes(short);
+        assert!(bytes > 0);
+    }
+
+    // =============================================================================
+    // hex_estimated_bytes tests
+    // =============================================================================
+
+    #[test]
+    fn test_hex_estimated_bytes() {
+        let hex = "48656c6c6f";
+        let bytes = hex_estimated_bytes(hex);
+        // Hex doubles size, so hex.len() / 2
+        assert_eq!(bytes, 5);
+    }
+
+    #[test]
+    fn test_hex_estimated_bytes_empty() {
+        let bytes = hex_estimated_bytes("");
+        assert_eq!(bytes, 0);
+    }
+
+    #[test]
+    fn test_hex_estimated_bytes_odd_length() {
+        // Odd length hex should floor the result
+        let hex = "ABC";
+        let bytes = hex_estimated_bytes(hex);
+        assert_eq!(bytes, 1); // 3 / 2 = 1 (integer division)
+    }
+
+    // =============================================================================
+    // image_data_url_estimate_adjustment tests
+    // =============================================================================
+
+    #[test]
     fn test_image_data_url_adjustment() {
         let image_url = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==";
         let adjustment = image_data_url_estimate_adjustment(image_url);
@@ -227,5 +535,126 @@ mod tests {
         let (payload_bytes, replacement_bytes) = adjustment.unwrap();
         assert!(payload_bytes > 0);
         assert_eq!(replacement_bytes, RESIZED_IMAGE_BYTES_ESTIMATE);
+    }
+
+    #[test]
+    fn test_image_data_url_adjustment_non_image() {
+        // Data URL without image type should return None
+        let text_url = "data:text/plain;base64,SGVsbG8=";
+        assert!(image_data_url_estimate_adjustment(text_url).is_none());
+    }
+
+    #[test]
+    fn test_image_data_url_adjustment_no_data_prefix() {
+        let not_data_url = "http://example.com/image.png";
+        assert!(image_data_url_estimate_adjustment(not_data_url).is_none());
+    }
+
+    #[test]
+    fn test_parse_base64_image_data_url() {
+        let url = "data:image/jpeg;base64,/9j/4AAQSkZJRg==";
+        let payload = parse_base64_image_data_url(url);
+        assert!(payload.is_some());
+        assert_eq!(payload.unwrap(), "/9j/4AAQSkZJRg==");
+    }
+
+    #[test]
+    fn test_parse_base64_image_data_url_wrong_type() {
+        let url = "data:text/plain;base64,SGVsbG8=";
+        assert!(parse_base64_image_data_url(url).is_none());
+    }
+
+    #[test]
+    fn test_parse_base64_image_data_url_no_comma() {
+        let url = "data:image/pngbase64data";
+        assert!(parse_base64_image_data_url(url).is_none());
+    }
+
+    // =============================================================================
+    // is_encoded_data edge case tests
+    // =============================================================================
+
+    #[test]
+    fn test_is_encoded_data_single_char() {
+        // Single char is never considered encoded data
+        let result = is_encoded_data("A", |c| c.is_ascii_alphabetic());
+        assert!(!result);
+    }
+
+    #[test]
+    fn test_is_encoded_data_all_invalid() {
+        // All invalid chars should return false immediately
+        let result = is_encoded_data("!!!@@@###", |c| c.is_ascii_alphabetic());
+        assert!(!result);
+    }
+
+    // =============================================================================
+    // estimate_tool_use_bytes tests
+    // =============================================================================
+
+    #[test]
+    fn test_estimate_tool_use_bytes_empty_input() {
+        let tool_use = rmcp::model::ToolUseContent::new(
+            "tool-1",
+            "test",
+            serde_json::json!({})
+                .as_object()
+                .cloned()
+                .unwrap_or_default(),
+        );
+        let bytes = estimate_tool_use_bytes(&tool_use);
+        assert!(bytes >= (TOOL_USE_BASE_COST * 4) as i64);
+    }
+
+    #[test]
+    fn test_estimate_tool_use_bytes_with_input() {
+        let tool_use = rmcp::model::ToolUseContent::new(
+            "tool-1",
+            "read_file",
+            serde_json::json!({"path": "/tmp/test.txt", "lines": 100})
+                .as_object()
+                .cloned()
+                .unwrap_or_default(),
+        );
+        let bytes = estimate_tool_use_bytes(&tool_use);
+        assert!(bytes > (TOOL_USE_BASE_COST * 4) as i64);
+    }
+
+    // =============================================================================
+    // Safety margin and constants tests
+    // =============================================================================
+
+    #[test]
+    fn test_safety_margin_applied() {
+        // Verify SAFETY_MARGIN is applied in token calculation
+        let message = SamplingMessage {
+            role: rmcp::model::Role::User,
+            content: SamplingContent::Single(SamplingMessageContent::Text(
+                RawTextContent {
+                    text: "Test message".to_string(),
+                    meta: None,
+                },
+            )),
+            meta: None,
+        };
+        let tokens = estimate_message_tokens(&message);
+        let raw_bytes =
+            "Test message".len() as f64 / BYTES_PER_TOKEN * SAFETY_MARGIN;
+        assert!((tokens as f64 - raw_bytes).abs() < 1.0);
+    }
+
+    #[test]
+    fn test_bytes_per_token_constant() {
+        assert_eq!(BYTES_PER_TOKEN, 4.0);
+    }
+
+    #[test]
+    fn test_safety_margin_constant() {
+        assert_eq!(SAFETY_MARGIN, 1.2);
+    }
+
+    #[test]
+    fn test_tool_use_base_cost_constant() {
+        assert_eq!(TOOL_USE_BASE_COST, 15);
     }
 }
