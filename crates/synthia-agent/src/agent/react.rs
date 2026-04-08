@@ -66,24 +66,6 @@ impl ReactState {
     }
 }
 
-/// Returns `Some(event)` to yield it, or `None` if the loop should exit.
-fn handle_event_result(
-    agent: &Agent,
-    event_result: Result<AgentEvent>,
-) -> Option<AgentEvent> {
-    match event_result {
-        Ok(AgentEvent::Status(status)) => {
-            agent.emit_status(status);
-            None
-        }
-        Ok(event) => Some(event),
-        Err(e) => {
-            agent.emit_status(AgentStatus::Errored(e.to_string()));
-            None
-        }
-    }
-}
-
 impl Agent {
     #[instrument(skip_all, fields(session_id = %session_config.id, max_steps = session_config.max_steps))]
     pub async fn react(
@@ -105,7 +87,6 @@ impl Agent {
             let mut state = ReactState::new(session_config, cancel_token);
 
             loop {
-                // TODO: Extract actual token usage from model response for accurate tracking
                 state.increment_step(0);
 
                 if let Some(status) = agent.check_exit_conditions(&state).await {
@@ -124,10 +105,15 @@ impl Agent {
                 };
 
                 while let Some(event_result) = stream.next().await {
-                    if let Some(event) = handle_event_result(&agent, event_result) {
-                        yield event;
-                    } else {
-                        return;
+                    match event_result {
+                        Ok(AgentEvent::Status(status)) => {
+                            agent.emit_status(status);
+                        }
+                        Ok(event) => yield event,
+                        Err(e) => {
+                            agent.emit_status_and_yield(AgentStatus::Errored(e.to_string())).await;
+                            return;
+                        }
                     }
                 }
             }
