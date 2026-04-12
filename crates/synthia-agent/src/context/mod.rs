@@ -74,10 +74,10 @@ pub use normalize::{
     remove_orphan_outputs,
     strip_images_when_unsupported,
 };
-pub(crate) use pruning::micro_compact;
 #[cfg(test)]
 pub(crate) use pruning::{
     hard_clear_non_critical_tools,
+    micro_compact,
     prune_tools_with_importance,
     soft_prune_all_tools,
 };

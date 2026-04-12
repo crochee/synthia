@@ -8,7 +8,15 @@ use std::{
 
 use chrono::Utc;
 use futures::stream::{BoxStream, StreamExt};
-use rmcp::model::{SamplingMessage, Tool, ToolUseContent};
+use rmcp::model::{
+    RawTextContent,
+    Role,
+    SamplingContent,
+    SamplingMessage,
+    SamplingMessageContent,
+    Tool,
+    ToolUseContent,
+};
 use tokio_util::sync::CancellationToken;
 use tracing::instrument;
 
@@ -21,11 +29,7 @@ use crate::{
     Result,
     agent::{
         loop_detector::{OperationPattern, Outcome},
-        tool_executor::{
-            ToolErrorSummary,
-            ToolExecutionResult,
-            ToolStreamItem,
-        },
+        tool_executor::{ToolErrorSummary, ToolExecutionResult},
     },
     config::SessionConfig,
     hooks::{
@@ -38,36 +42,75 @@ use crate::{
             ToolSchedulingPlan,
         },
     },
-    types::{AgentEvent, AgentStatus},
+    types::{AgentEvent, AgentStatus, ErrorEvent, ErrorSource, TurnEndReason},
     utils::extract_tool_uses,
 };
 
 impl Agent {
     #[instrument(skip_all, name = "agent_step", fields(session_id = %session_config.id))]
-    pub(super) async fn step<'a>(
-        &'a self,
-        conversation: &'a [SamplingMessage],
-        session_config: &'a SessionConfig,
-        tools: &'a [Tool],
-        cancel_token: &'a CancellationToken,
-    ) -> Result<BoxStream<'a, Result<AgentEvent>>> {
-        let system_prompt = Some(self.build_system_prompt().await);
+    pub(super) async fn step_from_session(
+        &self,
+        session_config: &SessionConfig,
+        tools: &[Tool],
+        cancel_token: &CancellationToken,
+    ) -> Result<BoxStream<'static, AgentEvent>> {
+        let conversation = self
+            .deps
+            .session
+            .get_conversation(session_config)
+            .await
+            .map_err(|e| {
+                AgentError::context(format!("Failed to get conversation: {e}"))
+            })?
+            .to_vec();
 
-        let stream = async_stream::stream! {
-            let model_stream = self.call_model_with_retry(
+        let session_config = session_config.clone();
+        let tools = tools.to_vec();
+        let cancel_token = cancel_token.clone();
+
+        Ok(Self::step_with_owned_conversation(
+            self.clone(),
+            conversation,
+            session_config,
+            tools,
+            cancel_token,
+        ))
+    }
+
+    fn step_with_owned_conversation(
+        agent: Agent,
+        conversation: Vec<SamplingMessage>,
+        session_config: SessionConfig,
+        tools: Vec<Tool>,
+        cancel_token: CancellationToken,
+    ) -> BoxStream<'static, AgentEvent> {
+        Box::pin(async_stream::stream! {
+            let system_prompt = Some(agent.build_system_prompt().await);
+
+            let model_stream = match agent.call_model_with_retry(
                 system_prompt,
-                conversation,
-                tools,
+                &conversation,
+                &tools,
                 session_config.backoff.clone(),
-                cancel_token,
-            ).await?;
+                &cancel_token,
+            ).await {
+                Ok(s) => s,
+                Err(e) => {
+                    yield AgentEvent::Error(ErrorEvent {
+                        source: ErrorSource::Model,
+                        message: e.to_string(),
+                        suggestion: None,
+                    });
+                    return;
+                }
+            };
 
             let mut tool_uses: Vec<ToolUseContent> = Vec::new();
 
             tokio::pin!(model_stream);
             while let Some(result) = model_stream.next().await {
                 if cancel_token.is_cancelled() {
-                    yield Ok(AgentEvent::Status(AgentStatus::Cancelled));
+                    yield AgentEvent::Status(AgentStatus::Cancelled);
                     return;
                 }
 
@@ -76,20 +119,20 @@ impl Agent {
                     let msg = create_result.message;
                     tool_uses.extend(extract_tool_uses(&msg));
 
-                    if let Err(e) = self.deps.session.add_message(session_config, &msg).await {
+                    if let Err(e) = agent.deps.session.add_message(&session_config, &msg).await {
                         tracing::warn!("Failed to add assistant message: {}", e);
-                        yield Err(e);
+                        return;
                     }
-                    yield Ok(AgentEvent::Message(msg));
+                    yield AgentEvent::Message(msg);
 
                     match create_result.stop_reason.as_deref() {
                         Some("stop") => {
-                            yield Ok(AgentEvent::Status(AgentStatus::Completed));
+                            yield AgentEvent::Status(AgentStatus::Completed);
                             return;
                         }
                         Some(other) if !matches!(other, "tool_use" | "function_call" | "tool_calls") => {
                             tracing::warn!("Model stopped with reason: {}", other);
-                            yield Ok(AgentEvent::Status(AgentStatus::Errored(other.to_string())));
+                            yield AgentEvent::Status(AgentStatus::Errored(other.to_string()));
                             return;
                         }
                         _ => {}
@@ -97,17 +140,21 @@ impl Agent {
                 }
                 Err(e) => {
                     tracing::error!("Model error: {}", e);
-                    yield Err(e);
+                    yield AgentEvent::Error(ErrorEvent {
+                        source: ErrorSource::Model,
+                        message: e.to_string(),
+                        suggestion: None,
+                    });
                 }
             }
             }
 
             if !tool_uses.is_empty() {
-                let tool_config = self.deps.tools.config().await;
-                let tool_stream = self.process_tool_uses(
+                let tool_config = agent.deps.tools.config().await;
+                let tool_stream = agent.process_tool_uses(
                     tool_uses,
-                    session_config,
-                    cancel_token,
+                    &session_config,
+                    &cancel_token,
                     tool_config.max_concurrent_tools,
                 ).await;
 
@@ -116,9 +163,7 @@ impl Agent {
                     yield event;
                 }
             }
-        };
-
-        Ok(Box::pin(stream))
+        })
     }
 
     pub(super) async fn process_tool_uses<'a>(
@@ -127,19 +172,20 @@ impl Agent {
         session_config: &'a SessionConfig,
         cancel_token: &'a CancellationToken,
         max_concurrent: usize,
-    ) -> BoxStream<'a, Result<AgentEvent>> {
+    ) -> BoxStream<'a, AgentEvent> {
         if tool_uses.is_empty() {
-            return Box::pin(futures::stream::empty::<Result<AgentEvent>>());
+            return Box::pin(futures::stream::empty())
+                as BoxStream<'a, AgentEvent>;
         }
 
         let session_config = session_config.clone();
         let cancel_token = cancel_token.clone();
         let agent = Arc::new(self.clone());
 
-        let stream: BoxStream<'a, Result<AgentEvent>> = Box::pin(
+        let stream: BoxStream<'a, AgentEvent> = Box::pin(
             async_stream::stream! {
                 // Convert ToolUseContent to ToolCallInfo for scheduling
-                let tool_infos: Result<Vec<ToolCallInfo>, AgentError> = tool_uses
+                let tool_infos: Vec<ToolCallInfo> = match tool_uses
                     .into_iter()
                     .map(|tu| {
                         agent.deps.tools.get_tool(&tu.name)
@@ -157,12 +203,15 @@ impl Agent {
                                 )
                             })
                     })
-                    .collect();
-
-                let tool_infos = match tool_infos {
+                    .collect()
+                {
                     Ok(infos) => infos,
                     Err(e) => {
-                        yield Err(e);
+                        yield AgentEvent::Error(ErrorEvent {
+                            source: ErrorSource::Tool("scheduling".to_string()),
+                            message: e.to_string(),
+                            suggestion: None,
+                        });
                         return;
                     }
                 };
@@ -326,10 +375,26 @@ impl Agent {
                     );
                 }
 
-                let turn_complete_event = AgentEvent::TurnCompleteDetail {
+                let turn_end_event = AgentEvent::TurnEnd {
                     turn_id: turn_id.clone(),
-                    tool_count: total_tools,
-                    has_errors: all_errors.get_summary_message().is_some(),
+                    reason: if let Some(summary) = all_errors.get_summary_message() {
+                        TurnEndReason::Error(ErrorEvent {
+                            source: ErrorSource::Tool("batch".to_string()),
+                            message: summary,
+                            suggestion: Some("请检查工具参数或尝试其他方法".to_string()),
+                        })
+                    } else {
+                        TurnEndReason::Success(SamplingMessage {
+                            role: Role::Assistant,
+                            content: SamplingContent::Single(SamplingMessageContent::Text(
+                                RawTextContent {
+                                    text: format!("Completed {total_tools} tools"),
+                                    meta: None,
+                                },
+                            )),
+                            meta: None,
+                        })
+                    },
                 };
 
                 // Emit BeforeTurnComplete hook
@@ -340,7 +405,7 @@ impl Agent {
                     })
                     .await;
 
-                yield Ok(turn_complete_event);
+                yield turn_end_event;
 
                 // Emit AfterTurnComplete hook
                 agent.deps.hooks
@@ -353,7 +418,6 @@ impl Agent {
 
                 if let Some(summary) = all_errors.get_summary_message() {
                     tracing::warn!("Tool execution completed with errors: {}", summary);
-                    yield Err(AgentError::tool_error(summary));
                 }
             },
         );
@@ -461,7 +525,11 @@ impl Agent {
             Err(e) => {
                 tracing::error!(tool_name = %tool_name, error = %e, "Failed to execute tool");
                 execution_result.add_error(e.to_string());
-                execution_result.add_event(Err(e));
+                execution_result.add_event(AgentEvent::Error(ErrorEvent {
+                    source: ErrorSource::Tool(tool_name.to_string()),
+                    message: e.to_string(),
+                    suggestion: None,
+                }));
                 return false;
             }
         };
@@ -477,12 +545,7 @@ impl Agent {
             }
 
             match stream_item {
-                ToolStreamItem::Message(notification) => {
-                    execution_result.add_event(Ok(
-                        AgentEvent::SystemNotification(notification),
-                    ));
-                }
-                ToolStreamItem::Result(Ok(tool_response)) => {
+                Ok(tool_response) => {
                     if let Err(e) = agent
                         .deps
                         .session
@@ -496,13 +559,17 @@ impl Agent {
                         );
                     }
                     execution_result
-                        .add_event(Ok(AgentEvent::Message(tool_response)));
+                        .add_event(AgentEvent::Message(tool_response));
                 }
-                ToolStreamItem::Result(Err(e)) => {
+                Err(e) => {
                     tracing::error!(tool_name = %tool_name, error = %e, "Tool execution failed");
                     success = false;
                     execution_result.add_error(e.to_string());
-                    execution_result.add_event(Err(e));
+                    execution_result.add_event(AgentEvent::Error(ErrorEvent {
+                        source: ErrorSource::Tool(tool_name.to_string()),
+                        message: e.to_string(),
+                        suggestion: None,
+                    }));
                 }
             }
         }

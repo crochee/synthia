@@ -104,6 +104,14 @@ pub async fn build_agent(
     let context_manager =
         Arc::new(DefaultContextManager::new(model_router.clone()));
 
+    // Set guardian on tool registry before creating AgentDeps
+    let guardian = Arc::new(synthia_agent::guardian::AdvancedGuardian::new(
+        synthia_agent::guardian::GuardianConfig::default(),
+        model_router.clone(),
+        context_manager.clone(),
+    )) as Arc<dyn synthia_agent::guardian::Guardian>;
+    tool_registry.set_guardian(guardian).await;
+
     let agent = Agent::new(
         Arc::new(agent_config),
         synthia_agent::agent::AgentDeps {
@@ -113,12 +121,6 @@ pub async fn build_agent(
             router: model_router.clone(),
             hooks: hook_registry.clone(),
             skills: skill_tool.clone(),
-            guardian: Arc::new(synthia_agent::guardian::AdvancedGuardian::new(
-                synthia_agent::guardian::GuardianConfig::default(),
-                model_router.clone(),
-                context_manager.clone(),
-            ))
-                as Arc<dyn synthia_agent::guardian::Guardian>,
             control: Arc::new(AgentControl::new()),
         },
     );

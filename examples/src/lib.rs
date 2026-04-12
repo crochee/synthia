@@ -139,7 +139,6 @@ pub async fn process_stream(
     Ok(pending_tool_calls)
 }
 
-#[allow(deprecated)]
 pub async fn handle_tool_calls_with_session(
     session_manager: Arc<dyn SessionManager>,
     session_config: &SessionConfig,
@@ -155,11 +154,9 @@ pub async fn handle_tool_calls_with_session(
         println!("Processing tool: {id} name: {name}");
 
         let args = serde_json::Value::Object(input.clone());
+        let cancel_token = tokio_util::sync::CancellationToken::new();
         let result: CallToolResult = match tool_registry
-            .execute_with_tool(name, &args, |tool| {
-                let args = args.clone();
-                async move { tool.call(args).await }
-            })
+            .execute_with_tool(name, &args, &cancel_token)
             .await
         {
             Ok(r) => r,

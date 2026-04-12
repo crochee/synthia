@@ -970,6 +970,7 @@ mod integration_tests {
 #[cfg(test)]
 mod micro_compact_tests {
     use super::*;
+    use crate::context::micro_compact;
 
     #[test]
     fn test_micro_compact_preserves_recent_tool_results() {

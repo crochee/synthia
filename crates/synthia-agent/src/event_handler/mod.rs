@@ -85,6 +85,7 @@ mod tests {
         AgentEvent,
         SystemNotification,
         SystemNotificationType,
+        TurnEndReason,
     };
 
     #[derive(Debug, Default)]
@@ -294,23 +295,19 @@ mod tests {
         handler
             .on_event(
                 &AgentName::Custom("agent".to_string()),
-                &AgentEvent::TurnComplete {
+                &AgentEvent::TurnEnd {
                     turn_id: "turn-2".to_string(),
-                    message: msg.clone(),
+                    reason: TurnEndReason::Success(msg.clone()),
                 },
             )
             .await;
 
         let events = handler.get_events();
         assert_eq!(events.len(), 1);
-        if let AgentEvent::TurnComplete {
-            turn_id,
-            message: _,
-        } = &events[0].1
-        {
+        if let AgentEvent::TurnEnd { turn_id, reason: _ } = &events[0].1 {
             assert_eq!(turn_id, "turn-2");
         } else {
-            panic!("Expected TurnComplete event");
+            panic!("Expected TurnEnd event");
         }
     }
 

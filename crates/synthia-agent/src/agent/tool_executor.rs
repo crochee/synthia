@@ -5,7 +5,6 @@ use std::sync::Arc;
 use futures::stream::BoxStream;
 use rmcp::model::{
     CallToolResult,
-    Content,
     Role,
     SamplingContent,
     SamplingMessage,
@@ -20,23 +19,16 @@ use crate::{
     Result,
     agent::Agent,
     config::SessionConfig,
-    guardian::{ApprovalRequest, ReviewDecision},
-    types::{AgentEvent, SystemNotification, SystemNotificationType},
+    types::AgentEvent,
     utils::create_tool_message,
 };
 
 pub(crate) type ToolStream =
-    BoxStream<'static, ToolStreamItem<Result<SamplingMessage>>>;
-
-#[derive(Clone, Debug)]
-pub(crate) enum ToolStreamItem<T> {
-    Message(SystemNotification),
-    Result(T),
-}
+    BoxStream<'static, Result<SamplingMessage, AgentError>>;
 
 pub(crate) struct ToolExecutionResult {
     pub(crate) tool_name: String,
-    pub(crate) events: Vec<Result<AgentEvent>>,
+    pub(crate) events: Vec<AgentEvent>,
     pub(crate) errors: Vec<String>,
 }
 
@@ -49,7 +41,7 @@ impl ToolExecutionResult {
         }
     }
 
-    pub(crate) fn add_event(&mut self, event: Result<AgentEvent>) {
+    pub(crate) fn add_event(&mut self, event: AgentEvent) {
         self.events.push(event);
     }
 
@@ -119,62 +111,6 @@ impl ToolErrorSummary {
 }
 
 impl Agent {
-    pub(crate) fn build_guardian_request(
-        &self,
-        tool_name: &str,
-        tool_args: serde_json::Value,
-    ) -> Option<ApprovalRequest> {
-        let cwd = self.config.workspace_dir.to_string_lossy().to_string();
-        let id = uuid::Uuid::new_v4().to_string();
-
-        if tool_name == "exec" || tool_name == "bash" || tool_name == "shell" {
-            let command = tool_args
-                .get("command")
-                .and_then(|v| v.as_str())
-                .map(|s| vec![s.to_string()])
-                .unwrap_or_default();
-            let justification = tool_args
-                .get("justification")
-                .and_then(|v| v.as_str())
-                .map(ToString::to_string);
-            return Some(ApprovalRequest::shell(
-                id,
-                command,
-                cwd,
-                justification,
-            ));
-        }
-
-        if tool_name == "apply_patch" {
-            let patch = tool_args
-                .get("patch")
-                .and_then(|v| v.as_str())
-                .unwrap_or("");
-            let files: Vec<String> = tool_args
-                .get("files")
-                .and_then(|v| v.as_array())
-                .map(|arr| {
-                    arr.iter()
-                        .filter_map(|v| v.as_str().map(String::from))
-                        .collect()
-                })
-                .unwrap_or_default();
-            return Some(ApprovalRequest::apply_patch(
-                id,
-                cwd,
-                files,
-                patch.lines().count(),
-                patch.to_string(),
-            ));
-        }
-
-        None
-    }
-
-    pub(crate) fn requires_guardian_review(&self, tool_name: &str) -> bool {
-        self.deps.guardian.is_dangerous_tool(tool_name)
-    }
-
     pub fn create_error_response(
         error_message: String,
         detailed_error: Option<String>,
@@ -195,18 +131,6 @@ impl Agent {
         }
     }
 
-    fn create_tool_error_response(
-        tool_request_id: &str,
-        error_messages: Vec<&str>,
-    ) -> SamplingMessage {
-        create_tool_message(
-            tool_request_id.to_string(),
-            CallToolResult::error(
-                error_messages.into_iter().map(Content::text).collect(),
-            ),
-        )
-    }
-
     #[instrument(skip_all)]
     pub(crate) async fn execute_tool(
         tool_use: ToolUseContent,
@@ -218,18 +142,6 @@ impl Agent {
         let tool_name = tool_use.name.clone();
         let tool_args = serde_json::Value::Object(tool_use.input);
 
-        if let Some(result) = agent
-            .run_guardian_review(
-                &tool_name,
-                &tool_args,
-                &tool_request_id,
-                &cancel_token,
-            )
-            .await
-        {
-            return result;
-        }
-
         let tool_registry = Arc::clone(&agent.deps.tools);
 
         let args = if tool_args.is_null() {
@@ -238,97 +150,17 @@ impl Agent {
             tool_args
         };
 
+        // Guardian review is now handled inside execute_with_tool
         Ok(Box::pin(futures::stream::once(async move {
             let exec_result: Result<CallToolResult, AgentError> = tool_registry
-                .execute_with_tool(&tool_name, &args, |tool| {
-                    let args = args.clone();
-                    async move { tool.call(args).await }
-                })
+                .execute_with_tool(&tool_name, &args, &cancel_token)
                 .await;
 
             match exec_result {
-                Ok(result) => ToolStreamItem::Result(Ok(create_tool_message(
-                    tool_request_id,
-                    result,
-                ))),
-                Err(e) => ToolStreamItem::Result(Err(e)),
+                Ok(result) => Ok(create_tool_message(tool_request_id, result)),
+                Err(e) => Err(e),
             }
         })))
-    }
-
-    async fn run_guardian_review(
-        &self,
-        tool_name: &str,
-        tool_args: &serde_json::Value,
-        tool_request_id: &str,
-        cancel_token: &CancellationToken,
-    ) -> Option<Result<ToolStream>> {
-        if !self.requires_guardian_review(tool_name) {
-            return None;
-        }
-
-        let request =
-            self.build_guardian_request(tool_name, tool_args.clone())?;
-        tracing::info!(tool_name = %tool_name, "Running Guardian security review");
-
-        match self.deps.guardian.review(cancel_token, request).await {
-            Ok(Some(ReviewDecision::Approved)) => {
-                tracing::info!(tool_name = %tool_name, "Guardian approved");
-                None
-            }
-            Ok(Some(ReviewDecision::Denied { reason })) => {
-                tracing::warn!(tool_name = %tool_name, reason = %reason, "Guardian denied");
-                let response = Self::create_guardian_error_response(
-                    tool_request_id,
-                    &format!("Action blocked by Guardian: {reason}"),
-                    "Please modify your request or provide additional justification.",
-                );
-                Some(Ok(Box::pin(futures::stream::once(
-                    async move { response },
-                ))))
-            }
-            Ok(Some(ReviewDecision::NeedsUserInput { question, options })) => {
-                tracing::info!(tool_name = %tool_name, "Guardian requires user input for action");
-                let question_data = serde_json::json!({
-                    "question": question,
-                    "options": options,
-                });
-                let notification = SystemNotification {
-                    notification_type: SystemNotificationType::InlineMessage,
-                    msg: question,
-                    data: Some(question_data),
-                };
-                Some(Ok(Box::pin(futures::stream::once(async move {
-                    ToolStreamItem::Message(notification)
-                }))))
-            }
-            Ok(None) => {
-                tracing::info!(tool_name = %tool_name, "Guardian review skipped");
-                None
-            }
-            Err(e) => {
-                tracing::error!(tool_name = %tool_name, error = %e, "Guardian review failed");
-                let id = tool_request_id.to_string();
-                Some(Ok(Box::pin(futures::stream::once(async move {
-                    Self::create_guardian_error_response(
-                        &id,
-                        &format!("Guardian review failed: {e}"),
-                        "Please try again later.",
-                    )
-                }))))
-            }
-        }
-    }
-
-    fn create_guardian_error_response(
-        tool_request_id: &str,
-        primary: &str,
-        suggestion: &str,
-    ) -> ToolStreamItem<Result<SamplingMessage>> {
-        ToolStreamItem::Result(Ok(Self::create_tool_error_response(
-            tool_request_id,
-            vec![primary, suggestion],
-        )))
     }
 }
 
@@ -366,16 +198,6 @@ mod tests {
         } else {
             panic!("Expected multiple content");
         }
-    }
-
-    #[test]
-    fn test_create_tool_error_response() {
-        let response = Agent::create_tool_error_response(
-            "tool-123",
-            vec!["Error 1", "Error 2"],
-        );
-
-        assert_eq!(response.role, Role::User);
     }
 
     #[test]

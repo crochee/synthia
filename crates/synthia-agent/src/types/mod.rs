@@ -17,5 +17,12 @@ mod event;
 mod notification;
 pub mod team_types;
 
-pub use event::{AgentEvent, AgentStatus};
+pub use event::{
+    AgentEvent,
+    AgentStatus,
+    ErrorEvent,
+    ErrorSource,
+    ProgressEvent,
+    TurnEndReason,
+};
 pub use notification::{SystemNotification, SystemNotificationType};

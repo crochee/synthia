@@ -38,11 +38,9 @@ impl ToolService {
         name: &str,
         arguments: Value,
     ) -> Result<CallToolResult, ServerError> {
+        let cancel_token = tokio_util::sync::CancellationToken::new();
         self.registry
-            .execute_with_tool(name, &arguments, |tool| {
-                let arguments = arguments.clone();
-                async move { tool.call(arguments).await }
-            })
+            .execute_with_tool(name, &arguments, &cancel_token)
             .await
             .map_err(|e| ServerError::ToolError(e.to_string()))
     }

@@ -5,6 +5,46 @@ use serde::Serialize;
 
 use super::notification::SystemNotification;
 
+/// Error source for execution errors
+#[derive(Clone, Debug, Serialize)]
+pub enum ErrorSource {
+    /// Model API call error
+    Model,
+    /// Tool execution error with tool name
+    Tool(String),
+}
+
+/// Error event for recoverable execution errors
+#[derive(Clone, Debug, Serialize)]
+pub struct ErrorEvent {
+    /// Source of the error
+    pub source: ErrorSource,
+    /// Error message
+    pub message: String,
+    /// Optional suggestion for recovery
+    pub suggestion: Option<String>,
+}
+
+/// Turn end reason
+#[derive(Clone, Debug, Serialize)]
+pub enum TurnEndReason {
+    /// Turn completed successfully
+    Success(SamplingMessage),
+    /// Turn was aborted
+    Aborted(String),
+    /// Turn ended with error
+    Error(ErrorEvent),
+}
+
+/// Progress event
+#[derive(Clone, Debug, Serialize)]
+pub struct ProgressEvent {
+    /// Current phase
+    pub phase: String,
+    /// Progress message
+    pub message: String,
+}
+
 /// Agent status enumeration
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 pub enum AgentStatus {
@@ -43,17 +83,17 @@ pub enum AgentEvent {
     HistoryReplaced(Vec<SamplingMessage>),
     SystemNotification(SystemNotification),
     Status(AgentStatus),
+
+    // New error and progress events
+    Error(ErrorEvent),
+    Progress(ProgressEvent),
+
     TurnStarted {
         turn_id: String,
     },
-    TurnComplete {
+    TurnEnd {
         turn_id: String,
-        message: SamplingMessage,
-    },
-    TurnCompleteDetail {
-        turn_id: String,
-        tool_count: usize,
-        has_errors: bool,
+        reason: TurnEndReason,
     },
     TurnAborted {
         turn_id: String,
@@ -228,23 +268,27 @@ mod tests {
             )),
             meta: None,
         };
-        let event = AgentEvent::TurnComplete {
+        let event = AgentEvent::TurnEnd {
             turn_id: "turn-456".to_string(),
-            message: msg,
+            reason: TurnEndReason::Success(msg),
         };
         match event {
-            AgentEvent::TurnComplete { turn_id, message } => {
+            AgentEvent::TurnEnd { turn_id, reason } => {
                 assert_eq!(turn_id, "turn-456");
-                match message.content {
-                    SamplingContent::Single(SamplingMessageContent::Text(
-                        t,
-                    )) => {
-                        assert_eq!(t.text, "done");
+                if let TurnEndReason::Success(message) = reason {
+                    match message.content {
+                        SamplingContent::Single(
+                            SamplingMessageContent::Text(t),
+                        ) => {
+                            assert_eq!(t.text, "done");
+                        }
+                        _ => unreachable!("Expected text content"),
                     }
-                    _ => unreachable!("Expected text content"),
+                } else {
+                    unreachable!("Expected Success");
                 }
             }
-            _ => unreachable!("Expected TurnComplete"),
+            _ => unreachable!("Expected TurnEnd"),
         }
     }
 
@@ -339,6 +383,56 @@ mod tests {
         match message_event {
             AgentEvent::Message(_) => {}
             _ => unreachable!("Expected Message variant"),
+        }
+
+        // Test Error variant
+        let error_event = AgentEvent::Error(ErrorEvent {
+            source: ErrorSource::Model,
+            message: "API error".to_string(),
+            suggestion: Some("Retry".to_string()),
+        });
+        match error_event {
+            AgentEvent::Error(e) => {
+                assert!(matches!(e.source, ErrorSource::Model));
+                assert_eq!(e.message, "API error");
+            }
+            _ => unreachable!("Expected Error variant"),
+        }
+
+        // Test Progress variant
+        let progress_event = AgentEvent::Progress(ProgressEvent {
+            phase: "thinking".to_string(),
+            message: "Processing...".to_string(),
+        });
+        match progress_event {
+            AgentEvent::Progress(p) => {
+                assert_eq!(p.phase, "thinking");
+                assert_eq!(p.message, "Processing...");
+            }
+            _ => unreachable!("Expected Progress variant"),
+        }
+
+        // Test TurnEnd variant with Success
+        let msg = SamplingMessage {
+            role: Role::User,
+            content: SamplingContent::Single(SamplingMessageContent::Text(
+                RawTextContent {
+                    text: "done".to_string(),
+                    meta: None,
+                },
+            )),
+            meta: None,
+        };
+        let turn_end_event = AgentEvent::TurnEnd {
+            turn_id: "turn-1".to_string(),
+            reason: TurnEndReason::Success(msg),
+        };
+        match turn_end_event {
+            AgentEvent::TurnEnd { turn_id, reason } => {
+                assert_eq!(turn_id, "turn-1");
+                assert!(matches!(reason, TurnEndReason::Success(_)));
+            }
+            _ => unreachable!("Expected TurnEnd variant"),
         }
 
         let model_change_event = AgentEvent::ModelChange {

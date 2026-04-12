@@ -84,6 +84,10 @@ impl SubagentExecutor {
         subagent_config.is_subagent = true;
         subagent_config.name = AgentName::Solo;
 
+        let guardian = Arc::new(SimpleGuardian::new(GuardianConfig::default()))
+            as Arc<dyn Guardian>;
+        self.tool_registry.set_guardian(guardian).await;
+
         let deps = AgentDeps {
             tools: Arc::clone(&self.tool_registry),
             context: Arc::clone(&self.context_manager),
@@ -91,8 +95,6 @@ impl SubagentExecutor {
             router: Arc::clone(&self.model_router),
             hooks: Arc::clone(&self.hook_registry),
             skills: Arc::clone(&self.skill_tool),
-            guardian: Arc::new(SimpleGuardian::new(GuardianConfig::default()))
-                as Arc<dyn Guardian>,
             control: Arc::new(AgentControl::new()),
         };
 

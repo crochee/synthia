@@ -154,9 +154,37 @@ pub async fn handle_agent_event(
                 colors::RESET
             );
         }
+        AgentEvent::Error(error_event) => {
+            println!();
+            println!(
+                "{}[{}] Error: {}{}",
+                colors::RED,
+                agent_name,
+                error_event.message,
+                colors::RESET
+            );
+            if let Some(suggestion) = &error_event.suggestion {
+                println!(
+                    "{}Suggestion: {}{}",
+                    colors::YELLOW,
+                    suggestion,
+                    colors::RESET
+                );
+            }
+        }
+        AgentEvent::Progress(progress_event) => {
+            println!();
+            println!(
+                "{}[{}] Progress [{}]: {}{}",
+                colors::BLUE,
+                agent_name,
+                progress_event.phase,
+                progress_event.message,
+                colors::RESET
+            );
+        }
         AgentEvent::TurnStarted { .. } => {}
-        AgentEvent::TurnComplete { .. } => {}
-        AgentEvent::TurnCompleteDetail { .. } => {}
+        AgentEvent::TurnEnd { .. } => {}
         AgentEvent::TurnAborted { .. } => {}
         AgentEvent::ToolProgress { .. } => {}
     }

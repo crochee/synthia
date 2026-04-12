@@ -18,7 +18,6 @@ use crate::{
     Result,
     config::{AgentConfig, AgentName, SessionConfig},
     context::ContextManager,
-    guardian::Guardian,
     hooks::HookRegistry,
     model_router::ModelRouter,
     prompt::{
@@ -40,7 +39,6 @@ pub struct AgentDeps {
     pub router: Arc<dyn ModelRouter>,
     pub hooks: Arc<HookRegistry>,
     pub skills: Arc<SkillTool>,
-    pub guardian: Arc<dyn Guardian>,
     pub control: Arc<super::control::AgentControl>,
 }
 
@@ -53,7 +51,6 @@ impl std::fmt::Debug for AgentDeps {
             .field("router", &"Arc<dyn ModelRouter>")
             .field("hooks", &self.hooks)
             .field("skills", &self.skills)
-            .field("guardian", &"Arc<dyn Guardian>")
             .field("control", &self.control)
             .finish()
     }

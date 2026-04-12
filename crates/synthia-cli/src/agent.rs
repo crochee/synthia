@@ -194,6 +194,14 @@ impl AgentSetup {
         let context_manager =
             Arc::new(DefaultContextManager::new(model_router.clone()));
 
+        // Set guardian on tool registry before creating AgentDeps
+        let guardian = Arc::new(AdvancedGuardian::new(
+            GuardianConfig::default(),
+            model_router.clone(),
+            context_manager.clone(),
+        )) as Arc<dyn Guardian>;
+        self.tool_registry.set_guardian(guardian).await;
+
         let agent = Agent::new(
             Arc::new(agent_config.clone()),
             synthia_agent::agent::AgentDeps {
@@ -203,11 +211,6 @@ impl AgentSetup {
                 router: model_router.clone(),
                 hooks: hook_registry.clone(),
                 skills: skill_tool.clone(),
-                guardian: Arc::new(AdvancedGuardian::new(
-                    GuardianConfig::default(),
-                    model_router.clone(),
-                    context_manager,
-                )) as Arc<dyn Guardian>,
                 control: Arc::new(AgentControl::new()),
             },
         );

@@ -4,11 +4,16 @@ use std::{collections::BTreeSet, fmt::Debug, sync::Arc};
 
 use dashmap::DashMap;
 use moka::future::Cache;
+use rmcp::model::CallToolResult;
 use serde_json::Value;
 use tokio::sync::{RwLock, Semaphore};
 
 use super::Tool;
-use crate::{AgentError, config::ToolConfig};
+use crate::{
+    AgentError,
+    config::ToolConfig,
+    guardian::{ApprovalRequest, Guardian, ReviewDecision},
+};
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 struct FilterKey {
@@ -23,6 +28,7 @@ pub struct ToolRegistry {
     filtered_cache: Cache<FilterKey, Vec<Arc<dyn Tool>>>,
     read_pool: Arc<Semaphore>,
     write_pool: Arc<Semaphore>,
+    guardian: RwLock<Option<Arc<dyn Guardian>>>,
 }
 
 impl Default for ToolRegistry {
@@ -57,7 +63,84 @@ impl ToolRegistry {
             filtered_cache: Cache::builder().max_capacity(32).build(),
             read_pool: Arc::new(Semaphore::new(config.read_pool_size)),
             write_pool: Arc::new(Semaphore::new(config.write_pool_size)),
+            guardian: RwLock::new(None),
         }
+    }
+
+    /// Set the guardian for security review (optional)
+    pub async fn set_guardian(&self, guardian: Arc<dyn Guardian>) {
+        let mut guard = self.guardian.write().await;
+        *guard = Some(guardian);
+    }
+
+    /// Check if a tool requires guardian review
+    pub async fn requires_guardian_review(&self, tool_name: &str) -> bool {
+        let guard = self.guardian.read().await;
+        guard
+            .as_ref()
+            .is_some_and(|g| g.is_dangerous_tool(tool_name))
+    }
+
+    /// Build a guardian approval request for a tool call
+    fn build_guardian_request(
+        &self,
+        tool_name: &str,
+        tool_args: &Value,
+    ) -> Option<ApprovalRequest> {
+        let id = uuid::Uuid::new_v4().to_string();
+
+        if tool_name == "exec" || tool_name == "bash" || tool_name == "shell" {
+            let command = tool_args
+                .get("command")
+                .and_then(|v| v.as_str())
+                .map(|s| vec![s.to_string()])
+                .unwrap_or_default();
+            let justification = tool_args
+                .get("justification")
+                .and_then(|v| v.as_str())
+                .map(ToString::to_string);
+            let cwd = tool_args
+                .get("cwd")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+            return Some(ApprovalRequest::shell(
+                id,
+                command,
+                cwd,
+                justification,
+            ));
+        }
+
+        if tool_name == "apply_patch" {
+            let patch = tool_args
+                .get("patch")
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
+            let files: Vec<String> = tool_args
+                .get("files")
+                .and_then(|v| v.as_array())
+                .map(|arr| {
+                    arr.iter()
+                        .filter_map(|v| v.as_str().map(String::from))
+                        .collect()
+                })
+                .unwrap_or_default();
+            let cwd = tool_args
+                .get("cwd")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+            return Some(ApprovalRequest::apply_patch(
+                id,
+                cwd,
+                files,
+                patch.lines().count(),
+                patch.to_string(),
+            ));
+        }
+
+        None
     }
 
     pub async fn register(&self, tool: Arc<dyn Tool>) {
@@ -74,24 +157,60 @@ impl ToolRegistry {
         self.filtered_cache.invalidate_all();
     }
 
-    /// Execute a tool with automatic pool selection.
+    /// Execute a tool with automatic pool selection and optional guardian review.
     ///
     /// This method:
     /// 1. Gets the tool by name
-    /// 2. Determines if it's read-only based on args
-    /// 3. Selects appropriate pool (read or write)
-    /// 4. Executes the closure with the tool
-    pub async fn execute_with_tool<F, Fut, T>(
+    /// 2. If guardian is set and tool is dangerous, performs security review
+    /// 3. Determines if it's read-only based on args
+    /// 4. Selects appropriate pool (read or write)
+    /// 5. Executes the closure with the tool
+    ///
+    /// # Arguments
+    /// * `tool_name` - Name of the tool to execute
+    /// * `tool_args` - Tool arguments as JSON value
+    /// * `cancel_token` - Cancellation token (for guardian review)
+    /// * `f` - Closure to execute the tool
+    pub async fn execute_with_tool(
         &self,
         tool_name: &str,
         tool_args: &Value,
-        f: F,
-    ) -> Result<T, AgentError>
-    where
-        F: FnOnce(Arc<dyn Tool>) -> Fut,
-        Fut: std::future::Future<Output = T> + Send,
-        T: Send,
-    {
+        cancel_token: &tokio_util::sync::CancellationToken,
+    ) -> Result<CallToolResult, AgentError> {
+        // Guardian review (if enabled and tool is dangerous)
+        if let Some(ref guardian) = *self.guardian.read().await
+            && guardian.is_dangerous_tool(tool_name)
+            && let Some(request) =
+                self.build_guardian_request(tool_name, tool_args)
+        {
+            match guardian.review(cancel_token, request).await {
+                Ok(Some(ReviewDecision::Approved)) => {
+                    // Continue to tool execution
+                }
+                Ok(Some(ReviewDecision::Denied { reason })) => {
+                    return Err(AgentError::internal(format!(
+                        "Action blocked by Guardian: {reason}"
+                    )));
+                }
+                Ok(Some(ReviewDecision::NeedsUserInput {
+                    question,
+                    options: _,
+                })) => {
+                    return Err(AgentError::internal(format!(
+                        "Guardian requires user input: {question}"
+                    )));
+                }
+                Ok(None) => {
+                    // Guardian disabled, continue
+                }
+                Err(e) => {
+                    return Err(AgentError::internal(format!(
+                        "Guardian review failed: {e}"
+                    )));
+                }
+            }
+        }
+
         let tool = self
             .tools
             .get(tool_name)
@@ -104,14 +223,14 @@ impl ToolRegistry {
             let permit = self.read_pool.acquire().await.map_err(|e| {
                 AgentError::internal(format!("Read pool error: {e}"))
             })?;
-            let result = f(tool).await;
+            let result = tool.call(tool_args.clone()).await;
             drop(permit);
             Ok(result)
         } else {
             let permit = self.write_pool.acquire().await.map_err(|e| {
                 AgentError::internal(format!("Write pool error: {e}"))
             })?;
-            let result = f(tool).await;
+            let result = tool.call(tool_args.clone()).await;
             drop(permit);
             Ok(result)
         }
@@ -281,10 +400,9 @@ mod tests {
         let registry = ToolRegistry::new();
         registry.register(Arc::new(TestTool::new())).await;
 
+        let cancel_token = tokio_util::sync::CancellationToken::new();
         let result: Result<CallToolResult, _> = registry
-            .execute_with_tool("test_tool", &Value::Null, |tool| async move {
-                tool.call(Value::Null).await
-            })
+            .execute_with_tool("test_tool", &Value::Null, &cancel_token)
             .await;
 
         assert!(result.is_ok());
@@ -294,12 +412,9 @@ mod tests {
     async fn test_execute_with_tool_not_found() {
         let registry = ToolRegistry::new();
 
-        let result: Result<i32, _> = registry
-            .execute_with_tool(
-                "nonexistent",
-                &Value::Null,
-                |_tool| async move { 42 },
-            )
+        let cancel_token = tokio_util::sync::CancellationToken::new();
+        let result: Result<CallToolResult, _> = registry
+            .execute_with_tool("nonexistent", &Value::Null, &cancel_token)
             .await;
 
         assert!(result.is_err());

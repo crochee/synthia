@@ -96,10 +96,7 @@ mod tests {
         let configs = built_in::configs(&workspace);
 
         let default_config = configs.get(DEFAULT_ROLE_NAME).unwrap();
-        assert_eq!(
-            default_config.name,
-            AgentName::Custom(DEFAULT_ROLE_NAME.to_string())
-        );
+        assert_eq!(default_config.name, AgentName::Solo);
         assert_eq!(default_config.description, "Default agent");
         assert!(!default_config.is_subagent);
         assert_eq!(default_config.workspace_dir, workspace);

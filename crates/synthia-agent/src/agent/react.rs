@@ -5,7 +5,6 @@ use tokio_util::sync::CancellationToken;
 use tracing::instrument;
 
 use crate::{
-    AgentError,
     Result,
     agent::Agent,
     config::SessionConfig,
@@ -130,16 +129,12 @@ impl Agent {
                     }
                 };
 
-                while let Some(event_result) = stream.next().await {
-                    match event_result {
-                        Ok(AgentEvent::Status(status)) => {
+                while let Some(event) = stream.next().await {
+                    match event {
+                        AgentEvent::Status(status) => {
                             agent.emit_status(status);
                         }
-                        Ok(event) => yield event,
-                        Err(e) => {
-                            agent.emit_status_and_yield(AgentStatus::Errored(e.to_string())).await;
-                            return;
-                        }
+                        event => yield event,
                     }
                 }
 
@@ -205,69 +200,20 @@ impl Agent {
         AgentEvent::Status(status)
     }
 
-    async fn process_react_step<'a>(
-        &'a self,
-        state: &'a ReactState,
-        tools: &'a [rmcp::model::Tool],
-    ) -> Result<BoxStream<'a, Result<AgentEvent>>> {
-        let messages = self
-            .deps
-            .session
-            .get_conversation(&state.session_config)
-            .await
-            .map_err(|e| {
-                AgentError::context(format!("Failed to get conversation: {e}"))
-            })?
-            .to_vec();
+    async fn process_react_step(
+        &self,
+        state: &ReactState,
+        tools: &[rmcp::model::Tool],
+    ) -> Result<BoxStream<'static, AgentEvent>> {
+        let session_config = state.session_config.clone();
+        let cancel_token = state.cancel_token.clone();
 
-        let stream = async_stream::stream! {
-            let turn_stream = self.step(&messages, &state.session_config, tools, &state.cancel_token).await
-                .map_err(|e| AgentError::internal(format!("Failed to process step: {e}")))?;
+        let stream = self
+            .step_from_session(&session_config, tools, &cancel_token)
+            .await?;
 
-            tokio::pin!(turn_stream);
-            while let Some(event_result) = turn_stream.next().await {
-                let is_turn_complete = matches!(&event_result, Ok(AgentEvent::TurnCompleteDetail { .. }));
-
-                yield event_result;
-
-                if is_turn_complete {
-                    let conversation = match self.deps.session.get_conversation(&state.session_config).await {
-                        Ok(c) => c,
-                        Err(e) => {
-                            tracing::warn!("Failed to get conversation for compaction: {}", e);
-                            continue;
-                        }
-                    };
-
-                    if let Ok(Some(_)) = self.deps.context.compact(&conversation).await {
-                        let fixed = match self.deps.session.fix_conversation(&state.session_config).await {
-                            Ok(f) => f,
-                            Err(e) => {
-                                tracing::warn!("Failed to fix conversation: {}", e);
-                                continue;
-                            }
-                        };
-
-                        let mut compact_conversation = fixed.clone();
-                        crate::context::micro_compact(&mut compact_conversation, 3);
-
-                        match self.compact_conversation(&compact_conversation, &state.session_config).await {
-                            Ok((_replacement, compact_stream)) => {
-                                tokio::pin!(compact_stream);
-                                while let Some(compact_event) = compact_stream.next().await {
-                                    yield compact_event;
-                                }
-                            }
-                            Err(e) => {
-                                tracing::error!(session_id = %state.session_id(), "Compaction failed: {}", e);
-                            }
-                        }
-                    }
-                }
-            }
-        };
-
-        Ok(Box::pin(stream))
+        // Convert 'a lifetime to 'static by boxing
+        Ok(stream)
     }
 }
 
@@ -279,6 +225,7 @@ mod tests {
 
     use super::*;
     use crate::{
+        AgentError,
         agent::{
             AgentControl,
             AgentDeps,
@@ -308,8 +255,13 @@ mod tests {
             Arc::new(crate::session::SessionFileStore::new())
                 as Arc<dyn SessionManager>;
 
+        let tools = Arc::new(ToolRegistry::default());
+        let guardian = Arc::new(SimpleGuardian::new(GuardianConfig::default()))
+            as Arc<dyn Guardian>;
+        tools.set_guardian(guardian).await;
+
         let deps = AgentDeps {
-            tools: Arc::new(ToolRegistry::default()),
+            tools,
             context: Arc::new(DefaultContextManager::new(Arc::clone(
                 &model_router,
             ))),
@@ -317,8 +269,6 @@ mod tests {
             router: model_router,
             hooks: Arc::new(HookRegistry::new()),
             skills: Arc::new(SkillTool::new(temp_dir.path().to_path_buf())),
-            guardian: Arc::new(SimpleGuardian::new(GuardianConfig::default()))
-                as Arc<dyn Guardian>,
             control: Arc::new(AgentControl::new()),
         };
 

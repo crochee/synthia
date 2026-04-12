@@ -107,7 +107,9 @@ async fn main() -> Result<()> {
     }
 
     let agent_config = AgentConfig {
-        name: "demo-agent".to_string(),
+        name: synthia_agent::config::AgentName::Custom(
+            "demo-agent".to_string(),
+        ),
         models: vec![model_config],
         ..Default::default()
     };
@@ -121,6 +123,10 @@ async fn main() -> Result<()> {
     let session_store = Arc::new(SessionFileStore::new());
     let session_manager: Arc<dyn SessionManager> = session_store as _;
 
+    let guardian = Arc::new(SimpleGuardian::new(GuardianConfig::default()))
+        as Arc<dyn Guardian>;
+    tool_registry.set_guardian(guardian).await;
+
     let agent = Agent::new(
         Arc::new(agent_config),
         synthia_agent::agent::AgentDeps {
@@ -130,8 +136,6 @@ async fn main() -> Result<()> {
             router: model_router,
             hooks: hook_registry,
             skills: Arc::new(skill_tool.clone()),
-            guardian: Arc::new(SimpleGuardian::new(GuardianConfig::default()))
-                as Arc<dyn Guardian>,
             control: Arc::new(AgentControl::new()),
         },
     );

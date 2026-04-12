@@ -581,7 +581,7 @@ mod tests {
         // Verify expected tools are present
         assert!(registry.contains("spawn_teammate"));
         assert!(registry.contains("list_teammates"));
-        assert!(registry.contains("send_message"));
+        assert!(registry.contains("send_to_teammate"));
         assert!(registry.contains("read_inbox"));
         assert!(registry.contains("broadcast"));
         assert!(registry.contains("shutdown_request"));
@@ -612,7 +612,7 @@ mod tests {
         register_team_member_tools(&registry, "test-member".to_string()).await;
 
         // Verify expected tools are present
-        assert!(registry.contains("send_message"));
+        assert!(registry.contains("send_to_teammate"));
         assert!(registry.contains("read_inbox"));
         assert!(registry.contains("idle"));
         assert!(registry.contains("claim_task"));
