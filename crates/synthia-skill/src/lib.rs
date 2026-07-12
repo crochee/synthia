@@ -9,6 +9,7 @@ pub mod registry;
 pub mod tool_registry;
 pub mod types;
 pub mod usage;
+pub mod usage_tool;
 pub mod watcher;
 
 pub use bm25::BM25Index;
@@ -17,4 +18,5 @@ pub use installer::SkillInstaller;
 pub use registry::SkillRegistry;
 pub use tool_registry::register_skill_tool;
 pub use types::*;
+pub use usage_tool::{QUERY_SKILL_USAGE_TOOL_NAME, QuerySkillUsageTool};
 pub use watcher::SkillWatcher;

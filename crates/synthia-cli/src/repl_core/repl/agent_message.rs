@@ -152,6 +152,7 @@ impl Repl {
                 sandbox_manager: Some(sandbox_manager),
                 tool_orchestrator: Some(tool_orchestrator),
                 guardian_coordinator: None,
+                extension_manager: None,
             });
 
             // Task 10.3: Progress bar for file search operations

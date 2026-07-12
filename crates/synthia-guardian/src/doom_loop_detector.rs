@@ -10,8 +10,10 @@
 //! This detector uses a fast hash (AHash) to compare arguments rather than
 //! storing the full JSON string on every call.
 
-use std::collections::VecDeque;
-use std::hash::{Hash, Hasher};
+use std::{
+    collections::VecDeque,
+    hash::{Hash, Hasher},
+};
 
 use ahash::AHasher;
 

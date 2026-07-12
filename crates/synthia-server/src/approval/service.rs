@@ -6,6 +6,8 @@ use synthia_permission::{
     ApprovalOutcome,
     ApprovalPolicy,
     ApprovalService,
+    PermissionFuture,
+    PermissionRequest,
 };
 use tokio_util::sync::CancellationToken;
 
@@ -68,5 +70,13 @@ impl ApprovalService for HttpApprovalService {
                 }
             }
         }
+    }
+
+    fn ask(&self, _request: PermissionRequest) -> PermissionFuture {
+        // Phase 0 stub: the HTTP approval service is invoked via
+        // `request_approval` (the sync path used by the orchestrator).
+        // The deferred `ask` path is reserved for a follow-up change
+        // that wires the operator UI into `PermissionFuture`.
+        PermissionFuture::immediate_denied()
     }
 }

@@ -174,6 +174,7 @@ async fn chat_sse_handler(
             sandbox_manager: Some(state.sandbox_manager.clone()),
             tool_orchestrator: Some(state.tool_orchestrator.clone()),
             guardian_coordinator: None,
+            extension_manager: None,
         });
 
         let mut event_stream = agent_stream;
@@ -288,6 +289,7 @@ async fn chat_json_handler(
         sandbox_manager: Some(state.sandbox_manager.clone()),
         tool_orchestrator: Some(state.tool_orchestrator.clone()),
         guardian_coordinator: None,
+        extension_manager: None,
     });
 
     let mut assistant_response = String::new();

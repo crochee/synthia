@@ -36,4 +36,6 @@ dist
 .git/
 openspec
 docs/superpowers
+docs/codex-borrowable-checklist.md
+research/
 .om*

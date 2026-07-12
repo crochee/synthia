@@ -27,6 +27,7 @@ members = [
     "crates/synthia-plugin",
     "crates/synthia-message-proxy",
     "crates/synthia-cache-mark",
+    "crates/synthia-protocol",
     "test-support",
 ]
 resolver = "2"

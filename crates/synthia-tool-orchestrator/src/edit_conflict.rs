@@ -93,13 +93,6 @@ pub async fn check_conflict(
     None
 }
 
-/// Clears all recorded snapshots.
-pub async fn clear_all(
-    snapshot_store: &Arc<RwLock<HashMap<PathBuf, FileSnapshot>>>,
-) {
-    snapshot_store.write().await.clear();
-}
-
 #[cfg(test)]
 mod tests {
     use tempfile::TempDir;

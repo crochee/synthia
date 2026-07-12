@@ -40,13 +40,9 @@ impl Drop for ActiveCallGuard {
         self.map.remove(&self.call_id);
     }
 }
-use synthia_permission::{
-    ApprovalOutcome,
-    ApprovalPolicy,
-    ApprovalService,
-    Permission,
-    PermissionRequest,
-};
+use synthia_permission::{ApprovalOutcome, ApprovalService, Permission};
+#[cfg(test)]
+use synthia_permission::{ApprovalPolicy, PermissionRequest};
 use synthia_sandbox::{SandboxAttempt, SandboxManager, SandboxPolicy};
 use tokio::sync::{Mutex, OwnedMutexGuard};
 use tokio_util::sync::CancellationToken;
@@ -191,6 +187,14 @@ pub trait ExecutableTool: Send + Sync {
         false
     }
 
+    /// How the orchestrator should schedule this tool relative to its
+    /// peers. Defaults to [`synthia_tool::traits::ExecutionMode::Sequential`]
+    /// for backward compatibility (existing `ExecutableTool` impls are
+    /// assumed to mutate external state unless they opt-in to parallel).
+    fn execution_mode(&self) -> synthia_tool::traits::ExecutionMode {
+        synthia_tool::traits::ExecutionMode::Sequential
+    }
+
     /// Execute the tool.
     ///
     /// `sandbox_attempt` is the selected sandbox profile for this call. Tools
@@ -230,6 +234,32 @@ pub trait ExecutableTool: Send + Sync {
 #[async_trait]
 pub trait ToolResolver: Send + Sync {
     fn resolve(&self, name: &str) -> Option<Arc<dyn ExecutableTool>>;
+}
+
+/// Decide whether a batch of tool calls must run sequentially.
+///
+/// Returns `true` when **any** resolved tool declares
+/// [`synthia_tool::traits::ExecutionMode::Sequential`]. The orchestrator
+/// uses this to downgrade a whole batch to a serial loop whenever a
+/// mutating tool is involved — running a mutating tool concurrently
+/// with other tools (even read-only ones) can produce surprising
+/// interleaving (e.g. `write` racing against `read` of the same path).
+///
+/// Tools that cannot be resolved are treated as sequential (the safe
+/// default — better to serialize than to race on an unknown tool).
+pub fn needs_serial_routing(
+    requests: &[ToolCallRequest],
+    resolver: &dyn ToolResolver,
+) -> bool {
+    requests.iter().any(|req| {
+        resolver
+            .resolve(&req.tool_name)
+            .map(|tool| {
+                tool.execution_mode()
+                    == synthia_tool::traits::ExecutionMode::Sequential
+            })
+            .unwrap_or(true)
+    })
 }
 
 /// A simple in-memory resolver backed by a `HashMap`.
@@ -780,19 +810,42 @@ impl ToolOrchestrator for DefaultToolOrchestrator {
         context: ExecutionContext,
         cancellation_token: CancellationToken,
     ) -> Result<Vec<ToolCallResult>, ToolOrchestratorError> {
-        let futures = requests.into_iter().map(|request| {
-            let ctx = context.clone();
-            let cancel = cancellation_token.clone();
-            async move { self.execute(request, ctx, cancel).await }
-        });
+        // Phase 1 / Task 1.3.1-1.3.4 — if any tool in the batch is
+        // `Sequential` (i.e. requires strict serial execution), downgrade
+        // the whole batch to a serial loop. Otherwise keep parallel
+        // fan-out limited by `concurrency_policy.max_concurrent`.
+        let needs_serial =
+            needs_serial_routing(&requests, self.tool_resolver.as_ref());
 
-        let results: Vec<Result<ToolCallResult, ToolOrchestratorError>> =
-            stream::iter(futures)
-                .buffer_unordered(self.concurrency_policy.max_concurrent)
-                .collect()
-                .await;
+        if needs_serial {
+            let mut results = Vec::with_capacity(requests.len());
+            for request in requests {
+                if cancellation_token.is_cancelled() {
+                    return Err(ToolOrchestratorError::Cancelled {
+                        call_id: String::new(),
+                    });
+                }
+                let ctx = context.clone();
+                let cancel = cancellation_token.clone();
+                let result = self.execute(request, ctx, cancel).await?;
+                results.push(result);
+            }
+            Ok(results)
+        } else {
+            let futures = requests.into_iter().map(|request| {
+                let ctx = context.clone();
+                let cancel = cancellation_token.clone();
+                async move { self.execute(request, ctx, cancel).await }
+            });
 
-        results.into_iter().collect()
+            let results: Vec<Result<ToolCallResult, ToolOrchestratorError>> =
+                stream::iter(futures)
+                    .buffer_unordered(self.concurrency_policy.max_concurrent)
+                    .collect()
+                    .await;
+
+            results.into_iter().collect()
+        }
     }
 
     fn event_stream(
@@ -940,6 +993,10 @@ pub mod adapter {
 
         fn is_concurrency_safe(&self) -> bool {
             self.tool.is_concurrency_safe()
+        }
+
+        fn execution_mode(&self) -> synthia_tool::traits::ExecutionMode {
+            self.tool.execution_mode()
         }
 
         async fn execute(
@@ -1471,6 +1528,7 @@ mod inline_tests {
             self.calls.fetch_add(1, Ordering::SeqCst);
             Ok(ApprovalOutcome::Deny)
         }
+
         fn ask(
             &self,
             _request: PermissionRequest,
@@ -2009,6 +2067,192 @@ mod inline_tests {
                 .and_then(|t| t.as_str())
                 .expect("text outcome");
             assert!(text.contains("mcp echo:"));
+        }
+    }
+
+    mod execution_mode_routing_tests {
+        use async_trait::async_trait;
+        use synthia_tool::{Tool, ToolInput, ToolOutput};
+
+        use super::*;
+        use crate::{adapter::ToolAdapter, needs_serial_routing};
+
+        struct ParallelTool;
+        #[async_trait]
+        impl Tool for ParallelTool {
+            fn name(&self) -> &str {
+                "parallel_tool"
+            }
+
+            fn description(&self) -> &str {
+                "parallel"
+            }
+
+            fn parameters(&self) -> serde_json::Value {
+                serde_json::json!({})
+            }
+
+            fn execution_mode(&self) -> synthia_tool::traits::ExecutionMode {
+                synthia_tool::traits::ExecutionMode::Parallel
+            }
+
+            fn is_concurrency_safe(&self) -> bool {
+                true
+            }
+
+            async fn call(&self, _input: ToolInput) -> ToolOutput {
+                ToolOutput::text("ok")
+            }
+        }
+
+        struct SequentialTool;
+        #[async_trait]
+        impl Tool for SequentialTool {
+            fn name(&self) -> &str {
+                "sequential_tool"
+            }
+
+            fn description(&self) -> &str {
+                "sequential"
+            }
+
+            fn parameters(&self) -> serde_json::Value {
+                serde_json::json!({})
+            }
+
+            fn execution_mode(&self) -> synthia_tool::traits::ExecutionMode {
+                synthia_tool::traits::ExecutionMode::Sequential
+            }
+
+            fn is_concurrency_safe(&self) -> bool {
+                false
+            }
+
+            async fn call(&self, _input: ToolInput) -> ToolOutput {
+                ToolOutput::text("ok")
+            }
+        }
+
+        #[test]
+        fn needs_serial_routing_returns_false_for_parallel_batch() {
+            let mut tools = HashMap::new();
+            tools.insert(
+                "parallel_tool".to_string(),
+                Arc::new(ToolAdapter::new(Arc::new(ParallelTool)))
+                    as Arc<dyn ExecutableTool>,
+            );
+            let resolver = HashMapResolver::new(tools);
+            let requests = vec![
+                test_request("c1", "parallel_tool"),
+                test_request("c2", "parallel_tool"),
+            ];
+            assert!(!needs_serial_routing(&requests, &resolver));
+        }
+
+        #[test]
+        fn needs_serial_routing_returns_true_when_any_sequential() {
+            let mut tools = HashMap::new();
+            tools.insert(
+                "parallel_tool".to_string(),
+                Arc::new(ToolAdapter::new(Arc::new(ParallelTool)))
+                    as Arc<dyn ExecutableTool>,
+            );
+            tools.insert(
+                "sequential_tool".to_string(),
+                Arc::new(ToolAdapter::new(Arc::new(SequentialTool)))
+                    as Arc<dyn ExecutableTool>,
+            );
+            let resolver = HashMapResolver::new(tools);
+            let requests = vec![
+                test_request("c1", "parallel_tool"),
+                test_request("c2", "sequential_tool"),
+            ];
+            assert!(needs_serial_routing(&requests, &resolver));
+        }
+
+        #[test]
+        fn needs_serial_routing_fails_closed_for_unknown_tool() {
+            let resolver = HashMapResolver::new(HashMap::new());
+            let requests = vec![test_request("c1", "unknown")];
+            // Unknown tools default to sequential (fail-closed).
+            assert!(needs_serial_routing(&requests, &resolver));
+        }
+
+        #[tokio::test]
+        async fn execute_batch_with_sequential_tool_runs_serially() {
+            use std::sync::atomic::{AtomicUsize, Ordering};
+
+            struct CountingTool(Arc<AtomicUsize>);
+            #[async_trait]
+            impl Tool for CountingTool {
+                fn name(&self) -> &str {
+                    "counter"
+                }
+
+                fn description(&self) -> &str {
+                    "counter"
+                }
+
+                fn parameters(&self) -> serde_json::Value {
+                    serde_json::json!({})
+                }
+
+                fn execution_mode(
+                    &self,
+                ) -> synthia_tool::traits::ExecutionMode {
+                    synthia_tool::traits::ExecutionMode::Sequential
+                }
+
+                async fn call(&self, _input: ToolInput) -> ToolOutput {
+                    self.0.fetch_add(1, Ordering::SeqCst);
+                    ToolOutput::text(format!(
+                        "{}",
+                        self.0.load(Ordering::SeqCst)
+                    ))
+                }
+            }
+
+            let counter = Arc::new(AtomicUsize::new(0));
+            let tool = Arc::new(CountingTool(counter.clone()));
+            let mut tools = HashMap::new();
+            tools.insert(
+                "counter".to_string(),
+                Arc::new(ToolAdapter::new(tool)) as Arc<dyn ExecutableTool>,
+            );
+            let orchestrator = DefaultToolOrchestrator::new(
+                Arc::new(HashMapResolver::new(tools)),
+                Arc::new(HeadlessApprovalService),
+                Arc::new(NoopSandboxManager),
+                RetryPolicy::default(),
+            );
+
+            let requests = vec![
+                {
+                    let mut r = test_request("c1", "counter");
+                    r.permission = Permission::AutoApprove;
+                    r
+                },
+                {
+                    let mut r = test_request("c2", "counter");
+                    r.permission = Permission::AutoApprove;
+                    r
+                },
+                {
+                    let mut r = test_request("c3", "counter");
+                    r.permission = Permission::AutoApprove;
+                    r
+                },
+            ];
+            let results = orchestrator
+                .execute_batch(
+                    requests,
+                    test_context(),
+                    CancellationToken::new(),
+                )
+                .await
+                .expect("batch should succeed");
+            assert_eq!(results.len(), 3);
+            assert_eq!(counter.load(Ordering::SeqCst), 3);
         }
     }
 

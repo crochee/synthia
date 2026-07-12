@@ -86,6 +86,10 @@ pub struct AgentRunConfig {
     /// execution. When `Some`, the agent runtime routes tool calls through
     /// this orchestrator instead of `tool_registry`.
     pub tool_orchestrator: Option<Arc<dyn ToolOrchestrator>>,
+    /// Optional extension manager for dynamic tool providers.
+    /// When `None`, only static tools from `tool_registry` are available.
+    pub extension_manager:
+        Option<crate::tools::dynamic_provider::ExtensionManager>,
     /// Optional [`GuardianCoordinator`] used as the permission gate before
     /// tool execution. `None` = Guardian disabled (legacy behavior). When
     /// `Some`, [`execute_and_emit`](crate::stream_builder::builder::tool_execution::execute::execute_and_emit)

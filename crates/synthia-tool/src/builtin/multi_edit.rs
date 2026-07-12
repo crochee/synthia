@@ -63,6 +63,12 @@ impl Tool for MultiEditTool {
         })
     }
 
+    fn execution_mode(&self) -> crate::traits::ExecutionMode {
+        // MultiEdit mutates the filesystem; never run two copies in
+        // parallel against the same path.
+        crate::traits::ExecutionMode::Sequential
+    }
+
     async fn call(&self, input: ToolInput) -> ToolOutput {
         let workspace_root = &input.context.workspace_root;
         let edit_input: MultiEditInput =

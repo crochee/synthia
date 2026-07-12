@@ -8,7 +8,7 @@ use std::sync::Arc;
 pub use bash_tool::{BashTool, TOOL_NAME as BASH_TOOL_NAME};
 pub use command_blacklist::CommandBlacklist;
 pub use command_manager::CommandManager;
-pub use monitor::MonitorTool;
+pub use monitor::{MONITOR_TOOL_NAME, MonitorTool};
 use synthia_tool::{ToolEntry, registry::ToolRegistry};
 
 /// Register a `BashTool` into a `ToolRegistry` so the bash tool is
@@ -32,4 +32,18 @@ pub fn register_bash(
         command_manager,
         sandbox,
     ))));
+}
+
+/// Register a [`MonitorTool`] into a [`ToolRegistry`].
+///
+/// Companion to [`register_bash`]: the monitor tool needs the same
+/// `CommandManager` instance as the bash tool so a monitored process
+/// can be looked up by id from a future `bash` call (e.g. killing the
+/// background process).
+pub fn register_monitor(
+    registry: &ToolRegistry,
+    command_manager: Arc<CommandManager>,
+) {
+    registry
+        .register(ToolEntry::new(Arc::new(MonitorTool::new(command_manager))));
 }

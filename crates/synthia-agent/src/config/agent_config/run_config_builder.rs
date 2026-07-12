@@ -55,6 +55,7 @@ pub struct AgentRunConfigBuilder {
     sandbox_manager: Option<Arc<dyn SandboxManager>>,
     tool_orchestrator: Option<Arc<dyn ToolOrchestrator>>,
     guardian_coordinator: Option<Arc<synthia_guardian::GuardianCoordinator>>,
+    extension_manager: Option<crate::tools::dynamic_provider::ExtensionManager>,
 }
 
 impl AgentRunConfigBuilder {
@@ -216,6 +217,14 @@ impl AgentRunConfigBuilder {
         self
     }
 
+    pub fn extension_manager(
+        mut self,
+        manager: crate::tools::dynamic_provider::ExtensionManager,
+    ) -> Self {
+        self.extension_manager = Some(manager);
+        self
+    }
+
     pub fn build(self) -> Result<AgentRunConfig, Error> {
         let user_id = self.user_id.ok_or_else(|| {
             Error::Validation("missing required field: user_id".into())
@@ -272,6 +281,7 @@ impl AgentRunConfigBuilder {
             sandbox_manager: self.sandbox_manager,
             tool_orchestrator: self.tool_orchestrator,
             guardian_coordinator: self.guardian_coordinator,
+            extension_manager: self.extension_manager,
         })
     }
 }

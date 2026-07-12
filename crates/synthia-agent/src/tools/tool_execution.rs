@@ -45,6 +45,8 @@ mod tests {
                 cache_control: None,
             })],
             is_error: Some(false),
+            metadata: serde_json::Map::new(),
+            truncated_by: None,
         };
         assert_eq!(extract_output_text(&output), "Hello, World!");
     }
@@ -63,6 +65,8 @@ mod tests {
                 }),
             ],
             is_error: Some(false),
+            metadata: serde_json::Map::new(),
+            truncated_by: None,
         };
         assert_eq!(extract_output_text(&output), "Line 1\nLine 2");
     }
@@ -88,6 +92,8 @@ mod tests {
                     cache_control: None,
                 })],
                 is_error: Some(false),
+                metadata: serde_json::Map::new(),
+                truncated_by: None,
             },
             ToolOutput {
                 content: vec![ContentPart::Text(TextContent {
@@ -95,6 +101,8 @@ mod tests {
                     cache_control: None,
                 })],
                 is_error: Some(true),
+                metadata: serde_json::Map::new(),
+                truncated_by: None,
             },
         ];
 

@@ -205,6 +205,12 @@ impl Tool for ApplyPatchTool {
         })
     }
 
+    fn execution_mode(&self) -> crate::traits::ExecutionMode {
+        // apply_patch mutates many files; never run two copies in
+        // parallel against the same workspace.
+        crate::traits::ExecutionMode::Sequential
+    }
+
     fn requires_permission(&self) -> bool {
         true
     }

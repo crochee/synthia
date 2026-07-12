@@ -52,6 +52,13 @@ impl Tool for BashTool {
         })
     }
 
+    fn execution_mode(&self) -> synthia_tool::traits::ExecutionMode {
+        // Bash commands may have arbitrary side effects (cwd, env,
+        // temp files); never run two copies in parallel within a
+        // single turn — that could cause interleaving surprises.
+        synthia_tool::traits::ExecutionMode::Sequential
+    }
+
     fn requires_permission(&self) -> bool {
         true
     }

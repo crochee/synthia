@@ -13,10 +13,12 @@ mod types_test;
 pub use events::FileChangeEvent;
 pub use registry::{ToolEntry, ToolRegistry};
 pub use scoped_registry::{
+    LayeredToolRegistry,
     ScopeGuard,
     ScopedRegistration,
     ScopedToolRegistry,
     Token,
+    ToolScope,
 };
 pub use traits::*;
 pub use types::*;

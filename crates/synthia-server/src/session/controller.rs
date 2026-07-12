@@ -352,6 +352,7 @@ impl ControllerInner {
             sandbox_manager: Some(Arc::clone(&self.deps.sandbox_manager)),
             tool_orchestrator: Some(Arc::clone(&self.deps.tool_orchestrator)),
             guardian_coordinator: None,
+            extension_manager: None,
         }
     }
 

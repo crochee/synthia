@@ -20,19 +20,14 @@ use crate::{
     },
 };
 
-/// Build a [`ToolRegistry`] pre-populated with the default built-in
-/// tool set the agent uses in production.
+/// Build a [`ToolRegistry`] pre-populated with the default built-in tool set.
 ///
-/// The registry contains:
-/// - `read_file`, `write_file`, `search_files`, `apply_patch` from the
-///   agent-facing wrappers in [`crate::tools::builtins`].
-/// - `glob`, `grep`, `multi_edit`, `web_fetch` from `synthia_tool::builtin`.
-/// - `bash` from `synthia_tool_bash`, wired to a fresh
-///   [`CommandManager`] and a [`CommandBlacklist`] scoped to the
-///   provided workspace root.
-/// - `task` (subagent spawn) only when both `agent_control` and
-///   `subagent_session_factory` are provided, indicating the runtime
-///   has the full subagent infrastructure available.
+/// Deprecated: Use `ExtensionManager` with `FileToolsProvider`, `BashToolsProvider`
+/// etc. instead. This function will be removed in a future release.
+#[deprecated(
+    since = "0.2.0",
+    note = "Use ExtensionManager with dedicated providers"
+)]
 pub fn build_default_tool_registry(
     workspace_root: impl Into<PathBuf>,
     agent_control: Option<AgentControl>,

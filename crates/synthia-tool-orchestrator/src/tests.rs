@@ -111,6 +111,7 @@ impl ApprovalService for MockApprovingService {
     ) -> Result<ApprovalOutcome, ApprovalError> {
         Ok(ApprovalOutcome::Approve)
     }
+
     fn ask(
         &self,
         request: synthia_permission::PermissionRequest,

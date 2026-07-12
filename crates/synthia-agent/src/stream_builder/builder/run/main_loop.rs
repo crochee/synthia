@@ -158,6 +158,7 @@ impl StreamBuilder {
             sandbox_manager: _,
             // Guardian coordinator is consumed by `StepToolExecute`.
             guardian_coordinator: _,
+            extension_manager: _,
         } = run_config;
 
         let session_id_clone = session_id.clone();

@@ -209,6 +209,7 @@ impl AgentFactory {
             sandbox_manager: Some(Arc::clone(&self.sandbox_manager)),
             tool_orchestrator: Some(Arc::clone(&self.tool_orchestrator)),
             guardian_coordinator: None,
+            extension_manager: None,
         })
     }
 

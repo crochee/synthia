@@ -120,6 +120,7 @@ mod tests {
             sandbox_manager: None,
             tool_orchestrator: None,
             guardian_coordinator: None,
+            extension_manager: None,
         }
     }
 

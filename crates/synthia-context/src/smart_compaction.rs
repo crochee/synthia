@@ -7,9 +7,8 @@
 
 use synthia_provider::Message;
 
-use crate::types::ContextError;
-
 pub use crate::compaction::level1::CompactionProvider;
+use crate::types::ContextError;
 
 /// Maximum LLM summary output cap (4K tokens).
 const MAX_SUMMARY_TOKENS: usize = 4096;
@@ -77,8 +76,7 @@ fn is_compaction_message(msg: &Message) -> bool {
     let text = extract_message_text_compaction(msg);
     text.contains("[Compacted")
         || text.contains("<previous-summary>")
-        || text.contains("## Goal")
-        && text.contains("## Progress")
+        || text.contains("## Goal") && text.contains("## Progress")
 }
 
 fn extract_message_text_compaction(msg: &Message) -> String {
@@ -172,10 +170,7 @@ impl<P: CompactionProvider> SmartCompactionAgent<P> {
             Ok(summary) if !summary.is_empty() => {
                 if summary.chars().count() > MAX_SUMMARY_TOKENS * 4 {
                     // Truncate to max_summary_tokens
-                    Ok(truncate_to_chars(
-                        &summary,
-                        MAX_SUMMARY_TOKENS,
-                    ))
+                    Ok(truncate_to_chars(&summary, MAX_SUMMARY_TOKENS))
                 } else {
                     Ok(summary)
                 }
@@ -223,10 +218,12 @@ impl<P: CompactionProvider> SmartCompactionAgent<P> {
         sections.push(format!("[Summary of {} messages]", entries.len()));
 
         if !user_requests.is_empty() {
-            sections.push(format!("User Requests: {}", user_requests.join("; ")));
+            sections
+                .push(format!("User Requests: {}", user_requests.join("; ")));
         }
         if !decisions.is_empty() {
-            sections.push(format!("Assistant Responses: {}", decisions.join("; ")));
+            sections
+                .push(format!("Assistant Responses: {}", decisions.join("; ")));
         }
 
         if sections.len() == 1 {
@@ -238,7 +235,8 @@ impl<P: CompactionProvider> SmartCompactionAgent<P> {
         // Chain with previous summary if provided
         match previous_summary {
             Some(prev) if !prev.is_empty() => {
-                let truncated = truncate_to_chars(prev, PREVIOUS_SUMMARY_MAX_CHARS);
+                let truncated =
+                    truncate_to_chars(prev, PREVIOUS_SUMMARY_MAX_CHARS);
                 format!(
                     "<previous-summary>\n{}\n</previous-summary>\n{}",
                     truncated, body
@@ -252,7 +250,6 @@ impl<P: CompactionProvider> SmartCompactionAgent<P> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use synthia_provider::Role;
 
     fn user_msg(text: &str) -> Message {
         Message::user(text)
@@ -264,10 +261,7 @@ mod tests {
 
     #[test]
     fn test_select_tokens_simple() {
-        let msgs = vec![
-            user_msg("hello"),
-            assistant_msg("world"),
-        ];
+        let msgs = vec![user_msg("hello"), assistant_msg("world")];
         // Each ~5 chars = ~1-2 tokens, 2 messages = ~10 chars = ~2-3 tokens
         let (selected, recent) = select_tokens(&msgs, 1000);
         assert_eq!(selected.len(), 2);

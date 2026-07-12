@@ -78,6 +78,12 @@ impl Tool for WriteTool {
         })
     }
 
+    fn execution_mode(&self) -> crate::traits::ExecutionMode {
+        // Write mutates the filesystem; never run two copies in
+        // parallel against the same path.
+        crate::traits::ExecutionMode::Sequential
+    }
+
     fn requires_permission(&self) -> bool {
         true
     }

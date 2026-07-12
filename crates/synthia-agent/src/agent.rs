@@ -1107,6 +1107,7 @@ impl Agent {
             sandbox_manager: None,
             tool_orchestrator: None,
             guardian_coordinator: None,
+            extension_manager: None,
         };
 
         self.assemble_default_orchestrator(&mut run_config);
