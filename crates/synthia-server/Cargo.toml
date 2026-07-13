@@ -17,6 +17,7 @@ synthia-provider = { path = "../synthia-provider" }
 synthia-session = { path = "../synthia-session" }
 synthia-core = { path = "../synthia-core" }
 synthia-tool = { path = "../synthia-tool" }
+synthia-protocol = { path = "../synthia-protocol" }
 async-trait.workspace = true
 chrono.workspace = true
 axum.workspace = true
@@ -56,6 +57,7 @@ test-support = { path = "../../test-support" }
 filetime = "0.2"
 chrono.workspace = true
 serial_test = "3"
+tokio-tungstenite.workspace = true
 
 [dev-dependencies.synthia-server]
 path = "."

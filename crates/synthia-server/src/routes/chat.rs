@@ -51,6 +51,14 @@ pub struct ChatResponse {
 /// Supports content negotiation:
 /// - `Accept: text/event-stream` -> SSE streaming response
 /// - Other -> JSON response (existing behavior)
+///
+/// **Deprecated** as of Round 6 — clients should use `POST /submission`
+/// with a `synthia_protocol::Submission` envelope and read events from
+/// `GET /ws` instead.
+#[deprecated(
+    since = "0.2.0",
+    note = "use POST /submission with synthia_protocol::Submission"
+)]
 pub async fn chat_handler(
     State(state): State<Arc<AppState>>,
     Extension(user_id): Extension<RequestUserId>,
@@ -350,4 +358,94 @@ async fn chat_json_handler(
             end_reason,
         })),
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use std::{path::PathBuf, sync::Arc};
+
+    use axum::{
+        Extension,
+        Router,
+        extract::State,
+        http::{Request, StatusCode},
+        routing::post,
+    };
+    use serde_json::json;
+    use synthia_session::manager::SessionManager;
+    use tower::ServiceExt;
+
+    use super::*;
+    use crate::{middleware::auth::RequestUserId, state::AppState};
+
+    async fn inject_user_id(
+        mut req: axum::http::Request<axum::body::Body>,
+        next: axum::middleware::Next,
+    ) -> axum::http::Response<axum::body::Body> {
+        req.extensions_mut()
+            .insert(RequestUserId("legacy-user".to_string()));
+        next.run(req).await
+    }
+
+    fn build_test_app() -> Router {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let workspace: PathBuf = temp.path().to_path_buf();
+        let session_manager =
+            SessionManager::new(workspace.join(".synthia").join("sessions"));
+        let state = Arc::new(AppState::for_test(session_manager, workspace));
+        Router::new()
+            .route("/api/chat", post(legacy_chat_endpoint))
+            .layer(axum::middleware::from_fn(inject_user_id))
+            .with_state(state)
+    }
+
+    /// Wraps the deprecated `chat_handler` so the test compiles with
+    /// `#[allow(deprecated)]` applied at one well-defined site.
+    #[allow(deprecated)]
+    async fn legacy_chat_endpoint(
+        state: State<Arc<AppState>>,
+        user_id: Extension<RequestUserId>,
+        headers: axum::http::HeaderMap,
+        body: axum::Json<ChatRequest>,
+    ) -> impl axum::response::IntoResponse {
+        chat_handler(state, user_id, headers, body).await
+    }
+
+    #[tokio::test]
+    async fn deprecated_chat_route_still_returns_200() {
+        // Invoke the legacy route with `Accept: text/event-stream`,
+        // which returns SSE immediately while the agent loop runs in
+        // the background. This lets us assert the route still resolves
+        // to 200 OK without blocking on the agent's streaming tail.
+        let app = build_test_app();
+        let body = json!({
+            "session_id": "legacy-sess",
+            "input": "echo this back",
+            "model": "test-model",
+            "max_iterations": 1,
+        });
+
+        let mut response = app
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/chat")
+                    .header("content-type", "application/json")
+                    .header("accept", "text/event-stream")
+                    .body(axum::body::Body::from(body.to_string()))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        let status = response.status();
+        // Drop the SSE body so the background task is freed.
+        let _ = response.body_mut();
+
+        assert_eq!(
+            status,
+            StatusCode::OK,
+            "deprecated /api/chat SSE path must still return 200"
+        );
+    }
 }

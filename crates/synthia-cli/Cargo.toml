@@ -34,6 +34,10 @@ indicatif = "0.17"
 regex.workspace = true
 hex.workspace = true
 rand.workspace = true
+synthia-protocol = { path = "../synthia-protocol" }
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+tokio-tungstenite = { workspace = true }
+uuid = { workspace = true, features = ["v4"] }
 
 [dev-dependencies]
 tempfile.workspace = true

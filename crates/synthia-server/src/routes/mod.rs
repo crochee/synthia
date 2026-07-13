@@ -5,10 +5,13 @@ pub mod job;
 pub mod mcp;
 pub mod session;
 pub mod skill;
+pub mod submission;
 pub mod tool;
 pub mod v2;
 pub mod ws;
+pub mod ws_event;
 
+#[allow(deprecated)]
 pub use chat::chat_handler;
 pub use session::{
     create_session,
@@ -20,6 +23,7 @@ pub use session::{
     send_message,
 };
 pub use skill::{delete_skill, get_skill, list_skills, register_skill};
+pub use submission::post_submission;
 pub use tool::{delete_tool, get_tool, list_tools, register_tool};
 pub use v2::{
     create_provider,
@@ -36,6 +40,7 @@ pub use v2::{
     search_memory,
 };
 pub use ws::stream_handler;
+pub use ws_event::get_ws;
 
 pub use crate::sse_stream::stream_sse_handler;
 

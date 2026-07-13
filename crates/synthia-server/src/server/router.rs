@@ -80,7 +80,7 @@ pub fn create_router(state: Arc<AppState>) -> Router {
 
     // Versioned API routes under /api/v1/
     let v1_routes = Router::new()
-        .route("/chat", post(routes::chat_handler))
+        .route("/chat", post(deprecated_chat_handler))
         .route("/sessions", get(routes::list_sessions))
         .route("/sessions", post(routes::create_session))
         .route("/sessions/{id}", get(routes::get_session))
@@ -117,7 +117,7 @@ pub fn create_router(state: Arc<AppState>) -> Router {
         .layer(axum::middleware::from_fn(deprecated_middleware));
 
     let deprecated_routes = Router::new()
-        .route("/chat", post(routes::chat_handler))
+        .route("/chat", post(deprecated_chat_handler))
         .route("/sessions", get(routes::list_sessions))
         .route("/sessions", post(routes::create_session))
         .route("/sessions/{id}", get(routes::get_session))
@@ -156,6 +156,14 @@ pub fn create_router(state: Arc<AppState>) -> Router {
         .nest("/api/approvals", approval_routes)
         .route("/ws/approvals", get(ws_approvals_handler))
         .route("/health", get(health_check))
+        // ---- Round 6: wire protocol over HTTP/WS ----
+        // Additive layer exposing synthia_protocol::Submission over
+        // HTTP and synthia_protocol::EventMsg over WebSocket. Both
+        // routes are zero-migration: existing endpoints continue to
+        // resolve. See docs/superpowers/plans/2026-07-12-synthia-session-v2.md
+        // (Round 6).
+        .route("/submission", post(routes::post_submission))
+        .route("/ws", get(routes::get_ws))
         .layer(RequestTracingLayer)
         .layer(AuthLayer::new(state.auth_config.clone()))
         .with_state(state)
@@ -171,4 +179,17 @@ async fn deprecated_middleware(
         .headers_mut()
         .insert("Deprecation", "true".parse().unwrap());
     response
+}
+
+/// Internal shim so router wiring does not trip the `#[deprecated]`
+/// attribute that R6 places on `routes::chat_handler`. The route stays
+/// live; only the function attribute changed.
+#[allow(deprecated)]
+async fn deprecated_chat_handler(
+    state: axum::extract::State<std::sync::Arc<crate::state::AppState>>,
+    extension: axum::Extension<crate::middleware::auth::RequestUserId>,
+    headers: axum::http::HeaderMap,
+    body: axum::Json<crate::routes::chat::ChatRequest>,
+) -> impl axum::response::IntoResponse {
+    crate::routes::chat::chat_handler(state, extension, headers, body).await
 }

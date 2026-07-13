@@ -18,6 +18,14 @@ pub struct CliArgs {
     #[arg(short, long, default_value = ".")]
     pub workspace: PathBuf,
 
+    /// Connect to a remote server over the wire protocol
+    /// (`synthia_protocol::Submission` over HTTP, `EventMsg` over
+    /// WebSocket) instead of running the in-process REPL.
+    ///
+    /// Example: `--wire http://localhost:8080`
+    #[arg(long, value_name = "SERVER_URL")]
+    pub wire: Option<String>,
+
     /// Subcommands
     #[command(subcommand)]
     pub command: Option<Commands>,
@@ -88,4 +96,27 @@ pub enum SkillCommands {
         #[arg(long)]
         json: bool,
     },
+}
+
+#[cfg(test)]
+mod tests {
+    use clap::Parser;
+
+    use super::*;
+
+    #[test]
+    fn parses_wire_flag_correctly() {
+        let args = CliArgs::try_parse_from([
+            "synthia",
+            "--wire",
+            "http://localhost:8080",
+        ])
+        .expect("--wire should parse");
+        assert_eq!(
+            args.wire.as_deref(),
+            Some("http://localhost:8080"),
+            "--wire <SERVER_URL> must capture the URL value"
+        );
+        assert!(args.command.is_none());
+    }
 }

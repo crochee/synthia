@@ -5,6 +5,7 @@ use clap::Parser;
 use synthia_cli::{
     cli::{Commands, SkillCommands},
     repl,
+    run_wire_client,
     skill_cmd,
     workspace,
 };
@@ -23,6 +24,14 @@ struct Cli {
     #[arg(short, long, default_value = ".")]
     workspace: PathBuf,
 
+    /// Connect to a remote server over the wire protocol
+    /// (`synthia_protocol::Submission` over HTTP, `EventMsg` over
+    /// WebSocket) instead of running the in-process REPL.
+    ///
+    /// Example: `--wire http://localhost:8080`
+    #[arg(long, value_name = "SERVER_URL")]
+    wire: Option<String>,
+
     /// Initialize a new workspace without starting REPL
     #[command(subcommand)]
     command: Option<Commands>,
@@ -38,6 +47,12 @@ fn main() -> Result<()> {
         .init();
 
     let cli = Cli::parse();
+
+    if let Some(server_url) = cli.wire.as_deref() {
+        // Round 6: wire-protocol mode. Skip the REPL entirely.
+        let rt = tokio::runtime::Runtime::new()?;
+        return rt.block_on(run_wire_client(server_url));
+    }
 
     match cli.command {
         Some(Commands::Init) => {
