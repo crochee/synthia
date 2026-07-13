@@ -197,3 +197,14 @@ pub use state_machine::{
 pub use store::{CheckpointData, SessionMetadata, Store};
 pub use token_budget::TokenBudgetMonitor;
 pub use types::*;
+
+// R3 (synthia-session-v2) re-exports — additive on top of the legacy surface.
+// New code should reach for these directly; legacy re-exports stay
+// until 0.3.0 so external crates that still import `synthia_session::Store`
+// etc. continue to compile.
+#[allow(deprecated)]
+pub mod deprecation;
+pub mod migration;
+pub use deprecation::*;
+pub use migration::*;
+pub use synthia_session_v2::*;

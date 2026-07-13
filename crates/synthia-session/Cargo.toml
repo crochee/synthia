@@ -4,6 +4,7 @@ version.workspace = true
 edition.workspace = true
 
 [dependencies]
+synthia-session-v2 = { path = "../synthia-session-v2", version = "0.2.0" }
 synthia-core = { path = "../synthia-core" }
 synthia-provider = { path = "../synthia-provider" }
 serde.workspace = true

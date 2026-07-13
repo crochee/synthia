@@ -264,3 +264,35 @@ impl Store {
         dir::list_sessions_with_metadata(&self.sessions_root, caller_user_id)
     }
 }
+
+// R3: re-export `synthia-session-v2` types under the `store::*` path so
+// new code can reach them without going through the crate root. The
+// legacy `Store` / `SessionMetadata` / `CheckpointData` types above stay
+// intact for `manager/`, `service.rs`, and `state_machine/` callers
+// until those callers are ported to v2.
+#[allow(deprecated)]
+pub use synthia_session_v2::{
+    AgentPart,
+    AttachmentRef,
+    CURRENT_SESSION_VERSION,
+    CompactionPart,
+    FilePart,
+    Message,
+    MessageError,
+    MessageInfo,
+    MessageTime,
+    Part,
+    PatchPart,
+    ReasoningPart,
+    Role,
+    SessionEntry,
+    SessionTree,
+    SnapshotPart,
+    StepFinishPart,
+    StepStartPart,
+    SubtaskPart,
+    TextPart,
+    ToolPart,
+    ToolState,
+    ToolTime,
+};

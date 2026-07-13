@@ -28,6 +28,7 @@ members = [
     "crates/synthia-message-proxy",
     "crates/synthia-cache-mark",
     "crates/synthia-protocol",
+    "crates/synthia-session-v2",
     "test-support",
 ]
 resolver = "2"
