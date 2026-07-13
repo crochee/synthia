@@ -45,7 +45,11 @@ mod enums;
 mod observability;
 mod run_config;
 mod run_config_builder;
+pub mod sub_contexts;
 
+#[allow(clippy::module_inception)]
+#[cfg(test)]
+mod sub_contexts_tests;
 #[allow(clippy::module_inception)]
 #[cfg(test)]
 mod tests;
