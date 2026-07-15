@@ -98,6 +98,7 @@ mod tests {
     fn dummy_parent_config() -> AgentRunConfig {
         AgentRunConfig {
             provider: Arc::new(test_support::FakeProvider::new(vec![])),
+            #[allow(deprecated)]
             tool_registry:
                 synthia_tool::registry::ToolRegistry::register_defaults(),
             hook_registry: Arc::new(synthia_hook::HookRegistry::new()),

@@ -3,6 +3,7 @@
 use std::{collections::HashMap, path::PathBuf, sync::Arc};
 
 use dashmap::DashMap;
+#[allow(deprecated)]
 use synthia_agent::{
     AgentEvent,
     build_default_tool_registry,
@@ -105,6 +106,7 @@ impl AppState {
 
         let session_manager =
             Arc::new(SessionManager::new(workspace_root.join("sessions")));
+        #[allow(deprecated)]
         let tool_registry = Arc::new(RwLock::new(build_default_tool_registry(
             workspace_root.clone(),
             None,
@@ -183,6 +185,7 @@ impl AppState {
         let default_provider: Arc<dyn ModelProvider> =
             Arc::new(test_support::FakeProvider::new(vec![]));
 
+        #[allow(deprecated)]
         let tool_registry = Arc::new(RwLock::new(build_default_tool_registry(
             workspace_root.clone(),
             None,

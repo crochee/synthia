@@ -9,6 +9,7 @@
 use std::{sync::Arc, time::Duration};
 
 use indicatif::ProgressBar;
+#[allow(deprecated)]
 use synthia_agent::{
     Agent,
     AgentConfig,
@@ -59,6 +60,7 @@ impl Repl {
                 ..Default::default()
             };
 
+            #[allow(deprecated)]
             let tool_registry = build_default_tool_registry(
                 ctx.workspace_root.clone(),
                 None,

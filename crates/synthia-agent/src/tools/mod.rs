@@ -14,6 +14,7 @@ pub mod tool_runtime;
 // Re-export main types
 pub use agent_tools::AgentTool;
 pub use compact_context::CompactContextTool;
+#[allow(deprecated)]
 pub use registry::build_default_tool_registry;
 pub use self_reflect::SelfReflectTool;
 pub use tool_execution::{

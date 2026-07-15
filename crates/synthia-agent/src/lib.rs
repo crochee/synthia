@@ -108,6 +108,7 @@ pub use subagent::{
 pub use synthia_memory::types::MemoryEvent;
 pub use tool_registry::register_agent_tools;
 pub use tools as agent_builtin_tools;
-pub use tools::{ToolExecution, build_default_tool_registry};
+#[allow(deprecated)]
+pub use tools::{ToolExecution, build_default_tool_registry, providers};
 pub use tracing::{MetricsServer, ObservabilityConfig};
 pub use types::*;
