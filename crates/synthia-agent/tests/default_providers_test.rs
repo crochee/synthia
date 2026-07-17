@@ -1,8 +1,9 @@
 //! Integration test for `default_providers()` factory.
 //!
-//! Asserts that the factory assembles the four built-in providers
-//! (file, bash, search, MCP) so callers without an explicit provider
-//! set get the same baseline.
+//! Asserts that the factory assembles the nine built-in providers
+//! (file, bash, search, MCP, plus the five R11 spec-only shells:
+//! guardian, monitor, external_hook_tool, plugin_cli, tool_search)
+//! so callers without an explicit provider set get the same baseline.
 
 use synthia_agent::tools::providers::default_providers;
 
@@ -12,8 +13,8 @@ fn default_providers_returns_four_providers() {
 
     assert_eq!(
         providers.len(),
-        4,
-        "expected default_providers() to yield 4 providers, got {}",
+        9,
+        "expected default_providers() to yield 9 providers, got {}",
         providers.len(),
     );
 }
@@ -26,8 +27,17 @@ fn default_providers_names_match_implemented_providers() {
         providers.iter().map(|p| p.name()).collect();
     names.sort_unstable();
 
-    let mut expected =
-        vec!["bash_tools", "file_tools", "mcp_tools", "search_tools"];
+    let mut expected = vec![
+        "bash_tools",
+        "external_hook_tool",
+        "file_tools",
+        "guardian",
+        "mcp_tools",
+        "monitor",
+        "plugin_cli",
+        "search_tools",
+        "tool_search",
+    ];
     expected.sort_unstable();
 
     assert_eq!(

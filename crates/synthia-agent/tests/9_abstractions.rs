@@ -14,6 +14,16 @@
 
 use std::sync::Arc;
 
+use synthia_agent::tools::{
+    dynamic_provider::ToolProvider,
+    providers::{
+        external_hook_tools_provider::ExternalHookToolsProvider,
+        guardian_tools_provider::GuardianToolsProvider,
+        monitor_tools_provider::MonitorToolsProvider,
+        plugin_cli_tools_provider::PluginCliToolsProvider,
+        tool_search_tools_provider::ToolSearchToolsProvider,
+    },
+};
 use synthia_tool::registry::registration::{ToolEntry, ToolRegistry};
 
 // Names from the 9-abstractions spec. Each entry maps the spec
@@ -80,4 +90,34 @@ fn empty_registry_reports_empty() {
     let registry = ToolRegistry::new();
     assert!(!registry.contains("any_nonexistent_tool"));
     assert!(registry.is_empty());
+}
+
+#[test]
+fn guardian_provider_resolves() {
+    let p = GuardianToolsProvider::new();
+    assert_eq!(p.name(), "guardian");
+}
+
+#[test]
+fn monitor_provider_resolves() {
+    let p = MonitorToolsProvider::new();
+    assert_eq!(p.name(), "monitor");
+}
+
+#[test]
+fn external_hook_tool_provider_resolves() {
+    let p = ExternalHookToolsProvider::new();
+    assert_eq!(p.name(), "external_hook_tool");
+}
+
+#[test]
+fn plugin_cli_provider_resolves() {
+    let p = PluginCliToolsProvider::new();
+    assert_eq!(p.name(), "plugin_cli");
+}
+
+#[test]
+fn tool_search_provider_resolves() {
+    let p = ToolSearchToolsProvider::new();
+    assert_eq!(p.name(), "tool_search");
 }
