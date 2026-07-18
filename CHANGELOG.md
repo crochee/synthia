@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Tool Trait Decomposition (agent-toolification-v3)**: The monolithic 12-method `Tool` trait is decomposed into 3 focused sub-traits, each ≤ 5 methods:
+  - `ToolDefinition`: `name()`, `description()`, `parameters_schema()`, `category()`, `to_metadata()` — "what am I?"
+  - `ToolExecution`: `execute()`, `validate()`, `dry_run()`, `cost_estimate()`, `cancel()` — "what do I do?"
+  - `ToolLifecycle`: `on_register()`, `on_unregister()`, `health_check()`, `version()`, `schema_version()` — "am I alive?"
+  - `ToolV1` supertrait aggregates all three for backward compatibility. Blanket bridge implementations automatically satisfy sub-traits for any type implementing the legacy `Tool` trait.
+- **`MessageKind` enum**: 5-variant classification (`System`, `User`, `Assistant`, `ToolCall`, `ToolResult`) extending the 4-variant `Role` with `ToolCall` for assistant messages containing tool-use requests. Added to `synthia-provider`.
+- **`Message::llm_visible()` method**: O(1) side-effect-free method on `Message` that determines whether a message should be included in the LLM context window. Tool results with empty content are excluded.
+- **`ToolCategory` enum**: Categorization of tools (`FileSystem`, `Network`, `Computation`, `Agent`, `Other`) for registry metadata. Re-exports from `synthia_core` when `unified-registry` feature is enabled.
+- **`ToolMetadataSnapshot` struct**: Immutable snapshot of tool definition metadata (name, description, category, schema, version) for dual-index registry.
+- **`ToolPermission` trait + `PermissionDecision` enum**: Thin abstraction for tool-level permission decisions. `PermissionDecision` has three variants: `Allow`, `Deny(String)`, `Ask`. Includes `PermissionAlwaysAllow` and `PermissionAlwaysDeny` default implementations plus `PermissionContext` struct.
+- **ToolRegistry dual-index**: `ToolRegistry` now maintains `HashMap<String, ToolEntry>` + `Vec<ToolMetadataSnapshot>` atomically. New `snapshot()` method returns insertion-order-preserved metadata for LLM context building.
+
 ### Breaking Changes
 
 - **MergedPolicy::evaluate fail-closed**: `MergedPolicy::evaluate` now returns `Ask` (not `Allow`) for unknown patterns (ADR-2026-06-10). Migration: explicitly add `Allow` rules for all tools that should be silently allowed.

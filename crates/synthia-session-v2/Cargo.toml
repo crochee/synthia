@@ -15,6 +15,10 @@ chrono = { version = "0.4", features = ["serde"] }
 tracing = "0.1"
 tokio = { version = "1", features = ["fs", "io-util", "rt", "sync", "time", "macros"] }
 
+[features]
+default = []
+unified-registry = []
+
 [dev-dependencies]
 pretty_assertions = "1"
 tempfile = "3"

@@ -23,6 +23,8 @@ pub mod events;
 pub mod hooks;
 pub mod input;
 pub mod loop_context;
+#[cfg(feature = "unified-registry")]
+pub mod loop_services;
 pub mod memories;
 pub mod memory_background_task;
 pub mod observability;
@@ -31,6 +33,8 @@ pub mod plugin_loader;
 pub mod reasoning;
 pub mod registry;
 pub mod replay;
+#[cfg(feature = "unified-registry")]
+pub mod service_adapters;
 pub mod shell;
 pub mod steering;
 pub mod stream_builder;

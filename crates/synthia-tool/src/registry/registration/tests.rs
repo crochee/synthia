@@ -426,3 +426,102 @@ async fn test_registry_trait_contains_and_len() {
     assert!(registry.contains("test"));
     assert!(!registry.contains("nonexistent"));
 }
+
+// ── Dual-index (snapshot) tests ──
+
+#[test]
+fn test_snapshot_preserves_insertion_order() {
+    #[derive(Debug)]
+    struct ToolA;
+    #[derive(Debug)]
+    struct ToolB;
+
+    #[async_trait]
+    impl Tool for ToolA {
+        fn name(&self) -> &str {
+            "a"
+        }
+
+        fn description(&self) -> &str {
+            "Tool A"
+        }
+
+        fn parameters(&self) -> serde_json::Value {
+            serde_json::json!({})
+        }
+
+        async fn call(&self, _: ToolInput) -> ToolOutput {
+            ToolOutput::text("a")
+        }
+    }
+
+    #[async_trait]
+    impl Tool for ToolB {
+        fn name(&self) -> &str {
+            "b"
+        }
+
+        fn description(&self) -> &str {
+            "Tool B"
+        }
+
+        fn parameters(&self) -> serde_json::Value {
+            serde_json::json!({})
+        }
+
+        async fn call(&self, _: ToolInput) -> ToolOutput {
+            ToolOutput::text("b")
+        }
+    }
+
+    let registry = ToolRegistry::new();
+    registry.register(ToolEntry::new(Arc::new(ToolA)));
+    registry.register(ToolEntry::new(Arc::new(ToolB)));
+
+    let meta = registry.snapshot();
+    assert_eq!(meta.len(), 2);
+    assert_eq!(meta[0].name, "a");
+    assert_eq!(meta[1].name, "b");
+}
+
+#[tokio::test]
+async fn test_snapshot_after_unregister() {
+    let registry = ToolRegistry::new();
+    registry.register(ToolEntry::new(Arc::new(TestTool)));
+
+    #[derive(Debug)]
+    struct OtherTool;
+    #[async_trait]
+    impl Tool for OtherTool {
+        fn name(&self) -> &str {
+            "other"
+        }
+
+        fn description(&self) -> &str {
+            "Other"
+        }
+
+        fn parameters(&self) -> serde_json::Value {
+            serde_json::json!({})
+        }
+
+        async fn call(&self, _: ToolInput) -> ToolOutput {
+            ToolOutput::text("o")
+        }
+    }
+    registry.register(ToolEntry::new(Arc::new(OtherTool)));
+
+    let meta = registry.snapshot();
+    assert_eq!(meta.len(), 2);
+
+    registry.unregister("test").await.unwrap();
+    let meta = registry.snapshot();
+    assert_eq!(meta.len(), 1);
+    assert_eq!(meta[0].name, "other");
+}
+
+#[test]
+fn test_snapshot_empty_registry() {
+    let registry = ToolRegistry::new();
+    assert!(registry.snapshot().is_empty());
+}

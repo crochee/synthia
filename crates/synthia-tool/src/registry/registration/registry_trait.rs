@@ -33,6 +33,7 @@ use super::{
     entry::ToolEntry,
     registry::ToolRegistry,
 };
+use crate::sub_traits::ToolMetadataSnapshot;
 
 #[async_trait]
 impl Registry<ToolEntry> for ToolRegistry {
@@ -47,7 +48,16 @@ impl Registry<ToolEntry> for ToolRegistry {
         if tools.contains_key(&name) {
             return Err(Error::AlreadyExists(name));
         }
+        let meta = ToolMetadataSnapshot {
+            name: item.name().to_string(),
+            description: item.description().to_string(),
+            category: crate::sub_traits::ToolCategory::Utility,
+            parameters_schema: item.tool.parameters(),
+            version: "0.1.0".to_string(),
+        };
         tools.insert(name, item.clone());
+        drop(tools);
+        self.metadata_order.write().push(meta);
         Ok(item)
     }
 
@@ -56,7 +66,11 @@ impl Registry<ToolEntry> for ToolRegistry {
         tools
             .remove(name)
             .map(|_| ())
-            .ok_or_else(|| Error::NotFound(name.to_string()))
+            .ok_or_else(|| Error::NotFound(name.to_string()))?;
+        drop(tools);
+        let mut order = self.metadata_order.write();
+        order.retain(|m| m.name != name);
+        Ok(())
     }
 
     async fn get(

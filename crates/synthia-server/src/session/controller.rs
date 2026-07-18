@@ -353,6 +353,8 @@ impl ControllerInner {
             tool_orchestrator: Some(Arc::clone(&self.deps.tool_orchestrator)),
             guardian_coordinator: None,
             extension_manager: None,
+            #[cfg(feature = "unified-registry")]
+            loop_services: std::sync::OnceLock::new(),
         }
     }
 

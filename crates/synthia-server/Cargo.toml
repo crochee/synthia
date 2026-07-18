@@ -46,6 +46,7 @@ test-support = { path = "../../test-support", optional = true }
 
 [features]
 test-utils = ["dep:test-support"]
+unified-registry = ["synthia-agent/unified-registry"]
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["macros", "rt", "rt-multi-thread"] }

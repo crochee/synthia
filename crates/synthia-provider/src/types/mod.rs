@@ -36,6 +36,7 @@
 mod completion;
 mod content;
 mod message;
+mod message_kind;
 mod models;
 mod role;
 mod stream_chunk;
@@ -55,6 +56,7 @@ pub use content::{
     TextContent,
 };
 pub use message::Message;
+pub use message_kind::MessageKind;
 pub use models::{
     ModelConfig,
     ModelInfo,

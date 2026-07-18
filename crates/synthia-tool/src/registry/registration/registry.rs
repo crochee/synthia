@@ -43,6 +43,7 @@ use crate::{
         WebFetchTool,
         WriteTool,
     },
+    sub_traits::ToolMetadataSnapshot,
     traits::Tool,
     types::*,
 };
@@ -69,6 +70,12 @@ pub struct ToolRegistry {
     /// share the lock for the `Registry<ToolEntry>`
     /// CRUD surface.
     pub(super) tools: RwLock<HashMap<String, ToolEntry>>,
+    /// Insertion-ordered metadata vector. Provides
+    /// O(1) ordered snapshot via [`Self::snapshot`].
+    /// Maintained atomically with `tools` — every
+    /// `register` appends, every `unregister` removes
+    /// by name.
+    pub(super) metadata_order: RwLock<Vec<ToolMetadataSnapshot>>,
     /// Max parallel tool invocations per dispatch
     /// call. See [`ToolRegistry::with_max_concurrent`].
     pub(super) max_concurrent: usize,
@@ -89,6 +96,7 @@ impl ToolRegistry {
     pub fn new() -> Self {
         Self {
             tools: RwLock::new(HashMap::new()),
+            metadata_order: RwLock::new(Vec::new()),
             max_concurrent: 5,
             checker: None,
         }
@@ -139,8 +147,43 @@ impl ToolRegistry {
     /// [`super::registry_trait`].
     pub fn register(&self, item: ToolEntry) {
         let name = item.name().to_string();
+        let meta = ToolMetadataSnapshot {
+            name: item.name().to_string(),
+            description: item.description().to_string(),
+            category: crate::sub_traits::ToolCategory::Utility,
+            parameters_schema: item.tool.parameters(),
+            version: "0.1.0".to_string(),
+        };
         let mut tools = self.tools.write();
+        // If overwriting, remove old metadata entry first
+        if tools.contains_key(&name) {
+            drop(tools);
+            self.remove_by_name(&name);
+            tools = self.tools.write();
+        }
         tools.insert(name, item);
+        drop(tools);
+        self.metadata_order.write().push(meta);
+    }
+
+    /// Remove a tool by name, atomically cleaning both indices.
+    fn remove_by_name(&self, name: &str) {
+        let mut tools = self.tools.write();
+        tools.remove(name);
+        drop(tools);
+        let mut order = self.metadata_order.write();
+        order.retain(|m| m.name != name);
+    }
+
+    /// Return a snapshot of all registered tools' metadata
+    /// in insertion order.
+    ///
+    /// This is O(n) in the number of tools (clone), but
+    /// the returned `Vec` is cheaply iterable and suitable
+    /// for LLM tool_choice enumeration where ordering
+    /// matters.
+    pub fn snapshot(&self) -> Vec<ToolMetadataSnapshot> {
+        self.metadata_order.read().clone()
     }
 
     /// The dispatch pipeline. Walks `tool_uses`, runs
@@ -400,6 +443,7 @@ impl Clone for ToolRegistry {
     fn clone(&self) -> Self {
         Self {
             tools: RwLock::new(self.tools.read().clone()),
+            metadata_order: RwLock::new(self.metadata_order.read().clone()),
             max_concurrent: self.max_concurrent,
             checker: self.checker.clone(),
         }

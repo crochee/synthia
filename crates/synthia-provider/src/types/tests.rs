@@ -164,3 +164,113 @@ mod tool_result_cleared_at_tests {
         );
     }
 }
+
+#[cfg(test)]
+mod message_kind_and_llm_visible_tests {
+    use super::*;
+
+    #[test]
+    fn message_kind_has_five_variants() {
+        let _ = vec![
+            MessageKind::System,
+            MessageKind::User,
+            MessageKind::Assistant,
+            MessageKind::ToolCall,
+            MessageKind::ToolResult,
+        ];
+    }
+
+    #[test]
+    fn user_message_is_llm_visible() {
+        let msg = Message::user("hi");
+        assert!(msg.llm_visible());
+        assert_eq!(msg.kind(), MessageKind::User);
+    }
+
+    #[test]
+    fn system_message_is_llm_visible() {
+        let msg = Message::system("instructions");
+        assert!(msg.llm_visible());
+        assert_eq!(msg.kind(), MessageKind::System);
+    }
+
+    #[test]
+    fn assistant_message_is_llm_visible() {
+        let msg = Message::assistant("response");
+        assert!(msg.llm_visible());
+        assert_eq!(msg.kind(), MessageKind::Assistant);
+    }
+
+    #[test]
+    fn assistant_with_tool_use_is_tool_call_kind() {
+        let msg = Message {
+            role: Role::Assistant,
+            content: Content::Multi(vec![ContentPart::ToolUse(ToolUse {
+                id: "call-1".to_string(),
+                name: "read".to_string(),
+                input: serde_json::json!({}),
+            })]),
+            tool_call_id: None,
+            name: None,
+            tool_result_cleared_at: None,
+        };
+        assert_eq!(msg.kind(), MessageKind::ToolCall);
+        assert!(msg.llm_visible());
+    }
+
+    #[test]
+    fn tool_result_with_content_is_llm_visible() {
+        let msg = Message::tool(Content::text("result"), "call-1");
+        assert!(msg.llm_visible());
+        assert_eq!(msg.kind(), MessageKind::ToolResult);
+    }
+
+    #[test]
+    fn tool_result_with_empty_content_is_not_llm_visible() {
+        let msg = Message::tool(Content::text(""), "call-1");
+        assert!(!msg.llm_visible());
+        assert_eq!(msg.kind(), MessageKind::ToolResult);
+    }
+
+    #[test]
+    fn from_role_maps_correctly() {
+        assert_eq!(
+            MessageKind::from_role(Role::System, false),
+            MessageKind::System
+        );
+        assert_eq!(
+            MessageKind::from_role(Role::User, false),
+            MessageKind::User
+        );
+        assert_eq!(
+            MessageKind::from_role(Role::Assistant, false),
+            MessageKind::Assistant
+        );
+        assert_eq!(
+            MessageKind::from_role(Role::Assistant, true),
+            MessageKind::ToolCall
+        );
+        assert_eq!(
+            MessageKind::from_role(Role::Tool, false),
+            MessageKind::ToolResult
+        );
+    }
+
+    /// Performance contract: `llm_visible()` is O(1) and side-effect free.
+    /// Calling it in a tight loop over 10 000 messages MUST complete in
+    /// under 1 ms on a developer workstation.
+    #[test]
+    fn llm_visible_performance_contract() {
+        let msg = Message::user("performance test payload");
+        let iterations = 10_000;
+        let start = std::time::Instant::now();
+        for _ in 0..iterations {
+            std::hint::black_box(msg.llm_visible());
+        }
+        let elapsed = start.elapsed();
+        assert!(
+            elapsed.as_millis() < 1,
+            "llm_visible() over {iterations} calls took {elapsed:?}, expected < 1ms"
+        );
+    }
+}

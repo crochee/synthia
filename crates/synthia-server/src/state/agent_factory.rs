@@ -210,6 +210,8 @@ impl AgentFactory {
             tool_orchestrator: Some(Arc::clone(&self.tool_orchestrator)),
             guardian_coordinator: None,
             extension_manager: None,
+            #[cfg(feature = "unified-registry")]
+            loop_services: std::sync::OnceLock::new(),
         })
     }
 

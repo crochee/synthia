@@ -97,6 +97,11 @@ pub struct AgentRunConfig {
     /// delegating to `StepToolExecute::execute`.
     pub guardian_coordinator:
         Option<Arc<synthia_guardian::GuardianCoordinator>>,
+    /// Cached loop services (bootstrap-once). Populated by
+    /// [`LoopServices::bootstrap`] at the first call to
+    /// `Agent::run_stream`. `None` until first access.
+    #[cfg(feature = "unified-registry")]
+    pub loop_services: std::sync::OnceLock<crate::loop_services::LoopServices>,
 }
 
 /// Frozen runtime snapshot used for resume / fork.

@@ -917,6 +917,26 @@ impl Agent {
         // Prevents silent degradation when CLI/Examples call run_stream
         // directly without going through Agent::resume (which does assembly).
         ensure_tool_orchestrator(&mut run_config);
+
+        // Bootstrap LoopServices (unified-registry feature).
+        // Populates the OnceLock cache so subsequent accesses
+        // through `run_config.loop_services` are O(1).
+        #[cfg(feature = "unified-registry")]
+        {
+            use crate::loop_services::LoopServices;
+            if run_config.loop_services.get().is_none() {
+                let config = LoopServices::config_from_run_config(&run_config);
+                match LoopServices::bootstrap(config) {
+                    Ok(services) => {
+                        let _ = run_config.loop_services.set(services);
+                    }
+                    Err(e) => {
+                        tracing::error!("LoopServices bootstrap failed: {}", e);
+                    }
+                }
+            }
+        }
+
         #[cfg(feature = "otel")]
         {
             // Snapshot the OTel context before `run_config` is moved
@@ -1108,6 +1128,8 @@ impl Agent {
             tool_orchestrator: None,
             guardian_coordinator: None,
             extension_manager: None,
+            #[cfg(feature = "unified-registry")]
+            loop_services: std::sync::OnceLock::new(),
         };
 
         self.assemble_default_orchestrator(&mut run_config);

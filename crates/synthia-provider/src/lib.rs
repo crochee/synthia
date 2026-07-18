@@ -58,6 +58,7 @@ pub use types::{
     ImageContent,
     ImageDetail,
     Message,
+    MessageKind,
     ModelConfig,
     ModelInfo,
     ProviderConfig,

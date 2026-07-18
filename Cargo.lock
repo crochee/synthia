@@ -4072,6 +4072,7 @@ dependencies = [
  "synthia-plugin",
  "synthia-provider",
  "synthia-sandbox",
+ "synthia-service",
  "synthia-session",
  "synthia-skill",
  "synthia-task",
@@ -4195,6 +4196,7 @@ version = "0.1.0"
 dependencies = [
  "async-trait",
  "chrono",
+ "parking_lot",
  "reqwest",
  "schemars",
  "serde",
@@ -4203,6 +4205,7 @@ dependencies = [
  "tempfile",
  "thiserror 2.0.18",
  "tokio",
+ "tokio-util",
  "tracing",
  "ulid",
 ]
@@ -4253,6 +4256,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "synthia-event"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "serde",
+ "serde_json",
+ "synthia-core",
+ "thiserror 2.0.18",
+ "tokio",
+ "tokio-stream",
+ "tracing",
+]
+
+[[package]]
 name = "synthia-examples"
 version = "0.1.0"
 dependencies = [
@@ -4286,6 +4303,22 @@ version = "0.1.0"
 dependencies = [
  "synthia-tool-bash",
  "synthia-tool-exec-base",
+]
+
+[[package]]
+name = "synthia-extension"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "dashmap",
+ "parking_lot",
+ "serde",
+ "serde_json",
+ "synthia-core",
+ "thiserror 2.0.18",
+ "tokio",
+ "tokio-util",
+ "tracing",
 ]
 
 [[package]]
@@ -4578,6 +4611,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "synthia-service"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "parking_lot",
+ "serde",
+ "serde_json",
+ "synthia-core",
+ "thiserror 2.0.18",
+ "tokio",
+ "tokio-util",
+ "tracing",
+]
+
+[[package]]
 name = "synthia-session"
 version = "0.1.0"
 dependencies = [
@@ -4698,6 +4746,7 @@ dependencies = [
  "regex",
  "reqwest",
  "schemars",
+ "semver",
  "serde",
  "serde_json",
  "synthia-core",

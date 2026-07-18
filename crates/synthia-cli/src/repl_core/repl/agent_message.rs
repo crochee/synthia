@@ -155,6 +155,8 @@ impl Repl {
                 tool_orchestrator: Some(tool_orchestrator),
                 guardian_coordinator: None,
                 extension_manager: None,
+                #[cfg(feature = "unified-registry")]
+                loop_services: std::sync::OnceLock::new(),
             });
 
             // Task 10.3: Progress bar for file search operations

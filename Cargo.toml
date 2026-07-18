@@ -29,6 +29,9 @@ members = [
     "crates/synthia-cache-mark",
     "crates/synthia-protocol",
     "crates/synthia-session-v2",
+    "crates/synthia-service",
+    "crates/synthia-extension",
+    "crates/synthia-event",
     "test-support",
 ]
 resolver = "2"

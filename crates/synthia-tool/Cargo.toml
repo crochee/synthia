@@ -5,8 +5,8 @@ edition.workspace = true
 
 [dependencies]
 synthia-core = { path = "../synthia-core" }
-synthia-provider = { path = "../synthia-provider" }
 synthia-permission = { path = "../synthia-permission" }
+synthia-provider = { path = "../synthia-provider" }
 synthia-sandbox = { path = "../synthia-sandbox" }
 async-trait.workspace = true
 serde.workspace = true
@@ -27,6 +27,7 @@ priority-queue = "2"
 regex.workspace = true
 glob.workspace = true
 schemars = { version = "0.8", features = ["preserve_order"] }
+semver = "1"
 uuid = { version = "1", features = ["v4"] }
 
 [target.'cfg(target_os = "linux")'.dependencies]
@@ -39,3 +40,4 @@ tracing-subscriber.workspace = true
 [features]
 default = []
 otel = []
+unified-registry = ["synthia-core/unified-registry"]

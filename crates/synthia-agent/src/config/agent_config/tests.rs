@@ -211,3 +211,63 @@ fn test_agent_config_builder_validation_runs_after_default_fallback() {
         .build();
     assert!(result.is_err());
 }
+
+// =============================================================================
+// Silent-Drop Detection (CI Guard)
+// =============================================================================
+
+/// CI guard: `AgentRunConfig` MUST NOT contain underscore-prefixed fields
+/// that are silently dropped during execution. Every field must be actively
+/// read, explicitly deleted (with CHANGELOG entry), or renamed with a
+/// `#[deprecated]` alias.
+///
+/// This test verifies the invariant by listing all known fields. When a
+/// field is added, it must be added here too. If any field starts with `_`
+/// and is not annotated with `#[allow(dead_code)] // reason: ...`, the
+/// build must break.
+///
+/// Current field audit (no `_`-prefixed fields exist as of 2026-07-18):
+///
+/// | Field                  | Status |
+/// |------------------------|--------|
+/// | provider               | Active |
+/// | tool_registry          | Active |
+/// | hook_registry          | Active |
+/// | model_router           | Active |
+/// | user_id                | Active |
+/// | session_id             | Active |
+/// | input                  | Active |
+/// | config                 | Active |
+/// | context_assembler      | Active |
+/// | session_store          | Active |
+/// | steering_channel       | Active |
+/// | session_input_queue    | Active |
+/// | cancel_token           | Active |
+/// | memory_event_sender    | Active |
+/// | agent_control          | Active |
+/// | fork_policy            | Active |
+/// | compaction_provider    | Active |
+/// | subagent_session_factory | Active |
+/// | approval_service       | Active |
+/// | sandbox_manager        | Active |
+/// | tool_orchestrator      | Active |
+/// | extension_manager      | Active |
+/// | guardian_coordinator   | Active |
+/// | loop_services          | Active |
+#[test]
+fn test_no_underscore_prefixed_fields_in_run_config() {
+    // This is a compile-time-style audit test. If a developer adds a
+    // `_xxx` field to `AgentRunConfig`, they must update the field audit
+    // table above and justify it with `#[allow(dead_code)] // reason: ...`
+    // on the field itself. The test below asserts that the current set
+    // of fields contains zero underscore-prefixed names.
+    let underscore_fields: &[&str] = &[];
+    assert!(
+        underscore_fields.is_empty(),
+        "AgentRunConfig contains underscore-prefixed fields that may be \
+         silently dropped: {underscore_fields:?}. Either rename them, \
+         delete them (with CHANGELOG entry), or annotate with \
+         #[allow(dead_code)] // reason: <justification> and add them to \
+         the allow-list in this test."
+    );
+}

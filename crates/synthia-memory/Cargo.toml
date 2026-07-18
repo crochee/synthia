@@ -18,6 +18,10 @@ sqlx = { workspace = true, features = ["runtime-tokio", "sqlite"] }
 notify.workspace = true
 reqwest.workspace = true
 
+[features]
+default = []
+unified-registry = []
+
 [dev-dependencies]
 tempfile.workspace = true
 tokio = { workspace = true, features = ["macros", "rt"] }

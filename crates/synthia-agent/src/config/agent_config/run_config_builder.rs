@@ -282,6 +282,8 @@ impl AgentRunConfigBuilder {
             tool_orchestrator: self.tool_orchestrator,
             guardian_coordinator: self.guardian_coordinator,
             extension_manager: self.extension_manager,
+            #[cfg(feature = "unified-registry")]
+            loop_services: std::sync::OnceLock::new(),
         })
     }
 }

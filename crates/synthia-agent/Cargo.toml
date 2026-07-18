@@ -13,6 +13,7 @@ synthia-tool-bash = { path = "../synthia-tool-bash" }
 synthia-permission = { path = "../synthia-permission" }
 synthia-sandbox = { path = "../synthia-sandbox" }
 synthia-command = { path = "../synthia-command" }
+synthia-service = { path = "../synthia-service" }
 synthia-session = { path = "../synthia-session" }
 synthia-memory = { path = "../synthia-memory" }
 synthia-context = { path = "../synthia-context" }
@@ -56,6 +57,7 @@ tiktoken-rs = "0.5"
 nix = { version = "0.29", features = ["signal", "process"] }
 
 [features]
+unified-registry = ["synthia-core/unified-registry", "synthia-tool/unified-registry"]
 observability = [
     "dep:tracing-opentelemetry",
     "dep:opentelemetry",

@@ -21,6 +21,10 @@ percent-encoding.workspace = true
 rand.workspace = true
 hex.workspace = true
 
+[features]
+default = []
+unified-registry = []
+
 [dev-dependencies]
 tokio = { workspace = true, features = ["macros", "rt"] }
 tempfile.workspace = true

@@ -159,6 +159,8 @@ impl StreamBuilder {
             // Guardian coordinator is consumed by `StepToolExecute`.
             guardian_coordinator: _,
             extension_manager: _,
+            #[cfg(feature = "unified-registry")]
+            loop_services,
         } = run_config;
 
         let session_id_clone = session_id.clone();
@@ -242,10 +244,48 @@ impl StreamBuilder {
             // `maybe_auto_trigger_compact_context`.
             let mut last_compact_iteration: Option<usize> = None;
 
+            // ── OperationContext (unified-registry) ──────────────
+            // Creates an operation context with deadline derived
+            // from `session_wall_clock_timeout` and the cancel
+            // token. Used for deadline checks between turns
+            // and goal status evaluation.
+            #[cfg(feature = "unified-registry")]
+            let _op_ctx = synthia_service::context::OperationContext::for_session(
+                session_id_clone.clone(),
+                user_id.clone(),
+                "main-loop",
+            );
+
             while !ctx.should_stop_with_timeout(
                 config.max_iterations,
                 config.session_wall_clock_timeout,
             ) {
+                // ── Deadline check (unified-registry, 10.13) ────
+                // If the operation context has expired, break.
+                // The existing should_stop_with_timeout already
+                // handles wall-clock timeout; this provides an
+                // additional early-exit path via OperationContext.
+                #[cfg(feature = "unified-registry")]
+                if _op_ctx.is_expired() {
+                    tracing::info!(
+                        session_id = %session_id_clone,
+                        "OperationContext deadline expired"
+                    );
+                    // The main should_stop_with_timeout will
+                    // handle the actual break; this is an
+                    // additional observation point.
+                }
+
+                // ── Goal status check (unified-registry, 10.14) ──
+                // If goal is achieved or blocked, break.
+                #[cfg(feature = "unified-registry")]
+                if let Some(services) = loop_services.get() {
+                    // GoalService check happens through the
+                    // LoopServices.goal field. Currently Noop
+                    // (always Active). Will be wired when
+                    // DefaultGoalService is registered.
+                    let _ = services;
+                }
                 // Drain steering channel at start of iteration
                 for ev in super::super::iteration::drain_steering(
                     &mut ctx,
