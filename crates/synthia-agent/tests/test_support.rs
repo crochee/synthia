@@ -1,3 +1,4 @@
+#![allow(deprecated)]
 //! Test support utilities for synthia-agent integration tests.
 //!
 //! Provides FakeProvider and FakeTool implementations for testing

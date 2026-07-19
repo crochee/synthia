@@ -1,0 +1,38 @@
+{"role":"assistant","content":{"Single":{"type":"tool_use","id":"call_1","name":"read_file","input":{"path":"/nonexistent"}}},"tool_call_id":null,"name":null}
+{"role":"tool","content":{"Single":{"type":"text","text":"File not found: /nonexistent"}},"tool_call_id":"call_1","name":null}
+{"role":"assistant","content":{"Single":{"type":"tool_use","id":"call_1","name":"read_file","input":{"path":"/nonexistent"}}},"tool_call_id":null,"name":null}
+{"role":"tool","content":{"Single":{"type":"text","text":"File not found: /nonexistent"}},"tool_call_id":"call_1","name":null}
+{"role":"assistant","content":{"Single":{"type":"tool_use","id":"call_1","name":"read_file","input":{"path":"/nonexistent"}}},"tool_call_id":null,"name":null}
+{"role":"tool","content":{"Single":{"type":"text","text":"File not found: /nonexistent"}},"tool_call_id":"call_1","name":null}
+{"role":"assistant","content":{"Single":{"type":"tool_use","id":"call_1","name":"read_file","input":{"path":"/nonexistent"}}},"tool_call_id":null,"name":null}
+{"role":"tool","content":{"Single":{"type":"text","text":"File not found: /nonexistent"}},"tool_call_id":"call_1","name":null}
+{"role":"assistant","content":{"Single":{"type":"tool_use","id":"call_1","name":"read_file","input":{"path":"/nonexistent"}}},"tool_call_id":null,"name":null}
+{"role":"tool","content":{"Single":{"type":"text","text":"File not found: /nonexistent"}},"tool_call_id":"call_1","name":null}
+{"role":"assistant","content":{"Single":{"type":"tool_use","id":"call_1","name":"read_file","input":{"path":"/nonexistent"}}},"tool_call_id":null,"name":null}
+{"role":"tool","content":{"Single":{"type":"text","text":"File not found: /nonexistent"}},"tool_call_id":"call_1","name":null}
+{"role":"assistant","content":{"Single":{"type":"tool_use","id":"call_1","name":"read_file","input":{"path":"/nonexistent"}}},"tool_call_id":null,"name":null}
+{"role":"tool","content":{"Single":{"type":"text","text":"File not found: /nonexistent"}},"tool_call_id":"call_1","name":null}
+{"role":"assistant","content":{"Single":{"type":"tool_use","id":"call_1","name":"read_file","input":{"path":"/nonexistent"}}},"tool_call_id":null,"name":null}
+{"role":"tool","content":{"Single":{"type":"text","text":"File not found: /nonexistent"}},"tool_call_id":"call_1","name":null}
+{"role":"assistant","content":{"Single":{"type":"tool_use","id":"call_1","name":"read_file","input":{"path":"/nonexistent"}}},"tool_call_id":null,"name":null}
+{"role":"tool","content":{"Single":{"type":"text","text":"File not found: /nonexistent"}},"tool_call_id":"call_1","name":null}
+{"role":"assistant","content":{"Single":{"type":"tool_use","id":"call_1","name":"read_file","input":{"path":"/nonexistent"}}},"tool_call_id":null,"name":null}
+{"role":"tool","content":{"Single":{"type":"text","text":"File not found: /nonexistent"}},"tool_call_id":"call_1","name":null}
+{"role":"assistant","content":{"Single":{"type":"tool_use","id":"call_1","name":"read_file","input":{"path":"/nonexistent"}}},"tool_call_id":null,"name":null}
+{"role":"tool","content":{"Single":{"type":"text","text":"File not found: /nonexistent"}},"tool_call_id":"call_1","name":null}
+{"role":"assistant","content":{"Single":{"type":"tool_use","id":"call_1","name":"read_file","input":{"path":"/nonexistent"}}},"tool_call_id":null,"name":null}
+{"role":"tool","content":{"Single":{"type":"text","text":"File not found: /nonexistent"}},"tool_call_id":"call_1","name":null}
+{"role":"assistant","content":{"Single":{"type":"tool_use","id":"call_1","name":"read_file","input":{"path":"/nonexistent"}}},"tool_call_id":null,"name":null}
+{"role":"tool","content":{"Single":{"type":"text","text":"File not found: /nonexistent"}},"tool_call_id":"call_1","name":null}
+{"role":"assistant","content":{"Single":{"type":"tool_use","id":"call_1","name":"read_file","input":{"path":"/nonexistent"}}},"tool_call_id":null,"name":null}
+{"role":"tool","content":{"Single":{"type":"text","text":"File not found: /nonexistent"}},"tool_call_id":"call_1","name":null}
+{"role":"assistant","content":{"Single":{"type":"tool_use","id":"call_1","name":"read_file","input":{"path":"/nonexistent"}}},"tool_call_id":null,"name":null}
+{"role":"tool","content":{"Single":{"type":"text","text":"File not found: /nonexistent"}},"tool_call_id":"call_1","name":null}
+{"role":"assistant","content":{"Single":{"type":"tool_use","id":"call_1","name":"read_file","input":{"path":"/nonexistent"}}},"tool_call_id":null,"name":null}
+{"role":"tool","content":{"Single":{"type":"text","text":"File not found: /nonexistent"}},"tool_call_id":"call_1","name":null}
+{"role":"assistant","content":{"Single":{"type":"tool_use","id":"call_1","name":"read_file","input":{"path":"/nonexistent"}}},"tool_call_id":null,"name":null}
+{"role":"tool","content":{"Single":{"type":"text","text":"File not found: /nonexistent"}},"tool_call_id":"call_1","name":null}
+{"role":"assistant","content":{"Single":{"type":"tool_use","id":"call_1","name":"read_file","input":{"path":"/nonexistent"}}},"tool_call_id":null,"name":null}
+{"role":"tool","content":{"Single":{"type":"text","text":"File not found: /nonexistent"}},"tool_call_id":"call_1","name":null}
+{"role":"assistant","content":{"Single":{"type":"tool_use","id":"call_1","name":"read_file","input":{"path":"/nonexistent"}}},"tool_call_id":null,"name":null}
+{"role":"tool","content":{"Single":{"type":"text","text":"File not found: /nonexistent"}},"tool_call_id":"call_1","name":null}

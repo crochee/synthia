@@ -1,0 +1,38 @@
+{"role":"assistant","content":{"Single":{"type":"tool_use","id":"call_1","name":"weather","input":{"city":"Portland"}}},"tool_call_id":null,"name":null}
+{"role":"tool","content":{"Single":{"type":"text","text":"sunny, 72F"}},"tool_call_id":"call_1","name":null}
+{"role":"assistant","content":{"Single":{"type":"tool_use","id":"call_1","name":"weather","input":{"city":"Portland"}}},"tool_call_id":null,"name":null}
+{"role":"tool","content":{"Single":{"type":"text","text":"sunny, 72F"}},"tool_call_id":"call_1","name":null}
+{"role":"assistant","content":{"Single":{"type":"tool_use","id":"call_1","name":"weather","input":{"city":"Portland"}}},"tool_call_id":null,"name":null}
+{"role":"tool","content":{"Single":{"type":"text","text":"sunny, 72F"}},"tool_call_id":"call_1","name":null}
+{"role":"assistant","content":{"Single":{"type":"tool_use","id":"call_1","name":"weather","input":{"city":"Portland"}}},"tool_call_id":null,"name":null}
+{"role":"tool","content":{"Single":{"type":"text","text":"sunny, 72F"}},"tool_call_id":"call_1","name":null}
+{"role":"assistant","content":{"Single":{"type":"tool_use","id":"call_1","name":"weather","input":{"city":"Portland"}}},"tool_call_id":null,"name":null}
+{"role":"tool","content":{"Single":{"type":"text","text":"sunny, 72F"}},"tool_call_id":"call_1","name":null}
+{"role":"assistant","content":{"Single":{"type":"tool_use","id":"call_1","name":"weather","input":{"city":"Portland"}}},"tool_call_id":null,"name":null}
+{"role":"tool","content":{"Single":{"type":"text","text":"sunny, 72F"}},"tool_call_id":"call_1","name":null}
+{"role":"assistant","content":{"Single":{"type":"tool_use","id":"call_1","name":"weather","input":{"city":"Portland"}}},"tool_call_id":null,"name":null}
+{"role":"tool","content":{"Single":{"type":"text","text":"sunny, 72F"}},"tool_call_id":"call_1","name":null}
+{"role":"assistant","content":{"Single":{"type":"tool_use","id":"call_1","name":"weather","input":{"city":"Portland"}}},"tool_call_id":null,"name":null}
+{"role":"tool","content":{"Single":{"type":"text","text":"sunny, 72F"}},"tool_call_id":"call_1","name":null}
+{"role":"assistant","content":{"Single":{"type":"tool_use","id":"call_1","name":"weather","input":{"city":"Portland"}}},"tool_call_id":null,"name":null}
+{"role":"tool","content":{"Single":{"type":"text","text":"sunny, 72F"}},"tool_call_id":"call_1","name":null}
+{"role":"assistant","content":{"Single":{"type":"tool_use","id":"call_1","name":"weather","input":{"city":"Portland"}}},"tool_call_id":null,"name":null}
+{"role":"tool","content":{"Single":{"type":"text","text":"sunny, 72F"}},"tool_call_id":"call_1","name":null}
+{"role":"assistant","content":{"Single":{"type":"tool_use","id":"call_1","name":"weather","input":{"city":"Portland"}}},"tool_call_id":null,"name":null}
+{"role":"tool","content":{"Single":{"type":"text","text":"sunny, 72F"}},"tool_call_id":"call_1","name":null}
+{"role":"assistant","content":{"Single":{"type":"tool_use","id":"call_1","name":"weather","input":{"city":"Portland"}}},"tool_call_id":null,"name":null}
+{"role":"tool","content":{"Single":{"type":"text","text":"sunny, 72F"}},"tool_call_id":"call_1","name":null}
+{"role":"assistant","content":{"Single":{"type":"tool_use","id":"call_1","name":"weather","input":{"city":"Portland"}}},"tool_call_id":null,"name":null}
+{"role":"tool","content":{"Single":{"type":"text","text":"sunny, 72F"}},"tool_call_id":"call_1","name":null}
+{"role":"assistant","content":{"Single":{"type":"tool_use","id":"call_1","name":"weather","input":{"city":"Portland"}}},"tool_call_id":null,"name":null}
+{"role":"tool","content":{"Single":{"type":"text","text":"sunny, 72F"}},"tool_call_id":"call_1","name":null}
+{"role":"assistant","content":{"Single":{"type":"tool_use","id":"call_1","name":"weather","input":{"city":"Portland"}}},"tool_call_id":null,"name":null}
+{"role":"tool","content":{"Single":{"type":"text","text":"sunny, 72F"}},"tool_call_id":"call_1","name":null}
+{"role":"assistant","content":{"Single":{"type":"tool_use","id":"call_1","name":"weather","input":{"city":"Portland"}}},"tool_call_id":null,"name":null}
+{"role":"tool","content":{"Single":{"type":"text","text":"sunny, 72F"}},"tool_call_id":"call_1","name":null}
+{"role":"assistant","content":{"Single":{"type":"tool_use","id":"call_1","name":"weather","input":{"city":"Portland"}}},"tool_call_id":null,"name":null}
+{"role":"tool","content":{"Single":{"type":"text","text":"sunny, 72F"}},"tool_call_id":"call_1","name":null}
+{"role":"assistant","content":{"Single":{"type":"tool_use","id":"call_1","name":"weather","input":{"city":"Portland"}}},"tool_call_id":null,"name":null}
+{"role":"tool","content":{"Single":{"type":"text","text":"sunny, 72F"}},"tool_call_id":"call_1","name":null}
+{"role":"assistant","content":{"Single":{"type":"tool_use","id":"call_1","name":"weather","input":{"city":"Portland"}}},"tool_call_id":null,"name":null}
+{"role":"tool","content":{"Single":{"type":"text","text":"sunny, 72F"}},"tool_call_id":"call_1","name":null}

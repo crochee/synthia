@@ -1,3 +1,4 @@
+#![allow(deprecated)]
 //! Integration tests for `synthia_agent::turn::TurnId`.
 //!
 //! The unit-test target is `crates/synthia-agent/src/turn.rs`. To keep

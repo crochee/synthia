@@ -1,3 +1,8 @@
+// Legacy `traits::Tool` is intentionally kept during the 3-month deprecation window
+// from the v3 toolification change. All builtin tools still implement the old trait
+// and will be migrated in a follow-up change.
+#![allow(deprecated)]
+
 pub mod builtin;
 pub mod events;
 pub mod registry;

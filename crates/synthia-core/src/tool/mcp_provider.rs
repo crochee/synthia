@@ -1,6 +1,6 @@
 //! McpToolProvider — tool provider backed by an MCP server connection.
 
-use std::{collections::HashMap, sync::Arc};
+use std::sync::Arc;
 
 use async_trait::async_trait;
 
@@ -8,7 +8,7 @@ use crate::tool::{
     descriptor::{Tool, ToolDescriptor, ToolProvenance},
     mcp_types::McpConnection,
     provider::{ToolCall, ToolEvent, ToolProvider},
-    types::{ToolContext, ToolError, ToolInput, ToolOutput},
+    types::{ToolError, ToolOutput},
 };
 
 /// Tool provider backed by an MCP server via [`McpConnection`].
@@ -48,7 +48,7 @@ impl ToolProvider for McpToolProvider {
     async fn list_tools(&self) -> Vec<ToolDescriptor> {
         match self.connection.list_tools().await {
             Ok(tools) => {
-                let mut descs: Vec<ToolDescriptor> = tools
+                let descs: Vec<ToolDescriptor> = tools
                     .into_iter()
                     .map(|mut d| {
                         d.provenance = ToolProvenance::Mcp {

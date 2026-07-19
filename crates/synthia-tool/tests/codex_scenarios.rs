@@ -1,3 +1,4 @@
+#![allow(deprecated)]
 //! Fixture-based portable test runner for codex V4A apply-patch scenarios.
 //!
 //! Mirrors `codex-rs/apply-patch/tests/suite/scenarios.rs` — copies each

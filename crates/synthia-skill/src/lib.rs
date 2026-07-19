@@ -1,3 +1,6 @@
+// Legacy Tool trait usage during deprecation window (v3 toolification).
+#![allow(deprecated)]
+
 pub mod bm25;
 pub mod builtin;
 pub mod embedding;

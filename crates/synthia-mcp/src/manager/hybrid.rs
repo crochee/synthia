@@ -180,7 +180,7 @@ impl McpManager {
                 tokio::time::sleep(cleanup_interval).await;
 
                 let mut connections = manager.connections.write().await;
-                for (_name, conn) in connections.iter_mut() {
+                for conn in connections.values_mut() {
                     if let Some(ref mut hybrid_conn) = conn.hybrid_connection
                         && hybrid_conn.state() == ConnectionState::Connected
                         && hybrid_conn.last_used_duration() > idle_timeout

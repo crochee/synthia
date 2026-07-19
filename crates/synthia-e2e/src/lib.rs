@@ -1,3 +1,6 @@
+// Legacy Tool trait usage during deprecation window (v3 toolification).
+#![allow(deprecated)]
+
 //! synthia-e2e: End-to-end test scenarios for Synthia agent
 //!
 //! Provides test runners, mock LLM server, and scenario definitions

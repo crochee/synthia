@@ -13,6 +13,9 @@ impl HookBuilder {
         Self { registry }
     }
 
+    #[deprecated(
+        note = "Use UnifiedHookDispatcher::dispatch(HookEvent::UserPromptSubmit) instead. Will be removed after 6-month deprecation window."
+    )]
     pub async fn fire_before_llm(
         &self,
         ctx: &mut AgentContext,
@@ -20,6 +23,9 @@ impl HookBuilder {
         self.registry.fire_before_llm(ctx).await
     }
 
+    #[deprecated(
+        note = "Use UnifiedHookDispatcher::dispatch(HookEvent::PostResponse) instead. Will be removed after 6-month deprecation window."
+    )]
     pub async fn fire_after_llm(
         &self,
         ctx: &AgentContext,
@@ -28,6 +34,9 @@ impl HookBuilder {
         self.registry.fire_after_llm(ctx, response).await
     }
 
+    #[deprecated(
+        note = "Use UnifiedHookDispatcher::dispatch(HookEvent::PreToolUse) instead. Will be removed after 6-month deprecation window."
+    )]
     pub async fn fire_before_tool(
         &self,
         ctx: &AgentContext,
@@ -36,6 +45,9 @@ impl HookBuilder {
         self.registry.fire_before_tool(ctx, call_json).await
     }
 
+    #[deprecated(
+        note = "Use UnifiedHookDispatcher::dispatch(HookEvent::PostToolUse) instead. Will be removed after 6-month deprecation window."
+    )]
     pub async fn fire_after_tool(
         &self,
         ctx: &AgentContext,

@@ -1,3 +1,6 @@
+// Legacy Tool trait usage during deprecation window (v3 toolification).
+#![allow(deprecated)]
+
 pub mod cli;
 pub mod commands;
 pub mod identity;

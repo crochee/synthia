@@ -7,7 +7,7 @@ use async_trait::async_trait;
 use crate::tool::{
     descriptor::{Tool, ToolDescriptor, ToolProvenance},
     provider::{ToolCall, ToolEvent, ToolProvider},
-    types::{ToolContext, ToolError, ToolInput, ToolOutput},
+    types::{ToolError, ToolOutput},
 };
 
 /// Tool provider backed by a plugin. All tool names are prefixed

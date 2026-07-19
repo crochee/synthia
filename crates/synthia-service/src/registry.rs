@@ -4,6 +4,10 @@
 //! The `type_index` stores `Arc<dyn Any + Send + Sync>` payloads
 //! (constructed by the caller as `Arc::new(Arc::<dyn SubTrait>::new(...))`),
 //! while the `name_index` stores `Arc<dyn Service>` for diagnostics.
+//!
+//! PR-3.2 adds `Capability<T>` contract (see [`capability`](crate::capability)).
+//! PR-3.3 adds reverse-dependency tracking (see [`reverse_dep`](crate::reverse_dep)).
+//! PR-3.4 adds peer-source registration (see [`peer_source`](crate::peer_source)).
 
 use std::{
     any::{Any, TypeId},
@@ -14,7 +18,16 @@ use std::{
 use parking_lot::RwLock;
 
 use crate::{
-    provider::{RegistrationError, RegistrationToken, ServiceDescriptor},
+    capability::{Capability, CapabilityIndex},
+    output_bound::{OutputBoundService, ServiceRegistryError},
+    peer_source::{CapsuleId, PeerSourceIndex, Source, StreamId},
+    provider::{
+        ProviderId,
+        RegistrationError,
+        RegistrationToken,
+        ServiceDescriptor,
+    },
+    reverse_dep::{ReverseDepGraph, ServiceId},
     traits::{Service, ServiceError, ServiceKey, ServiceState},
 };
 
@@ -27,6 +40,18 @@ pub struct ServiceRegistry {
     type_index: RwLock<HashMap<TypeId, Arc<dyn Any + Send + Sync>>>,
     /// String → Arc<dyn Service> for name-based diagnostics.
     name_index: RwLock<HashMap<String, Arc<dyn Service>>>,
+    /// TypeId → Arc<dyn Any + Send + Sync> for the PR-3.1
+    /// `OutputBoundService` lookup path. Keyed by
+    /// `TypeId::of::<T::Service>()` where `T` is the concrete
+    /// `OutputBoundService` impl; value wraps `Arc<dyn T::Service>`
+    /// so `Arc::downcast::<Arc<dyn T::Service>>` recovers it on read.
+    bound_index: RwLock<HashMap<TypeId, Arc<dyn Any + Send + Sync>>>,
+    /// PR-3.2: typed `Capability<T>` → `ProviderId` index.
+    capability_index: CapabilityIndex,
+    /// PR-3.3: reverse-dependency graph.
+    reverse_dep: ReverseDepGraph,
+    /// PR-3.4: peer-source (CapsuleId/StreamId) index.
+    peer_source: PeerSourceIndex,
     /// Monotonic counter for registration tokens.
     next_token: RwLock<u64>,
 }
@@ -37,6 +62,10 @@ impl ServiceRegistry {
         Self {
             type_index: RwLock::new(HashMap::new()),
             name_index: RwLock::new(HashMap::new()),
+            bound_index: RwLock::new(HashMap::new()),
+            capability_index: CapabilityIndex::new(),
+            reverse_dep: ReverseDepGraph::new(),
+            peer_source: PeerSourceIndex::new(),
             next_token: RwLock::new(1),
         }
     }
@@ -145,6 +174,174 @@ impl ServiceRegistry {
         Arc::downcast::<T>(entry.clone()).ok()
     }
 
+    /// Bind a `Service` that implements [`OutputBoundService`] under
+    /// the capability view `T = Self::Service`.
+    ///
+    /// Stored under `TypeId::of::<T>()` in `bound_index`. Calling
+    /// `bind` twice with the same `T` replaces the previous entry (the
+    /// second `Arc<S>` wins). The downstream
+    /// [`bound_service::<T>()`](Self::bound_service) lookup walks the
+    /// same key and downcasts to the typed `Arc`.
+    pub fn bind<S, T>(
+        &self,
+        service: std::sync::Arc<S>,
+    ) -> Result<(), ServiceRegistryError>
+    where
+        S: OutputBoundService<Service = T> + Service + Send + Sync + 'static,
+        T: ?Sized + Send + Sync + 'static,
+    {
+        let view: std::sync::Arc<T> = service.as_bound();
+        let payload: Arc<dyn Any + Send + Sync> = Arc::new(view);
+        self.bound_index.write().insert(TypeId::of::<T>(), payload);
+        Ok(())
+    }
+
+    /// Look up a service by its bound capability view.
+    ///
+    /// Returns `Ok(Arc<T>)` if a previous [`bind`](Self::bind) call
+    /// stored an `S: OutputBoundService<Service = T>` entry. Returns
+    /// `Err(ServiceRegistryError::NotBound)` otherwise. The `T: Send +
+    /// Sync + 'static` bound is enforced at the call site — the
+    /// compiler rejects any `T` that doesn't satisfy it (spec
+    /// scenario "bind to dyn-incompatible type rejected").
+    pub fn bound_service<T>(&self) -> Result<Arc<T>, ServiceRegistryError>
+    where
+        T: ?Sized + Send + Sync + 'static,
+    {
+        let index = self.bound_index.read();
+        let entry = index.get(&TypeId::of::<T>()).ok_or(
+            ServiceRegistryError::NotBound(std::any::type_name::<T>()),
+        )?;
+        // Stored payload is `Arc::new(arc: Arc<T>)`, so we downcast to
+        // `Arc<Arc<T>>` and unwrap the outer Arc via clone to recover
+        // the inner `Arc<T>` (mirrors the dual-Arc pattern in
+        // `register_typed`).
+        let wrapped: Arc<Arc<T>> = Arc::downcast::<Arc<T>>(entry.clone())
+            .map_err(|_| {
+                ServiceRegistryError::NotBound(std::any::type_name::<T>())
+            })?;
+        Ok((*wrapped).clone())
+    }
+
+    // ── PR-3.2: Capability<T> contract ──────────────────────
+
+    /// Register a service with a typed capability declaration.
+    ///
+    /// The `payload` should be `Arc::new(Arc<dyn T>)` wrapping the
+    /// service's capability view. The `provider_id` identifies the
+    /// registering provider. The `Capability::of::<T>()` marker
+    /// determines the registry key.
+    ///
+    /// Returns `Err(ServiceRegistryError::CapabilityMismatch)` if
+    /// the payload's actual `TypeId` does not match `Arc<T>`.
+    pub fn register_with_capability<T>(
+        &self,
+        provider_id: ProviderId,
+        payload: Arc<dyn Any + Send + Sync>,
+    ) -> Result<(), ServiceRegistryError>
+    where
+        T: ?Sized + Send + Sync + 'static,
+    {
+        let cap = Capability::<T>::of();
+        self.capability_index.register(provider_id, payload, &cap)
+    }
+
+    /// Query all providers that declared capability `T`.
+    ///
+    /// Returns a `Vec<ProviderId>` of providers that previously called
+    /// [`register_with_capability::<T>()`](Self::register_with_capability).
+    pub fn capabilities_provided<T>(&self) -> Vec<ProviderId>
+    where
+        T: ?Sized + 'static,
+    {
+        let cap = Capability::<T>::of();
+        self.capability_index.providers(&cap)
+    }
+
+    // ── PR-3.3: Reverse-dependency tracking ─────────────────
+
+    /// Record a dependency edge: `dependent` depends on `dependency`.
+    ///
+    /// Performs cycle detection. If adding this edge would create a
+    /// cycle, returns `Err(ServiceRegistryError::Cycle)`.
+    pub fn add_dependency(
+        &self,
+        dependent: ServiceId,
+        dependency: ServiceId,
+    ) -> Result<(), ServiceRegistryError> {
+        self.reverse_dep.add_edge(dependent, dependency)
+    }
+
+    /// Return all services that depend on `id` (reverse lookup).
+    ///
+    /// Useful for diagnostics and tooling to understand the dependency
+    /// graph without introducing a runtime broker.
+    pub fn reverse_dependents_of(
+        &self,
+        id: &ServiceId,
+    ) -> std::collections::BTreeSet<ServiceId> {
+        self.reverse_dep.reverse_dependents_of(id)
+    }
+
+    /// Remove a service from the reverse-dependency graph.
+    pub fn remove_from_dep_graph(&self, id: &ServiceId) {
+        self.reverse_dep.remove_service(id);
+    }
+
+    // ── PR-3.4: Peer-source registration ─────────────────────
+
+    /// Register a service with a peer source tag.
+    ///
+    /// The `source` (CapsuleId or StreamId) scopes the service's
+    /// lifetime. The `payload` must be `Arc::new(Arc<dyn T>)` wrapping
+    /// the service, matching the dual-Arc pattern.
+    pub fn register_with_source<T>(
+        &self,
+        source: Source,
+        provider_id: ProviderId,
+        payload: Arc<dyn Any + Send + Sync>,
+    ) -> Result<(), ServiceRegistryError>
+    where
+        T: ?Sized + Send + Sync + 'static,
+    {
+        self.peer_source.register::<T>(source, provider_id, payload)
+    }
+
+    /// Look up a service by capsule id and capability type.
+    ///
+    /// Returns `Ok(Arc<T>)` if found, or
+    /// `Err(ServiceRegistryError::SourceNotFound)` otherwise.
+    pub fn get_by_capsule<T>(
+        &self,
+        capsule_id: &CapsuleId,
+    ) -> Result<Arc<T>, ServiceRegistryError>
+    where
+        T: ?Sized + Send + Sync + 'static,
+    {
+        self.peer_source.get_by_capsule::<T>(capsule_id)
+    }
+
+    /// Look up a service by stream id and capability type.
+    pub fn get_by_stream<T>(
+        &self,
+        stream_id: &StreamId,
+    ) -> Result<Arc<T>, ServiceRegistryError>
+    where
+        T: ?Sized + Send + Sync + 'static,
+    {
+        self.peer_source.get_by_stream::<T>(stream_id)
+    }
+
+    /// Evict all services associated with a capsule.
+    pub fn evict_capsule(&self, capsule_id: &CapsuleId) {
+        self.peer_source.evict_capsule(capsule_id);
+    }
+
+    /// Evict all services associated with a stream.
+    pub fn evict_stream(&self, stream_id: &StreamId) {
+        self.peer_source.evict_stream(stream_id);
+    }
+
     /// String-based resolution for diagnostics/introspection.
     pub fn resolve(&self, name: &str) -> Option<Arc<dyn Service>> {
         let index = self.name_index.read();
@@ -182,7 +379,6 @@ impl Default for ServiceRegistry {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::traits::ServiceInitContext;
 
     /// Minimal service for TypeId validation testing.
     struct TestService;

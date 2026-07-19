@@ -57,9 +57,11 @@ mod tests {
         // The 5 methods are: on_register, on_unregister, health_check,
         // version, schema_version.
         const METHOD_COUNT: usize = 5;
-        assert!(
-            METHOD_COUNT <= 5,
-            "ToolLifecycle exceeds 5 methods — consider splitting"
-        );
+        const {
+            assert!(
+                METHOD_COUNT <= 5,
+                "ToolLifecycle exceeds 5 methods — consider splitting"
+            )
+        };
     }
 }

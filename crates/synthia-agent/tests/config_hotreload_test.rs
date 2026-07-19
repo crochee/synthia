@@ -1,3 +1,4 @@
+#![allow(deprecated)]
 //! Integration tests for config hot-reload.
 //!
 //! These tests verify that:

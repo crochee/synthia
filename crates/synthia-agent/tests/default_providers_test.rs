@@ -1,3 +1,4 @@
+#![allow(deprecated)]
 //! Integration test for `default_providers()` factory.
 //!
 //! Asserts that the factory assembles the nine built-in providers

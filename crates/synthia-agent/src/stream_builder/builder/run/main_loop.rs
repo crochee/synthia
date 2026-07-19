@@ -12,14 +12,16 @@ use synthia_context::{
     },
 };
 use synthia_provider::types::Message;
-use synthia_session::store::EventStore;
 use synthia_telemetry::{
     CompactionAnalyticsAttempt,
     CompactionTrigger,
     SpanContext,
 };
 
-use super::super::types::{BuilderSteps, StreamBuilder};
+use super::{
+    super::types::{BuilderSteps, StreamBuilder},
+    helpers::{emit_turn_event, handle_hook_outcome},
+};
 use crate::{
     config::AgentRunConfig,
     control::CompletedTask,
@@ -32,49 +34,10 @@ use crate::{
         TURN_COMPLETED,
         TURN_FAILED,
         TURN_STARTED,
-        append_agent_event,
     },
     loop_context::LoopContext,
     turn::{TurnStatus, TurnTask},
 };
-
-/// Best-effort append of a durable JSONL event for the current turn.
-///
-/// Errors are logged but never abort the agent loop, matching the
-/// streaming semantics of the surrounding code.
-#[allow(clippy::too_many_arguments)]
-async fn emit_turn_event<P>(
-    event_store: &EventStore,
-    session_store: &synthia_session::Store,
-    user_id: &str,
-    session_id: &str,
-    event_type: &str,
-    turn_id: crate::turn::TurnId,
-    iteration: usize,
-    payload: P,
-) where
-    P: serde::Serialize + Send + 'static,
-{
-    let path = session_store.session_dir(user_id, session_id);
-    if let Err(e) = append_agent_event(
-        event_store,
-        &path,
-        session_id,
-        event_type,
-        turn_id,
-        iteration,
-        payload,
-    )
-    .await
-    {
-        tracing::warn!(
-            session_id = %session_id,
-            error = %e,
-            event_type = %event_type,
-            "Failed to append turn event to JSONL log"
-        );
-    }
-}
 
 /// Format a completed background sub-agent task as a structured
 /// `<task>` XML notification suitable for injection into the parent
@@ -169,6 +132,14 @@ impl StreamBuilder {
             yield AgentEvent::SessionStarted {
                 session_id: session_id_clone.clone(),
             };
+
+            // Dispatch SessionStart hook event via UnifiedHookDispatcher
+            let session_start_event = synthia_hook::HookEvent::SessionStart(
+                synthia_hook::outcome::SessionStartPayload {
+                    session_id: session_id_clone.clone(),
+                },
+            );
+            steps.hook_dispatcher.dispatch(&session_start_event).await;
 
             if let Err(e) = session_store.ensure_session_dir(&user_id, &session_id_clone) {
                 tracing::warn!(session_id = %session_id_clone, error = %e, "Failed to ensure session directory");
@@ -279,12 +250,24 @@ impl StreamBuilder {
                 // ── Goal status check (unified-registry, 10.14) ──
                 // If goal is achieved or blocked, break.
                 #[cfg(feature = "unified-registry")]
-                if let Some(services) = loop_services.get() {
-                    // GoalService check happens through the
-                    // LoopServices.goal field. Currently Noop
-                    // (always Active). Will be wired when
-                    // DefaultGoalService is registered.
-                    let _ = services;
+                if let Some(services) = loop_services.get()
+                    && let Some(ref tracker) = services.goal_tracker
+                {
+                    let status = tracker.status().await;
+                    if status == synthia_service::goal::GoalStatus::Achieved
+                        || status
+                            == synthia_service::goal::GoalStatus::Blocked
+                    {
+                        tracing::info!(
+                            session_id = %session_id_clone,
+                            ?status,
+                            "Goal tracker reports terminal status, ending session"
+                        );
+                        ctx.set_end_reason(
+                            crate::events::SessionEndReason::Completed,
+                        );
+                        break;
+                    }
                 }
                 // Drain steering channel at start of iteration
                 for ev in super::super::iteration::drain_steering(
@@ -316,6 +299,8 @@ impl StreamBuilder {
                 }
 
                 ctx.increment_iteration();
+                // Reset the forwarded-this-turn counter for the new iteration.
+                ctx.forwarded_this_turn = 0;
                 let turn_id = ctx.assign_new_turn_id();
                 // Create the `turn.start` span for this iteration. The
                 // span's parent is auto-inherited from
@@ -348,6 +333,16 @@ impl StreamBuilder {
                 .await;
 
                 if cancel_token.is_cancelled() {
+                    // Dispatch PreMessageDrop hook event: messages are about
+                    // to be dropped due to cancellation.
+                    let pre_drop_event = synthia_hook::HookEvent::PreMessageDrop(
+                        synthia_hook::outcome::PreMessageDropPayload {
+                            session_id: session_id_clone.clone(),
+                            reason: synthia_hook::outcome::DropReason::Cancelled,
+                        },
+                    );
+                    steps.hook_dispatcher.dispatch(&pre_drop_event).await;
+
                     // Fail any in-flight tool calls before exiting the
                     // loop so the interruption is observable as terminal
                     // `ToolCallCompleted` events and persisted to the
@@ -418,6 +413,17 @@ impl StreamBuilder {
 
                 yield AgentEvent::IterationStarted { iteration: ctx.iteration };
 
+                // Dispatch PreCompact hook event before checking compact
+                // step. The hook can observe (but not veto) the pending
+                // compaction check.
+                let pre_compact_event = synthia_hook::HookEvent::PreCompact(
+                    synthia_hook::outcome::PreCompactPayload {
+                        session_id: ctx.session_id.clone(),
+                        token_count: ctx.cumulative_tokens,
+                    },
+                );
+                steps.hook_dispatcher.dispatch(&pre_compact_event).await;
+
                 let compact_outcome = super::super::iteration::do_compact_step(
                     &steps.compact,
                     &mut ctx,
@@ -438,6 +444,15 @@ impl StreamBuilder {
                         };
                     }
                     super::super::iteration::CompactOutcome::MustCompact { old_tokens, new_tokens } => {
+                        // Dispatch PostCompact hook event after compaction.
+                        let post_compact_event = synthia_hook::HookEvent::PostCompact(
+                            synthia_hook::outcome::PostCompactPayload {
+                                session_id: ctx.session_id.clone(),
+                                token_count: new_tokens,
+                            },
+                        );
+                        steps.hook_dispatcher.dispatch(&post_compact_event).await;
+
                         yield AgentEvent::ContextCompacted { old_tokens, new_tokens };
                         let threshold = config
                             .context_token_budget
@@ -475,10 +490,35 @@ impl StreamBuilder {
 
                 yield AgentEvent::LlmRequestStarted { iteration: ctx.iteration };
 
-                let mut agent_ctx = super::super::iteration::prepare_agent_ctx(&ctx);
-                if let Err(e) = steps.hooks.fire_before_llm(&mut agent_ctx).await {
-                    tracing::warn!(error = %e, "before_llm hook failed");
-                }
+                let agent_ctx = super::super::iteration::prepare_agent_ctx(&ctx);
+                let before_llm_event = synthia_hook::HookEvent::UserPromptSubmit(
+                    synthia_hook::outcome::UserPromptSubmitPayload {
+                        session_id: ctx.session_id.clone(),
+                        prompt_summary: String::new(),
+                    },
+                );
+                let before_llm_outcome = steps.hook_dispatcher.dispatch(&before_llm_event).await;
+                handle_hook_outcome(
+                    &before_llm_outcome,
+                    &steps.steering_channel,
+                    &mut ctx.forwarded_this_turn,
+                ).await;
+
+                // Dispatch PreResponse hook event: the LLM is about to
+                // generate a response. This is semantically distinct from
+                // UserPromptSubmit (which fires when the user input arrives)
+                // — PreResponse fires right before the sampling call.
+                let pre_response_event = synthia_hook::HookEvent::PreResponse(
+                    synthia_hook::outcome::PreResponsePayload {
+                        session_id: ctx.session_id.clone(),
+                    },
+                );
+                let pre_response_outcome = steps.hook_dispatcher.dispatch(&pre_response_event).await;
+                handle_hook_outcome(
+                    &pre_response_outcome,
+                    &steps.steering_channel,
+                    &mut ctx.forwarded_this_turn,
+                ).await;
 
                 // Capture prefix snapshot BEFORE the LLM call: system +
                 // tools + messages. All three participate in the hash so
@@ -620,14 +660,19 @@ impl StreamBuilder {
                             cb(event);
                         }
 
-                        // Fire after_llm hooks
-                        let response_json = serde_json::json!({
-                            "text": sampling.text,
-                            "tool_calls": sampling.tool_calls,
-                        });
-                        if let Err(e) = steps.hooks.fire_after_llm(&agent_ctx, &response_json).await {
-                            tracing::warn!(error = %e, "after_llm hook failed");
-                        }
+                        // Fire after_llm hooks via UnifiedHookDispatcher
+                        let after_llm_event = synthia_hook::HookEvent::PostResponse(
+                            synthia_hook::outcome::PostResponsePayload {
+                                session_id: ctx.session_id.clone(),
+                                response_summary: sampling.text.chars().take(200).collect(),
+                            },
+                        );
+                        let after_llm_outcome = steps.hook_dispatcher.dispatch(&after_llm_event).await;
+                        handle_hook_outcome(
+                            &after_llm_outcome,
+                            &steps.steering_channel,
+                            &mut ctx.forwarded_this_turn,
+                        ).await;
 
                         // Accumulate token usage
                         ctx.cumulative_tokens += sampling.usage.total_tokens;
@@ -666,7 +711,7 @@ impl StreamBuilder {
                             )
                             .await;
 
-                            for ev in maybe_auto_trigger_self_reflect(
+                            for ev in super::super::iteration::maybe_auto_trigger_self_reflect(
                                 &steps.tool_execute,
                                 &mut ctx,
                                 &mut last_reflect_iteration,
@@ -680,12 +725,13 @@ impl StreamBuilder {
                             // did not invoke `compact_context` this iteration.
                             // Auto-trigger is still possible when the token
                             // ratio exceeds 80%.
-                            for ev in maybe_auto_trigger_compact_context(
+                            for ev in super::super::iteration::maybe_auto_trigger_compact_context(
                                 &steps.compact,
                                 &mut ctx,
                                 &config,
                                 &mut last_compact_iteration,
                                 false,
+                                &steps.hook_dispatcher,
                             )
                             .await
                             {
@@ -779,7 +825,7 @@ impl StreamBuilder {
                             super::super::tool_execution::ToolExecuteOutcome::Continue { events } => {
                                 for ev in events { yield ev; }
 
-                                for ev in maybe_auto_trigger_self_reflect(
+                                for ev in super::super::iteration::maybe_auto_trigger_self_reflect(
                                     &steps.tool_execute,
                                     &mut ctx,
                                     &mut last_reflect_iteration,
@@ -795,12 +841,13 @@ impl StreamBuilder {
                                 // exercised. When the LLM already requested
                                 // compaction this iteration, the auto-trigger
                                 // is skipped to avoid double compaction.
-                                for ev in maybe_auto_trigger_compact_context(
+                                for ev in super::super::iteration::maybe_auto_trigger_compact_context(
                                     &steps.compact,
                                     &mut ctx,
                                     &config,
                                     &mut last_compact_iteration,
                                     llm_compact_context,
+                                    &steps.hook_dispatcher,
                                 )
                                 .await
                                 {
@@ -818,6 +865,16 @@ impl StreamBuilder {
                                     && let Some(result) =
                                         steps.compact.execute(&mut ctx, &config)
                                 {
+                                    // Dispatch PreCompact/PostCompact for
+                                    // LLM-driven compaction.
+                                    let pre_compact = synthia_hook::HookEvent::PreCompact(
+                                        synthia_hook::outcome::PreCompactPayload {
+                                            session_id: ctx.session_id.clone(),
+                                            token_count: result.old_tokens,
+                                        },
+                                    );
+                                    steps.hook_dispatcher.dispatch(&pre_compact).await;
+
                                     last_compact_iteration =
                                         Some(ctx.iteration);
                                     CompactionAnalyticsAttempt::new(
@@ -832,6 +889,14 @@ impl StreamBuilder {
                                         old_tokens: result.old_tokens,
                                         new_tokens: result.new_tokens,
                                     };
+
+                                    let post_compact = synthia_hook::HookEvent::PostCompact(
+                                        synthia_hook::outcome::PostCompactPayload {
+                                            session_id: ctx.session_id.clone(),
+                                            token_count: result.new_tokens,
+                                        },
+                                    );
+                                    steps.hook_dispatcher.dispatch(&post_compact).await;
                                 }
                             }
                             super::super::tool_execution::ToolExecuteOutcome::Terminate { events } => {
@@ -890,6 +955,23 @@ impl StreamBuilder {
                         .await;
 
                         yield AgentEvent::IterationCompleted { iteration: ctx.iteration };
+
+                        // ── Goal tracking (unified-registry, 10.14) ──
+                        // Update the goal tracker with iteration progress.
+                        #[cfg(feature = "unified-registry")]
+                        if let Some(services) = loop_services.get()
+                            && let Some(ref tracker) = services.goal_tracker
+                        {
+                            let mut budget = tracker.budget().await;
+                            budget.iterations_used += 1;
+                            budget.tokens_used =
+                                ctx.cumulative_tokens as u64;
+                            let current = tracker.current().await;
+                            if let Some(mut goal) = current {
+                                goal.budget = budget;
+                                tracker.set(goal).await;
+                            }
+                        }
                     }
                 }
             }
@@ -906,6 +988,25 @@ impl StreamBuilder {
             }
 
             let end_reason = ctx.end_reason.clone().unwrap_or(crate::events::SessionEndReason::Completed);
+
+            // Dispatch SessionEnd hook event via UnifiedHookDispatcher
+            let session_end_reason = match &end_reason {
+                crate::events::SessionEndReason::Completed => synthia_hook::outcome::SessionEndReason::Completed,
+                crate::events::SessionEndReason::Cancelled => synthia_hook::outcome::SessionEndReason::Cancelled,
+                crate::events::SessionEndReason::Error(_) => synthia_hook::outcome::SessionEndReason::Error,
+                crate::events::SessionEndReason::TokenBudgetExceeded => synthia_hook::outcome::SessionEndReason::Error,
+                crate::events::SessionEndReason::MaxIterationsReached => synthia_hook::outcome::SessionEndReason::Error,
+                crate::events::SessionEndReason::GuardianBlocked => synthia_hook::outcome::SessionEndReason::Error,
+                crate::events::SessionEndReason::LoopDetected => synthia_hook::outcome::SessionEndReason::Error,
+                crate::events::SessionEndReason::CircuitBreakerOpen => synthia_hook::outcome::SessionEndReason::Error,
+            };
+            let session_end_event = synthia_hook::HookEvent::SessionEnd(
+                synthia_hook::outcome::SessionEndPayload {
+                    session_id: session_id_clone.clone(),
+                    reason: session_end_reason,
+                },
+            );
+            steps.hook_dispatcher.dispatch(&session_end_event).await;
 
             let final_turn_id = ctx.current_turn_id.unwrap_or_default();
             emit_turn_event(
@@ -932,93 +1033,6 @@ impl StreamBuilder {
 
             yield AgentEvent::SessionEnded { reason: end_reason };
         })
-    }
-}
-
-/// Auto-trigger the `self_reflect` tool if the current iteration has
-/// reached the scheduled reflection point and the LLM did not already
-/// invoke the tool.
-///
-/// The caller must have already called
-/// [`LoopContext::record_self_reflect_call`] when the LLM requested
-/// `self_reflect`; this helper therefore implicitly deduplicates within
-/// the same iteration.
-async fn maybe_auto_trigger_self_reflect(
-    step: &crate::stream_builder::steps::StepToolExecute,
-    ctx: &mut LoopContext,
-    last_reflect_iteration: &mut Option<usize>,
-) -> Vec<AgentEvent> {
-    if ctx.iteration < ctx.next_self_reflect_iteration {
-        return Vec::new();
-    }
-
-    match super::super::iteration::execute_self_reflect_tool_call(step, ctx)
-        .await
-    {
-        Ok((result, events)) => {
-            ctx.add_tool_result(
-                result.tool_name.clone(),
-                result.tool_call_id,
-                result.output,
-                !result.is_error,
-            );
-            ctx.record_self_reflect_call();
-            *last_reflect_iteration = Some(ctx.iteration);
-            events
-        }
-        Err(e) => {
-            vec![AgentEvent::Warning {
-                message: format!("Auto self_reflect failed: {}", e),
-            }]
-        }
-    }
-}
-
-/// Auto-trigger the `compact_context` compaction when the context
-/// utilization exceeds 80% and the LLM did not already request it this
-/// iteration.
-///
-/// Mirrors [`maybe_auto_trigger_self_reflect`] but for compaction. The
-/// `llm_compact_called_this_iter` flag provides same-iteration dedup: when
-/// the LLM already invoked `compact_context`, the auto-trigger is skipped so
-/// the LLM-driven path (run by the caller immediately after this helper)
-/// performs at most one compaction.
-///
-/// The 80% threshold is below the configured `TokenBudget`'s
-/// `compaction_at` (85%) so the auto-trigger fires before the budget's own
-/// `MustCompact` path takes over — giving the LLM a softer signal.
-async fn maybe_auto_trigger_compact_context(
-    compact: &crate::stream_builder::steps::StepCompact,
-    ctx: &mut LoopContext,
-    config: &crate::config::AgentConfig,
-    last_compact_iteration: &mut Option<usize>,
-    llm_compact_called_this_iter: bool,
-) -> Vec<AgentEvent> {
-    // Skip when the LLM already requested compaction this iteration.
-    if llm_compact_called_this_iter {
-        return Vec::new();
-    }
-    // Skip when context utilization is at or below 80%.
-    if ctx.token_ratio() <= 0.8 {
-        return Vec::new();
-    }
-    match compact.execute(ctx, config) {
-        Some(result) => {
-            *last_compact_iteration = Some(ctx.iteration);
-            CompactionAnalyticsAttempt::new(
-                result.old_tokens,
-                CompactionTrigger::AutoThreshold,
-                "auto-threshold",
-                result.implementation.clone(),
-                result.phase.clone(),
-            )
-            .emit();
-            vec![AgentEvent::ContextCompacted {
-                old_tokens: result.old_tokens,
-                new_tokens: result.new_tokens,
-            }]
-        }
-        None => Vec::new(),
     }
 }
 
@@ -1064,8 +1078,6 @@ mod tests {
 
     #[test]
     fn format_notification_escapes_task_output() {
-        // The output is inserted verbatim; callers are responsible for
-        // any additional escaping if the output itself contains XML.
         let task = CompletedTask {
             agent_id: "bg-x".to_string(),
             output: "<raw>value</raw>".to_string(),

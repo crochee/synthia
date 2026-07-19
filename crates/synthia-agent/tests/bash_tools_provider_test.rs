@@ -1,3 +1,4 @@
+#![allow(deprecated)]
 //! Integration test for `BashToolsProvider`.
 //!
 //! Asserts that the provider publishes the bash/monitor tools that

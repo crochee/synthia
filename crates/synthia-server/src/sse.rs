@@ -79,6 +79,7 @@ pub fn event_variant_name(event: &AgentEvent) -> &'static str {
         AgentEvent::Status(_) => "Status",
         AgentEvent::RecoveryApplied { .. } => "RecoveryApplied",
         AgentEvent::EditConflict { .. } => "EditConflict",
+        AgentEvent::Custom { .. } => "Custom",
     }
 }
 

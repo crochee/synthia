@@ -1,3 +1,4 @@
+#![allow(deprecated)]
 //! Integration tests for sub-agent execution via `AgentTool`.
 //!
 //! These tests verify the sub-agent spawn plumbing: foreground mode

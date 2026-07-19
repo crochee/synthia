@@ -1,3 +1,4 @@
+#![allow(deprecated)]
 //! Integration test for `SearchToolsProvider`.
 //!
 //! Asserts that the provider publishes the grep/glob tools that

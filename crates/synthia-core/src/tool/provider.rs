@@ -6,7 +6,7 @@ use async_trait::async_trait;
 
 use crate::tool::{
     descriptor::ToolDescriptor,
-    types::{ToolError, ToolInput, ToolOutput},
+    types::{ToolError, ToolOutput},
 };
 
 /// Source of tools. Multiple providers can be registered.

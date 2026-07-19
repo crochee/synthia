@@ -1,3 +1,4 @@
+#![allow(deprecated)]
 //! Integration test for the resume() / run_stream_with_state() fix.
 //!
 //! Verifies that:

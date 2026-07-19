@@ -1,3 +1,4 @@
+#![allow(deprecated)]
 //! Integration tests for span hierarchy and attributes.
 //!
 //! These tests verify:

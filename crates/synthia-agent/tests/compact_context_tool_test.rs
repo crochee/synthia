@@ -1,3 +1,4 @@
+#![allow(deprecated)]
 //! Integration tests for the LLM-callable `compact_context` tool.
 //!
 //! These tests exercise the three pathways defined by the

@@ -1,3 +1,4 @@
+#![allow(deprecated)]
 //! 64-point extension matrix integration test.
 //!
 //! This integration test exercises every extension point that is

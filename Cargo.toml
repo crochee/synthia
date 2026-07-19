@@ -32,6 +32,10 @@ members = [
     "crates/synthia-service",
     "crates/synthia-extension",
     "crates/synthia-event",
+    "crates/synthia-event-v2",
+    "crates/synthia-extension-v2",
+    "crates/synthia-goal-service",
+    "crates/synthia-tool-materialization",
     "test-support",
 ]
 resolver = "2"
@@ -62,6 +66,9 @@ anyhow.workspace = true
 
 [workspace.dependencies]
 synthia-core = { path = "crates/synthia-core" }
+synthia-context = { path = "crates/synthia-context" }
+synthia-protocol = { path = "crates/synthia-protocol" }
+synthia-service = { path = "crates/synthia-service" }
 
 # Async runtime
 tokio = { version = "1", features = ["full"] }
@@ -135,6 +142,7 @@ rustyline = "15"
 
 # Database (for memory cold storage)
 sqlx = { version = "0.8", features = ["runtime-tokio", "sqlite"] }
+rusqlite = { version = "0.32", features = ["bundled"] }
 
 # YAML parsing
 serde_yaml = "0.9"

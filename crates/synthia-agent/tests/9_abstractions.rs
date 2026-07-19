@@ -1,3 +1,4 @@
+#![allow(deprecated)]
 //! 9-abstractions toolification verification (R8 path A: minimal).
 //!
 //! Verifies the 9 abstractions named in the

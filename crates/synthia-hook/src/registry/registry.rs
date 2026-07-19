@@ -15,7 +15,7 @@ use indexmap::IndexMap;
 use ulid::Ulid;
 
 use super::{safety::get_hook_name, types::HookInfo};
-use crate::traits::AgentHook;
+use crate::{hook_trait::AgentHookAdapter, traits::AgentHook};
 
 pub struct HookRegistry {
     pub(super) hooks: RwLock<IndexMap<Ulid, Arc<dyn AgentHook>>>,
@@ -97,6 +97,26 @@ impl HookRegistry {
         if let Ok(mut set) = self.failed_hooks.write() {
             set.insert(id);
         }
+    }
+
+    /// Snapshot all non-failed hooks, wrapping each in an
+    /// [`AgentHookAdapter`] so they implement the new [`crate::Hook`]
+    /// trait. Used by [`crate::UnifiedHookDispatcher::from_hook_registry`].
+    pub fn snapshot_adapted_hooks(&self) -> Vec<Arc<dyn crate::Hook>> {
+        let Ok(hooks) = self.hooks.read() else {
+            return Vec::new();
+        };
+        let Ok(failed) = self.failed_hooks.read() else {
+            return Vec::new();
+        };
+        hooks
+            .iter()
+            .filter(|(id, _)| !failed.contains(id))
+            .map(|(_, hook)| {
+                Arc::new(AgentHookAdapter::new(hook.clone()))
+                    as Arc<dyn crate::Hook>
+            })
+            .collect()
     }
 }
 

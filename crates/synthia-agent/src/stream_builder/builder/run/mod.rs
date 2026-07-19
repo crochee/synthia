@@ -35,4 +35,5 @@
 //! [`AgentEvent`]: crate::events::AgentEvent
 
 mod entry;
+mod helpers;
 mod main_loop;

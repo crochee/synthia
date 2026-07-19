@@ -1,3 +1,4 @@
+#![allow(deprecated)]
 //! Integration test for `MCPToolsProvider`.
 //!
 //! Asserts that the provider publishes MCP-shaped tool definitions

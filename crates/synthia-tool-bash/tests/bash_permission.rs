@@ -1,3 +1,4 @@
+#![allow(deprecated)]
 //! End-to-end permission gating tests for `BashTool`.
 //!
 //! Verifies the AND-logic defense-in-depth:

@@ -1,0 +1,42 @@
+[package]
+name = "synthia-event-v2"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+description = "Event Sourcing bus for Synthia (Phase A: change #1 PR-1.1 scaffolding)"
+
+[dependencies]
+synthia-core = { workspace = true }
+synthia-context = { workspace = true }
+async-trait.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+tokio.workspace = true
+tokio-stream.workspace = true
+futures.workspace = true
+uuid.workspace = true
+parking_lot.workspace = true
+rusqlite = { workspace = true, optional = true }
+
+[features]
+# Default build: in-memory ring sink only, no external deps.
+default = []
+# Opt-in: pulls in rusqlite and exposes the Sqlite sink (PR-1.4).
+sqlite = ["dep:rusqlite"]
+# Opt-in: hooks an existing gRPC message-proxy subscriber into the EventBus
+# bridge implemented in PR-1.5. No-op on default builds.
+grpc-bridge = []
+
+[lints.rust]
+unsafe_code = "forbid"
+
+[lints.clippy]
+all = { level = "warn", priority = -1 }
+# Per `.trae/rules/rust.md`: surgical + minimum-code style; forbid the noise.
+pedantic = { level = "warn", priority = -1 }
+module_name_repetitions = "allow"
+must_use_candidate = "allow"
+missing_errors_doc = "allow"
+missing_panics_doc = "allow"

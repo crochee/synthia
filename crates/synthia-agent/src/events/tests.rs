@@ -414,6 +414,42 @@ fn test_durable_event_classification_consistency() {
             iteration: 1,
         }),
     });
+
+    // Custom is ephemeral
+    assert_classification_consistent(&AgentEvent::Custom {
+        event_type: "my_plugin.event".into(),
+        data: serde_json::json!({"key": "value"}),
+    });
+}
+
+#[test]
+fn test_custom_event_serde_roundtrip() {
+    let event = AgentEvent::Custom {
+        event_type: "my_plugin.event".to_string(),
+        data: serde_json::json!({"key": "value", "count": 42}),
+    };
+    let json = serde_json::to_string(&event).unwrap();
+    assert!(json.contains("\"type\":\"Custom\""));
+    assert!(json.contains("\"event_type\":\"my_plugin.event\""));
+
+    let parsed: AgentEvent = serde_json::from_str(&json).unwrap();
+    match parsed {
+        AgentEvent::Custom { event_type, data } => {
+            assert_eq!(event_type, "my_plugin.event");
+            assert_eq!(data["key"], "value");
+            assert_eq!(data["count"], 42);
+        }
+        other => panic!("expected Custom, got {other:?}"),
+    }
+}
+
+#[test]
+fn test_custom_event_is_not_durable() {
+    let event = AgentEvent::Custom {
+        event_type: "test".into(),
+        data: serde_json::json!(null),
+    };
+    assert!(!event.is_durable());
 }
 
 #[test]

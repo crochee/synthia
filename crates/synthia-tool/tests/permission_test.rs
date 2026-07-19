@@ -1,3 +1,4 @@
+#![allow(deprecated)]
 use std::{path::PathBuf, sync::Arc};
 
 use async_trait::async_trait;

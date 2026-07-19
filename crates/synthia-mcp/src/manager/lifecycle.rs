@@ -114,7 +114,7 @@ impl McpManager {
     /// Stop all connections: cleanup on agent exit.
     pub async fn stop_all(&self) -> Result<(), McpError> {
         let connections = self.connections.write().await;
-        for (name, _conn) in connections.iter() {
+        for name in connections.keys() {
             tracing::info!(server = %name, "Stopping MCP server on exit");
         }
         // Connections and activity tracking are cleared

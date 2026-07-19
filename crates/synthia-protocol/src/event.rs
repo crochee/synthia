@@ -95,6 +95,18 @@ pub enum EventMsg {
         session_id: SessionId,
         message: String,
     },
+    /// A custom event projected from an extension or plugin.
+    ///
+    /// Maps from `AgentEvent::Custom { event_type, data }` via the
+    /// [`project_custom_event`] function. The `rendered` field contains
+    /// the human-readable output from an `EventRenderer`; if rendering
+    /// fails, it falls back to the raw JSON string.
+    CustomEvent {
+        session_id: SessionId,
+        event_type: String,
+        data: serde_json::Value,
+        rendered: String,
+    },
 }
 
 /// Turn completion status.

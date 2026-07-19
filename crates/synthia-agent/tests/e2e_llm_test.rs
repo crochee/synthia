@@ -1,3 +1,4 @@
+#![allow(deprecated)]
 //! End-to-end connectivity smoke tests against a real LLM provider.
 //!
 //! This file contains tests that **must** hit a real LLM because they

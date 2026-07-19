@@ -1,3 +1,6 @@
+// Legacy Tool trait usage during deprecation window (v3 toolification).
+#![allow(deprecated)]
+
 pub mod bash_tool;
 pub mod command_blacklist;
 pub mod command_manager;

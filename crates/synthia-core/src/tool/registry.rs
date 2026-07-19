@@ -7,7 +7,6 @@ use parking_lot::RwLock;
 use crate::tool::{
     descriptor::{Tool, ToolDescriptor, ToolProvenance},
     provider::ToolProvider,
-    types::ToolError,
 };
 
 /// Monotonic generation counter for stale detection.
@@ -38,6 +37,8 @@ pub enum RegistrationError {
 
 /// Entry in the tool registry.
 struct ToolEntry {
+    #[expect(dead_code)]
+    // used for provider identification; consumed by future deregistration
     provider_id: String,
     tool: Arc<dyn Tool>,
     identity: ToolIdentity,
@@ -52,6 +53,8 @@ pub struct Materialization {
     /// Snapshot of tool references.
     tools: HashMap<String, Arc<dyn Tool>>,
     /// Snapshot token.
+    #[expect(dead_code)]
+    // used for identity comparison; consumed by stale detection
     token: u64,
 }
 
@@ -102,40 +105,49 @@ impl ToolRegistry {
         provider: Arc<dyn ToolProvider>,
     ) -> Result<RegistrationToken, RegistrationError> {
         let descriptors = provider.list_tools().await;
+
+        // Resolve tools outside the lock to avoid holding it across await points.
+        let resolved: Vec<(ToolDescriptor, Arc<dyn Tool>)> = {
+            let mut resolved = Vec::with_capacity(descriptors.len());
+            for desc in &descriptors {
+                if let Some(tool) = provider.get_tool(&desc.name).await {
+                    resolved.push((desc.clone(), tool));
+                }
+            }
+            resolved
+        };
+
         let mut inner = self.inner.write();
 
         let token = RegistrationToken(inner.next_registration);
         inner.next_registration += 1;
 
-        for desc in descriptors {
-            if let Some(tool) = provider.get_tool(&desc.name).await {
-                // Check core name immutability
-                if let Some(existing) = inner.tools.get(&desc.name) {
-                    if existing
-                        .iter()
-                        .any(|e| e.provenance == ToolProvenance::Core)
-                        && desc.provenance == ToolProvenance::Core
-                    {
-                        return Err(RegistrationError::CoreNameTaken {
-                            name: desc.name.clone(),
-                        });
-                    }
-                }
-
-                let identity = ToolIdentity {
+        for (desc, tool) in resolved {
+            // Check core name immutability
+            if let Some(existing) = inner.tools.get(&desc.name)
+                && existing
+                    .iter()
+                    .any(|e| e.provenance == ToolProvenance::Core)
+                && desc.provenance == ToolProvenance::Core
+            {
+                return Err(RegistrationError::CoreNameTaken {
                     name: desc.name.clone(),
-                    generation: inner.generation,
-                };
-
-                let entry = ToolEntry {
-                    provider_id: provider.id().to_string(),
-                    tool,
-                    identity,
-                    provenance: desc.provenance,
-                };
-
-                inner.tools.entry(desc.name).or_default().push(entry);
+                });
             }
+
+            let identity = ToolIdentity {
+                name: desc.name.clone(),
+                generation: inner.generation,
+            };
+
+            let entry = ToolEntry {
+                provider_id: provider.id().to_string(),
+                tool,
+                identity,
+                provenance: desc.provenance,
+            };
+
+            inner.tools.entry(desc.name).or_default().push(entry);
         }
 
         // Bump generation after registration
@@ -195,14 +207,14 @@ impl ToolRegistry {
         };
 
         // Check stale detection
-        if let Some(seen_identity) = mat.identities.get(name) {
-            if seen_identity.generation != current_tool.identity.generation {
-                return Err(StaleOrUnknown::Stale {
-                    name: name.to_string(),
-                    seen: seen_identity.generation.0,
-                    current: current_tool.identity.generation.0,
-                });
-            }
+        if let Some(seen_identity) = mat.identities.get(name)
+            && seen_identity.generation != current_tool.identity.generation
+        {
+            return Err(StaleOrUnknown::Stale {
+                name: name.to_string(),
+                seen: seen_identity.generation.0,
+                current: current_tool.identity.generation.0,
+            });
         }
 
         // Return the tool from snapshot

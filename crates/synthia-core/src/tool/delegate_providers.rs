@@ -7,9 +7,10 @@ use std::sync::Arc;
 use async_trait::async_trait;
 
 use crate::tool::{
-    descriptor::{Tool, ToolDescriptor},
+    Tool,
+    descriptor::ToolDescriptor,
     provider::{ToolCall, ToolEvent, ToolProvider},
-    types::{ToolContext, ToolError, ToolInput, ToolOutput},
+    types::{ToolError, ToolOutput},
 };
 
 // ─── SkillToolProvider ────────────────────────────────────────────
@@ -17,6 +18,12 @@ use crate::tool::{
 /// Tool provider backed by the skill registry.
 pub struct SkillToolProvider {
     provider_id: String,
+}
+
+impl Default for SkillToolProvider {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl SkillToolProvider {
@@ -59,6 +66,12 @@ pub struct SubagentToolProvider {
     provider_id: String,
 }
 
+impl Default for SubagentToolProvider {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl SubagentToolProvider {
     pub fn new() -> Self {
         Self {
@@ -97,6 +110,12 @@ impl ToolProvider for SubagentToolProvider {
 /// Tool provider for script-based / dynamically registered tools.
 pub struct DynamicToolProvider {
     provider_id: String,
+}
+
+impl Default for DynamicToolProvider {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl DynamicToolProvider {

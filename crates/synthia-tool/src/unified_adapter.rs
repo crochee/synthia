@@ -7,7 +7,6 @@ use std::sync::{Arc, OnceLock};
 
 use async_trait::async_trait;
 use synthia_core::tool::{
-    capability::ToolCapabilities,
     descriptor::{
         CancelBehavior,
         ExecutionMode,
@@ -193,6 +192,8 @@ pub fn adapt_utility(tool: Arc<dyn crate::traits::Tool>) -> LegacyToolAdapter {
 
 #[cfg(test)]
 mod tests {
+    use synthia_core::tool::capability::ToolCapabilities;
+
     use super::*;
 
     #[test]

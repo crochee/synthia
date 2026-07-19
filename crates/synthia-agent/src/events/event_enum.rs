@@ -216,6 +216,15 @@ pub enum AgentEvent {
     },
     /// Agent status change event.
     Status(AgentStatus),
+    /// Custom event emitted by extensions or plugins.
+    ///
+    /// Mirrors pi-mono `extensions/types.ts` `CustomEvent` support.
+    /// `event_type` is a free-form string that identifies the kind of
+    /// custom event; `data` carries arbitrary JSON payload.
+    Custom {
+        event_type: String,
+        data: serde_json::Value,
+    },
 }
 
 impl AgentEvent {

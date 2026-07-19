@@ -1,3 +1,6 @@
+// Legacy Tool trait usage during deprecation window (v3 toolification).
+#![allow(deprecated)]
+
 pub mod progress;
 pub mod registry;
 pub mod task_tools;

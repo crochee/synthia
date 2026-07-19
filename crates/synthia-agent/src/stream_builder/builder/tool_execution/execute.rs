@@ -40,6 +40,8 @@
 //!
 //! [`ToolResult`]: crate::types::ToolResult
 
+use std::sync::Arc;
+
 use synthia_context::truncate::{
     DEFAULT_RETENTION,
     TruncateConfig,
@@ -89,9 +91,15 @@ pub async fn execute_and_emit(
 
     // Phase 1: fire `before_tool` hooks and collect the
     // effective tool calls.
-    let mut tool_calls_to_execute =
-        collect_tool_calls(steps, agent_ctx, &sampling.tool_calls, &mut events)
-            .await;
+    let mut tool_calls_to_execute = collect_tool_calls(
+        steps,
+        agent_ctx,
+        &sampling.tool_calls,
+        &mut events,
+        &steps.steering_channel,
+        &mut ctx.forwarded_this_turn,
+    )
+    .await;
 
     // If the hooks filtered every call out, there is
     // nothing to execute. Surface the ToolCallStarted
@@ -438,9 +446,30 @@ pub async fn execute_and_emit(
         ctx.add_tool_result(
             result.tool_name.clone(),
             result.tool_call_id.clone(),
-            effective_output,
+            effective_output.clone(),
             !result.is_error,
         );
+
+        // Dispatch PostToolUse via UnifiedHookDispatcher so the
+        // Layer 2 LoopDetector can record the call.
+        let post_tool_event = synthia_hook::HookEvent::PostToolUse(
+            synthia_hook::outcome::PostToolUsePayload {
+                session_id: session_id.to_string(),
+                tool_name: result.tool_name.clone(),
+                input: serde_json::Value::Null,
+                output: serde_json::Value::String(
+                    effective_output.chars().take(200).collect(),
+                ),
+            },
+        );
+        let post_tool_outcome =
+            steps.hook_dispatcher.dispatch(&post_tool_event).await;
+        if post_tool_outcome.is_denied() {
+            tracing::warn!(
+                tool = %result.tool_name,
+                "PostToolUse hook denied (non-blocking, logged only)"
+            );
+        }
         if let Some(sender) = memory_event_sender
             && let Err(e) = sender
                 .send(MemoryEvent::tool_executed(
@@ -490,6 +519,8 @@ async fn collect_tool_calls(
     agent_ctx: &AgentContext,
     tool_calls: &[ToolUse],
     events_out: &mut Vec<AgentEvent>,
+    steering_channel: &Option<Arc<dyn crate::steering::SteeringChannel>>,
+    forwarded_this_turn: &mut usize,
 ) -> Vec<ToolUse> {
     let mut tool_calls_to_execute: Vec<ToolUse> = Vec::new();
     for tool_call in tool_calls {
@@ -497,11 +528,60 @@ async fn collect_tool_calls(
             tool_name: tool_call.name.clone(),
             input: tool_call.input.clone(),
         });
-        // Fire before_tool hooks
+
+        // Phase 1a: dispatch PreToolUse via UnifiedHookDispatcher.
+        // Deny → skip the tool; ForwardToMainAgent → inject into
+        // steering and continue; Allow → proceed to old hook.
+        let pre_tool_event = synthia_hook::HookEvent::PreToolUse(
+            synthia_hook::outcome::PreToolUsePayload {
+                session_id: agent_ctx.session_id.clone(),
+                tool_name: tool_call.name.clone(),
+                input: tool_call.input.clone(),
+            },
+        );
+        let pre_tool_outcome =
+            steps.hook_dispatcher.dispatch(&pre_tool_event).await;
+        match &pre_tool_outcome {
+            synthia_hook::HookOutcome::Deny { reason } => {
+                tracing::warn!(
+                    tool = %tool_call.name,
+                    reason = %reason,
+                    "PreToolUse hook denied via UnifiedHookDispatcher"
+                );
+                // Dispatch PreMessageDrop: the tool call message is about
+                // to be dropped because the hook denied it.
+                let pre_drop_event = synthia_hook::HookEvent::PreMessageDrop(
+                    synthia_hook::outcome::PreMessageDropPayload {
+                        session_id: agent_ctx.session_id.clone(),
+                        reason: synthia_hook::outcome::DropReason::HookDenied,
+                    },
+                );
+                steps.hook_dispatcher.dispatch(&pre_drop_event).await;
+                continue;
+            }
+            synthia_hook::HookOutcome::ForwardToMainAgent { hint } => {
+                if *forwarded_this_turn < crate::steering::FORWARDED_RATE_LIMIT
+                    && let Some(channel) = steering_channel
+                {
+                    channel
+                        .send(crate::steering::SteeringMessage::forwarded(hint))
+                        .await;
+                    *forwarded_this_turn += 1;
+                }
+                // ForwardToMainAgent does NOT block the tool call.
+            }
+            synthia_hook::HookOutcome::Allow => {}
+        }
+
+        // Phase 1b: fire legacy before_tool hooks for Modify support.
+        // The deprecated fire_before_tool can return ToolAction::Modify
+        // which rewrites the tool input — this capability is not yet
+        // available in the new HookOutcome model.
         let call_json =
             serde_json::to_string(&tool_call.input).unwrap_or_default();
         let call_value: serde_json::Value =
             serde_json::from_str(&call_json).unwrap_or_default();
+        #[allow(deprecated)]
         match steps.hooks.fire_before_tool(agent_ctx, &call_value).await {
             Ok(ToolAction::Skip) => {
                 // Skip this tool

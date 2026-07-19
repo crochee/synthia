@@ -1,3 +1,4 @@
+#![allow(deprecated)]
 //! E2E test: Steering injection during active ReAct loop.
 
 mod test_support;

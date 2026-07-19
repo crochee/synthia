@@ -1,3 +1,4 @@
+#![allow(deprecated)]
 use synthia_agent::tools::providers::default_providers;
 #[test]
 fn default_providers_returns_nine() {

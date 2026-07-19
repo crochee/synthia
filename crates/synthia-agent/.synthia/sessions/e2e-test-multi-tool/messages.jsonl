@@ -1,0 +1,18 @@
+{"role":"assistant","content":{"Single":{"type":"tool_use","id":"call_e631012b210c4f4987c1704a","name":"glob","input":{}}},"tool_call_id":null,"name":null}
+{"role":"tool","content":{"Single":{"type":"text","text":"glob result"}},"tool_call_id":"call_e631012b210c4f4987c1704a","name":null}
+{"role":"assistant","content":{"Single":{"type":"tool_use","id":"call_4b09961eda6f4744a78283e0","name":"glob","input":{"pattern":"/tmp/*"}}},"tool_call_id":null,"name":null}
+{"role":"tool","content":{"Single":{"type":"text","text":"glob result"}},"tool_call_id":"call_4b09961eda6f4744a78283e0","name":null}
+{"role":"assistant","content":{"Single":{"type":"tool_use","id":"call_391759434e0948fcbbc2649d","name":"glob","input":{"pattern":"/tmp/*"}}},"tool_call_id":null,"name":null}
+{"role":"tool","content":{"Single":{"type":"text","text":"glob result"}},"tool_call_id":"call_391759434e0948fcbbc2649d","name":null}
+{"role":"assistant","content":{"Single":{"type":"tool_use","id":"call_d9f579605a6b4139842dd1b9","name":"glob","input":{"path":"/tmp"}}},"tool_call_id":null,"name":null}
+{"role":"tool","content":{"Single":{"type":"text","text":"glob result"}},"tool_call_id":"call_d9f579605a6b4139842dd1b9","name":null}
+{"role":"assistant","content":{"Single":{"type":"tool_use","id":"call_function_5prj0r5hj2x0_1","name":"glob","input":{"pattern":"/tmp/*"}}},"tool_call_id":null,"name":null}
+{"role":"tool","content":{"Single":{"type":"text","text":"glob result"}},"tool_call_id":"call_function_5prj0r5hj2x0_1","name":null}
+{"role":"assistant","content":{"Single":{"type":"tool_use","id":"call_function_oym89cdpg7ck_1","name":"glob","input":{}}},"tool_call_id":null,"name":null}
+{"role":"tool","content":{"Single":{"type":"text","text":"glob result"}},"tool_call_id":"call_function_oym89cdpg7ck_1","name":null}
+{"role":"assistant","content":{"Single":{"type":"tool_use","id":"call_function_qftag7retimv_1","name":"grep","input":{}}},"tool_call_id":null,"name":null}
+{"role":"tool","content":{"Single":{"type":"text","text":"grep result"}},"tool_call_id":"call_function_qftag7retimv_1","name":null}
+{"role":"assistant","content":{"Single":{"type":"tool_use","id":"call_function_c5deyxdwkznl_1","name":"glob","input":{"path":"/tmp/*"}}},"tool_call_id":null,"name":null}
+{"role":"tool","content":{"Single":{"type":"text","text":"glob result"}},"tool_call_id":"call_function_c5deyxdwkznl_1","name":null}
+{"role":"assistant","content":{"Single":{"type":"tool_use","id":"call_function_w1kh0k2wm5u7_1","name":"glob","input":{"pattern":"/tmp/*"}}},"tool_call_id":null,"name":null}
+{"role":"tool","content":{"Single":{"type":"text","text":"glob result"}},"tool_call_id":"call_function_w1kh0k2wm5u7_1","name":null}

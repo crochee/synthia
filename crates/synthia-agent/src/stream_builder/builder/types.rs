@@ -82,6 +82,12 @@ pub struct BuilderSteps {
     pub(super) compact: StepCompact,
     pub(super) reflect: StepReflect,
     pub(super) hooks: HookBuilder,
+    /// Unified hook dispatcher — the single dispatch point for
+    /// all hook events. Replaces the deprecated `HookBuilder::fire_*`
+    /// methods. Constructed from `HookRegistry` hooks wrapped in
+    /// `AgentHookAdapter`, plus any additional `Hook` trait impls
+    /// (e.g. `LoopDetector`).
+    pub(super) hook_dispatcher: Arc<synthia_hook::UnifiedHookDispatcher>,
     pub(super) recovery: ErrorRecoveryCoordinator,
     /// L5 reset coordinator — tracks the cooldown window that follows a
     /// failed reset, and owns the `ResetScope::Conversation` logic used

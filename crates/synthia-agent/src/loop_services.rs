@@ -10,7 +10,7 @@
 use std::sync::Arc;
 
 use synthia_context::assembler::ContextAssembler;
-use synthia_hook::HookRegistry;
+use synthia_hook::{HookRegistry, LoopDetector, UnifiedHookDispatcher};
 use synthia_memory::types::MemoryEvent;
 use synthia_permission::ApprovalService;
 use synthia_provider::router::ModelRouter;
@@ -49,6 +49,18 @@ pub struct LoopServices {
         Arc<dyn synthia_context::compaction::level1::CompactionProvider>,
     >,
     pub subagent_factory: Option<Arc<dyn SubagentSessionFactory>>,
+    /// Admission-control goal service — semaphore-based concurrent goal
+    /// limit. `None` = no admission control (unlimited concurrent goals).
+    pub goal_admission: Option<Arc<dyn synthia_goal_service::GoalService>>,
+    /// Per-session goal tracker — progress observability and budget
+    /// tracking. `None` = no goal tracking (NoopGoalService behavior).
+    pub goal_tracker: Option<Arc<dyn synthia_service::goal::GoalService>>,
+    /// Unified hook dispatcher — the single dispatch point for all hook
+    /// events. Constructed from `HookRegistry` hooks wrapped in
+    /// `AgentHookAdapter`, plus `LoopDetector` as a Layer 2 Hook.
+    /// Promoted from `BuilderSteps` to `LoopServices` so that the
+    /// dispatcher is accessible to all parts of the loop.
+    pub hook_dispatcher: Arc<synthia_hook::UnifiedHookDispatcher>,
 }
 
 /// Bootstrap configuration for constructing [`LoopServices`].
@@ -71,6 +83,9 @@ pub struct LoopServicesConfig {
         Arc<dyn synthia_context::compaction::level1::CompactionProvider>,
     >,
     pub subagent_factory: Option<Arc<dyn SubagentSessionFactory>>,
+    pub goal_admission: Option<Arc<dyn synthia_goal_service::GoalService>>,
+    pub goal_tracker: Option<Arc<dyn synthia_service::goal::GoalService>>,
+    pub hook_dispatcher: Arc<synthia_hook::UnifiedHookDispatcher>,
 }
 
 /// Bootstrap error — a required service was missing.
@@ -162,6 +177,19 @@ impl LoopServices {
             tracing::debug!("subagent factory not provided");
         }
 
+        let goal_admission = config.goal_admission;
+        if goal_admission.is_none() {
+            tracing::debug!("goal admission service not provided");
+        }
+
+        let goal_tracker = config.goal_tracker;
+        if goal_tracker.is_none() {
+            tracing::debug!("goal tracker service not provided");
+        }
+
+        // ── Hook dispatcher: construct from hooks + LoopDetector ──
+        let hook_dispatcher = config.hook_dispatcher;
+
         Ok(Self {
             session,
             permission,
@@ -176,6 +204,9 @@ impl LoopServices {
             model_router,
             compaction,
             subagent_factory,
+            goal_admission,
+            goal_tracker,
+            hook_dispatcher,
         })
     }
 
@@ -200,6 +231,15 @@ impl LoopServices {
             model_router: Some(run_config.model_router.clone()),
             compaction: run_config.compaction_provider.clone(),
             subagent_factory: run_config.subagent_session_factory.clone(),
+            goal_admission: None,
+            goal_tracker: None,
+            hook_dispatcher: {
+                let mut dispatcher = UnifiedHookDispatcher::from_hook_registry(
+                    &run_config.hook_registry,
+                );
+                dispatcher.add_hook(Arc::new(LoopDetector::new()));
+                Arc::new(dispatcher)
+            },
         }
     }
 }
@@ -214,6 +254,14 @@ mod tests {
         // test lifetime. Acceptable in tests only.
         let path = dir.into_path();
         SessionStore::new(path)
+    }
+
+    /// Helper: construct a default hook dispatcher for tests.
+    fn test_hook_dispatcher() -> Arc<UnifiedHookDispatcher> {
+        let mut dispatcher =
+            UnifiedHookDispatcher::from_hook_registry(&HookRegistry::new());
+        dispatcher.add_hook(Arc::new(LoopDetector::new()));
+        Arc::new(dispatcher)
     }
 
     #[test]
@@ -232,11 +280,16 @@ mod tests {
             model_router: None,
             compaction: None,
             subagent_factory: None,
+            goal_admission: None,
+            goal_tracker: None,
+            hook_dispatcher: test_hook_dispatcher(),
         };
         let services = LoopServices::bootstrap(config).unwrap();
         assert!(services.memory.is_none());
         assert!(services.guardian.is_none());
         assert!(services.steering.is_none());
+        assert!(services.goal_admission.is_none());
+        assert!(services.goal_tracker.is_none());
     }
 
     #[test]
@@ -258,6 +311,9 @@ mod tests {
             model_router: None,
             compaction: None,
             subagent_factory: None,
+            goal_admission: None,
+            goal_tracker: None,
+            hook_dispatcher: test_hook_dispatcher(),
         };
         let services = LoopServices::bootstrap(config).unwrap();
         assert!(services.memory.is_some());

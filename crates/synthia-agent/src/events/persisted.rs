@@ -54,6 +54,7 @@ pub fn is_durable_event_type(event_type: &str) -> bool {
             | "SubagentMessage"
             | "SubagentCompleted"
             | "subagent_event"
+            | "Custom"
     )
 }
 

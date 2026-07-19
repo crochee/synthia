@@ -76,12 +76,42 @@ impl BuilderSteps {
     /// arms accumulate state that should not leak across
     /// sessions.
     pub(super) fn new(config: &AgentRunConfig, hooks: HookBuilder) -> Self {
+        // Construct the UnifiedHookDispatcher. When the unified-registry
+        // feature is enabled and LoopServices has already bootstrapped a
+        // dispatcher, reuse it; otherwise construct a fresh one from the
+        // HookRegistry.
+        #[cfg(feature = "unified-registry")]
+        let hook_dispatcher = config
+            .loop_services
+            .get()
+            .map(|ls| ls.hook_dispatcher.clone())
+            .unwrap_or_else(|| {
+                let mut dispatcher =
+                    synthia_hook::UnifiedHookDispatcher::from_hook_registry(
+                        hooks.get_registry(),
+                    );
+                dispatcher
+                    .add_hook(Arc::new(synthia_hook::LoopDetector::new()));
+                Arc::new(dispatcher)
+            });
+
+        #[cfg(not(feature = "unified-registry"))]
+        let hook_dispatcher = {
+            let mut dispatcher =
+                synthia_hook::UnifiedHookDispatcher::from_hook_registry(
+                    hooks.get_registry(),
+                );
+            dispatcher.add_hook(Arc::new(synthia_hook::LoopDetector::new()));
+            Arc::new(dispatcher)
+        };
+
         Self {
             sample: StepSample::new(config.config.clone()),
             tool_execute: StepToolExecute::new(config),
             compact: StepCompact,
             reflect: StepReflect::new(config.config.model.clone()),
             hooks,
+            hook_dispatcher,
             recovery: ErrorRecoveryCoordinator::new(5),
             reset: ResetCoordinator::new(),
             failure_tracker: ConsecutiveFailureTracker::new(),

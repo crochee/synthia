@@ -101,6 +101,7 @@ impl GoalService for DefaultGoalService {
         *self.goal.lock() = Some(goal);
     }
 
+    #[allow(clippy::disallowed_methods)]
     async fn status(&self) -> GoalStatus {
         self.goal
             .lock()
@@ -108,6 +109,7 @@ impl GoalService for DefaultGoalService {
             .map_or(GoalStatus::Active, |g| g.status)
     }
 
+    #[allow(clippy::unwrap_or_default)]
     async fn budget(&self) -> GoalBudget {
         self.goal
             .lock()

@@ -13,11 +13,29 @@ pub struct SteeringMessage {
     pub timestamp: Instant,
 }
 
+// ── Named priority levels ──────────────────────────────────
+
+/// System-level priority (lowest). Used for internal agent signals.
+pub const PRIORITY_SYSTEM: u8 = 1;
+
+/// Forwarded message priority. Used when a sub-agent's hook returns
+/// `ForwardToMainAgent` — below user messages but above system signals.
+pub const PRIORITY_FORWARDED: u8 = 3;
+
+/// Default steering priority.
+pub const PRIORITY_DEFAULT: u8 = 5;
+
+/// User-level priority. Used for direct user steering input.
+pub const PRIORITY_USER: u8 = 10;
+
+/// Maximum forwarded messages per turn before rate-limiting kicks in.
+pub const FORWARDED_RATE_LIMIT: usize = 5;
+
 impl SteeringMessage {
     pub fn new(content: impl Into<String>) -> Self {
         Self {
             content: content.into(),
-            priority: 5,
+            priority: PRIORITY_DEFAULT,
             timestamp: Instant::now(),
         }
     }
@@ -25,6 +43,24 @@ impl SteeringMessage {
     pub fn with_priority(mut self, priority: u8) -> Self {
         self.priority = priority;
         self
+    }
+
+    /// Create a forwarded message from a sub-agent's `ForwardToMainAgent` hint.
+    pub fn forwarded(hint: impl Into<String>) -> Self {
+        Self {
+            content: hint.into(),
+            priority: PRIORITY_FORWARDED,
+            timestamp: Instant::now(),
+        }
+    }
+
+    /// Create a user-level steering message.
+    pub fn user(content: impl Into<String>) -> Self {
+        Self {
+            content: content.into(),
+            priority: PRIORITY_USER,
+            timestamp: Instant::now(),
+        }
     }
 }
 
@@ -293,5 +329,30 @@ mod tests {
         let low = PriorityMsg(SteeringMessage::new("lo").with_priority(1));
 
         assert!(high > low);
+    }
+
+    #[tokio::test]
+    async fn test_forwarded_priority_below_user() {
+        let channel = MpscSteeringChannel::new();
+        channel
+            .send(SteeringMessage::forwarded("sub-agent hint"))
+            .await;
+        channel.send(SteeringMessage::user("user input")).await;
+
+        // User message should come out first (higher priority)
+        let first = channel.try_recv().unwrap();
+        assert_eq!(first.priority, PRIORITY_USER);
+        assert_eq!(first.content, "user input");
+
+        let second = channel.try_recv().unwrap();
+        assert_eq!(second.priority, PRIORITY_FORWARDED);
+        assert_eq!(second.content, "sub-agent hint");
+    }
+
+    #[test]
+    fn test_forwarded_priority_constants_ordering() {
+        const { assert!(PRIORITY_SYSTEM < PRIORITY_FORWARDED) };
+        const { assert!(PRIORITY_FORWARDED < PRIORITY_DEFAULT) };
+        const { assert!(PRIORITY_DEFAULT < PRIORITY_USER) };
     }
 }

@@ -1,3 +1,4 @@
+#![allow(deprecated)]
 //! Integration tests for the Guardian `self_reflect` tool exposed to the LLM.
 
 mod test_support;

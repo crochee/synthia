@@ -1,3 +1,4 @@
+#![allow(deprecated)]
 //! End-to-end integration tests for `StepSample`'s new
 //! `complete_with_stream` + truncate integration.
 //!

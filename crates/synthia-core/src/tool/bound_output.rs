@@ -227,16 +227,16 @@ async fn cleanup_managed_files(
     let mut entries = fs::read_dir(managed_dir).await?;
     while let Some(entry) = entries.next_entry().await? {
         let metadata = entry.metadata().await?;
-        if let Ok(modified) = metadata.modified() {
-            if modified < cutoff {
-                let path = entry.path();
-                if let Err(e) = fs::remove_file(&path).await {
-                    tracing::warn!(
-                        "failed to remove managed file {:?}: {}",
-                        path,
-                        e
-                    );
-                }
+        if let Ok(modified) = metadata.modified()
+            && modified < cutoff
+        {
+            let path = entry.path();
+            if let Err(e) = fs::remove_file(&path).await {
+                tracing::warn!(
+                    "failed to remove managed file {:?}: {}",
+                    path,
+                    e
+                );
             }
         }
     }

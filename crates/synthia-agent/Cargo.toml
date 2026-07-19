@@ -14,6 +14,7 @@ synthia-permission = { path = "../synthia-permission" }
 synthia-sandbox = { path = "../synthia-sandbox" }
 synthia-command = { path = "../synthia-command" }
 synthia-service = { path = "../synthia-service" }
+synthia-goal-service = { path = "../synthia-goal-service" }
 synthia-session = { path = "../synthia-session" }
 synthia-memory = { path = "../synthia-memory" }
 synthia-context = { path = "../synthia-context" }

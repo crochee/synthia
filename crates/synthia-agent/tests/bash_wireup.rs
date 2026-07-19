@@ -1,3 +1,4 @@
+#![allow(deprecated)]
 //! Agent-level wire-up test for `BashTool` via `register_bash`.
 //!
 //! Per `openspec/changes/user-id-namespace-and-bash-permission-gate/tasks.md` §5.7/5.8:

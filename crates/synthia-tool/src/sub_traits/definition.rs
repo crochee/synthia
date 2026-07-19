@@ -57,9 +57,11 @@ mod tests {
         // This is a documentation test — if you add a 6th required method,
         // update the count below and reconsider the split.
         const METHOD_COUNT: usize = 5;
-        assert!(
-            METHOD_COUNT <= 5,
-            "ToolDefinition exceeds 5 methods — consider splitting"
-        );
+        const {
+            assert!(
+                METHOD_COUNT <= 5,
+                "ToolDefinition exceeds 5 methods — consider splitting"
+            )
+        };
     }
 }

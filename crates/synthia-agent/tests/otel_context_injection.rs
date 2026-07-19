@@ -1,3 +1,4 @@
+#![allow(deprecated)]
 //! Integration test for OTel task-local context injection (Task 5).
 //!
 //! Verifies the `tokio::task_local` propagation pattern that

@@ -1,0 +1,26 @@
+{
+  "session_id": "sess-2",
+  "step": 1,
+  "timestamp": "2026-06-04T15:50:22.906014228+00:00",
+  "messages": [],
+  "pending_tool_calls": [],
+  "agent_config": {
+    "model": "gpt-4o",
+    "max_tokens": 4096,
+    "max_iterations": 90,
+    "temperature": null,
+    "token_budget": null
+  },
+  "guardian_state": {
+    "loop_counts": {},
+    "no_progress": false,
+    "consecutive_errors": 0,
+    "circuit_breaker_open": false
+  },
+  "token_usage": {
+    "prompt_tokens": 0,
+    "completion_tokens": 0,
+    "total_tokens": 0
+  },
+  "iteration": 1
+}

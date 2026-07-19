@@ -1,0 +1,80 @@
+{"role":"assistant","content":{"Single":{"type":"tool_use","id":"call_1","name":"search","input":{}}},"tool_call_id":null,"name":null}
+{"role":"tool","content":{"Single":{"type":"text","text":"search result"}},"tool_call_id":"call_1","name":null}
+{"role":"assistant","content":{"Single":{"type":"tool_use","id":"call_2","name":"search","input":{}}},"tool_call_id":null,"name":null}
+{"role":"tool","content":{"Single":{"type":"text","text":"search result"}},"tool_call_id":"call_2","name":null}
+{"role":"assistant","content":{"Single":{"type":"tool_use","id":"call_1","name":"search","input":{}}},"tool_call_id":null,"name":null}
+{"role":"tool","content":{"Single":{"type":"text","text":"search result"}},"tool_call_id":"call_1","name":null}
+{"role":"assistant","content":{"Single":{"type":"tool_use","id":"call_2","name":"search","input":{}}},"tool_call_id":null,"name":null}
+{"role":"tool","content":{"Single":{"type":"text","text":"search result"}},"tool_call_id":"call_2","name":null}
+{"role":"assistant","content":{"Single":{"type":"tool_use","id":"call_1","name":"search","input":{}}},"tool_call_id":null,"name":null}
+{"role":"tool","content":{"Single":{"type":"text","text":"search result"}},"tool_call_id":"call_1","name":null}
+{"role":"assistant","content":{"Single":{"type":"tool_use","id":"call_2","name":"search","input":{}}},"tool_call_id":null,"name":null}
+{"role":"tool","content":{"Single":{"type":"text","text":"search result"}},"tool_call_id":"call_2","name":null}
+{"role":"assistant","content":{"Single":{"type":"tool_use","id":"call_1","name":"search","input":{}}},"tool_call_id":null,"name":null}
+{"role":"tool","content":{"Single":{"type":"text","text":"search result"}},"tool_call_id":"call_1","name":null}
+{"role":"assistant","content":{"Single":{"type":"tool_use","id":"call_2","name":"search","input":{}}},"tool_call_id":null,"name":null}
+{"role":"tool","content":{"Single":{"type":"text","text":"search result"}},"tool_call_id":"call_2","name":null}
+{"role":"assistant","content":{"Single":{"type":"tool_use","id":"call_1","name":"search","input":{}}},"tool_call_id":null,"name":null}
+{"role":"tool","content":{"Single":{"type":"text","text":"search result"}},"tool_call_id":"call_1","name":null}
+{"role":"assistant","content":{"Single":{"type":"tool_use","id":"call_2","name":"search","input":{}}},"tool_call_id":null,"name":null}
+{"role":"tool","content":{"Single":{"type":"text","text":"search result"}},"tool_call_id":"call_2","name":null}
+{"role":"assistant","content":{"Single":{"type":"tool_use","id":"call_1","name":"search","input":{}}},"tool_call_id":null,"name":null}
+{"role":"tool","content":{"Single":{"type":"text","text":"search result"}},"tool_call_id":"call_1","name":null}
+{"role":"assistant","content":{"Single":{"type":"tool_use","id":"call_2","name":"search","input":{}}},"tool_call_id":null,"name":null}
+{"role":"tool","content":{"Single":{"type":"text","text":"search result"}},"tool_call_id":"call_2","name":null}
+{"role":"assistant","content":{"Single":{"type":"tool_use","id":"call_1","name":"search","input":{}}},"tool_call_id":null,"name":null}
+{"role":"tool","content":{"Single":{"type":"text","text":"search result"}},"tool_call_id":"call_1","name":null}
+{"role":"assistant","content":{"Single":{"type":"tool_use","id":"call_2","name":"search","input":{}}},"tool_call_id":null,"name":null}
+{"role":"tool","content":{"Single":{"type":"text","text":"search result"}},"tool_call_id":"call_2","name":null}
+{"role":"assistant","content":{"Single":{"type":"tool_use","id":"call_1","name":"search","input":{}}},"tool_call_id":null,"name":null}
+{"role":"tool","content":{"Single":{"type":"text","text":"search result"}},"tool_call_id":"call_1","name":null}
+{"role":"assistant","content":{"Single":{"type":"tool_use","id":"call_2","name":"search","input":{}}},"tool_call_id":null,"name":null}
+{"role":"tool","content":{"Single":{"type":"text","text":"search result"}},"tool_call_id":"call_2","name":null}
+{"role":"assistant","content":{"Single":{"type":"tool_use","id":"call_1","name":"search","input":{}}},"tool_call_id":null,"name":null}
+{"role":"tool","content":{"Single":{"type":"text","text":"search result"}},"tool_call_id":"call_1","name":null}
+{"role":"assistant","content":{"Single":{"type":"tool_use","id":"call_2","name":"search","input":{}}},"tool_call_id":null,"name":null}
+{"role":"tool","content":{"Single":{"type":"text","text":"search result"}},"tool_call_id":"call_2","name":null}
+{"role":"assistant","content":{"Single":{"type":"tool_use","id":"call_1","name":"search","input":{}}},"tool_call_id":null,"name":null}
+{"role":"tool","content":{"Single":{"type":"text","text":"search result"}},"tool_call_id":"call_1","name":null}
+{"role":"assistant","content":{"Single":{"type":"tool_use","id":"call_2","name":"search","input":{}}},"tool_call_id":null,"name":null}
+{"role":"tool","content":{"Single":{"type":"text","text":"search result"}},"tool_call_id":"call_2","name":null}
+{"role":"assistant","content":{"Single":{"type":"tool_use","id":"call_1","name":"search","input":{}}},"tool_call_id":null,"name":null}
+{"role":"tool","content":{"Single":{"type":"text","text":"search result"}},"tool_call_id":"call_1","name":null}
+{"role":"assistant","content":{"Single":{"type":"tool_use","id":"call_2","name":"search","input":{}}},"tool_call_id":null,"name":null}
+{"role":"tool","content":{"Single":{"type":"text","text":"search result"}},"tool_call_id":"call_2","name":null}
+{"role":"assistant","content":{"Single":{"type":"tool_use","id":"call_1","name":"search","input":{}}},"tool_call_id":null,"name":null}
+{"role":"tool","content":{"Single":{"type":"text","text":"search result"}},"tool_call_id":"call_1","name":null}
+{"role":"assistant","content":{"Single":{"type":"tool_use","id":"call_2","name":"search","input":{}}},"tool_call_id":null,"name":null}
+{"role":"tool","content":{"Single":{"type":"text","text":"search result"}},"tool_call_id":"call_2","name":null}
+{"role":"assistant","content":{"Single":{"type":"tool_use","id":"call_1","name":"search","input":{}}},"tool_call_id":null,"name":null}
+{"role":"tool","content":{"Single":{"type":"text","text":"search result"}},"tool_call_id":"call_1","name":null}
+{"role":"assistant","content":{"Single":{"type":"tool_use","id":"call_2","name":"search","input":{}}},"tool_call_id":null,"name":null}
+{"role":"tool","content":{"Single":{"type":"text","text":"search result"}},"tool_call_id":"call_2","name":null}
+{"role":"assistant","content":{"Single":{"type":"tool_use","id":"call_1","name":"search","input":{}}},"tool_call_id":null,"name":null}
+{"role":"tool","content":{"Single":{"type":"text","text":"search result"}},"tool_call_id":"call_1","name":null}
+{"role":"assistant","content":{"Single":{"type":"tool_use","id":"call_2","name":"search","input":{}}},"tool_call_id":null,"name":null}
+{"role":"tool","content":{"Single":{"type":"text","text":"search result"}},"tool_call_id":"call_2","name":null}
+{"role":"assistant","content":{"Single":{"type":"tool_use","id":"call_1","name":"search","input":{}}},"tool_call_id":null,"name":null}
+{"role":"tool","content":{"Single":{"type":"text","text":"search result"}},"tool_call_id":"call_1","name":null}
+{"role":"assistant","content":{"Single":{"type":"tool_use","id":"call_2","name":"search","input":{}}},"tool_call_id":null,"name":null}
+{"role":"tool","content":{"Single":{"type":"text","text":"search result"}},"tool_call_id":"call_2","name":null}
+{"role":"assistant","content":{"Single":{"type":"tool_use","id":"call_1","name":"search","input":{}}},"tool_call_id":null,"name":null}
+{"role":"tool","content":{"Single":{"type":"text","text":"search result"}},"tool_call_id":"call_1","name":null}
+{"role":"assistant","content":{"Single":{"type":"tool_use","id":"call_2","name":"search","input":{}}},"tool_call_id":null,"name":null}
+{"role":"tool","content":{"Single":{"type":"text","text":"search result"}},"tool_call_id":"call_2","name":null}
+{"role":"assistant","content":{"Single":{"type":"tool_use","id":"call_1","name":"search","input":{}}},"tool_call_id":null,"name":null}
+{"role":"tool","content":{"Single":{"type":"text","text":"search result"}},"tool_call_id":"call_1","name":null}
+{"role":"assistant","content":{"Single":{"type":"tool_use","id":"call_2","name":"search","input":{}}},"tool_call_id":null,"name":null}
+{"role":"tool","content":{"Single":{"type":"text","text":"search result"}},"tool_call_id":"call_2","name":null}
+{"role":"assistant","content":{"Single":{"type":"tool_use","id":"call_1","name":"search","input":{}}},"tool_call_id":null,"name":null}
+{"role":"tool","content":{"Single":{"type":"text","text":"search result"}},"tool_call_id":"call_1","name":null}
+{"role":"assistant","content":{"Single":{"type":"tool_use","id":"call_2","name":"search","input":{}}},"tool_call_id":null,"name":null}
+{"role":"tool","content":{"Single":{"type":"text","text":"search result"}},"tool_call_id":"call_2","name":null}
+{"role":"assistant","content":{"Single":{"type":"tool_use","id":"call_1","name":"search","input":{}}},"tool_call_id":null,"name":null}
+{"role":"tool","content":{"Single":{"type":"text","text":"search result"}},"tool_call_id":"call_1","name":null}
+{"role":"assistant","content":{"Single":{"type":"tool_use","id":"call_2","name":"search","input":{}}},"tool_call_id":null,"name":null}
+{"role":"tool","content":{"Single":{"type":"text","text":"search result"}},"tool_call_id":"call_2","name":null}
+{"role":"assistant","content":{"Single":{"type":"tool_use","id":"call_1","name":"search","input":{}}},"tool_call_id":null,"name":null}
+{"role":"tool","content":{"Single":{"type":"text","text":"search result"}},"tool_call_id":"call_1","name":null}
+{"role":"assistant","content":{"Single":{"type":"tool_use","id":"call_2","name":"search","input":{}}},"tool_call_id":null,"name":null}
+{"role":"tool","content":{"Single":{"type":"text","text":"search result"}},"tool_call_id":"call_2","name":null}

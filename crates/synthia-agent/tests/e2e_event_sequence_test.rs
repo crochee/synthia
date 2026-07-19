@@ -1,3 +1,4 @@
+#![allow(deprecated)]
 //! E2E test: Complete event sequence verification.
 //!
 //! Tests that all AgentEvents are emitted in the correct order for a typical flow:

@@ -1,3 +1,4 @@
+#![allow(deprecated)]
 //! E2E test: Multi-turn memory correctness.
 //!
 //! Verifies that across multiple turns of conversation, the agent correctly

@@ -1,3 +1,4 @@
+#![allow(deprecated)]
 //! E2E test: CLI input flowing through to ReAct loop.
 //!
 //! Tests the CLI command structures and their interaction with the agent.

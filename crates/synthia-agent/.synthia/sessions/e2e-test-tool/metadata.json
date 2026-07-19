@@ -1,0 +1,18 @@
+{
+  "version": 1,
+  "id": "e2e-test-tool",
+  "state": "Completed",
+  "token_usage": {
+    "prompt_tokens": 0,
+    "completion_tokens": 0,
+    "total_tokens": 0,
+    "cached_prompt_tokens": null
+  },
+  "created_at": "2026-06-04T15:50:22.826849436+00:00",
+  "updated_at": "2026-06-04T15:50:22.826849436+00:00",
+  "config": {
+    "model": "MiniMax-M2.7",
+    "max_tokens": 1024
+  },
+  "message_count": 44
+}

@@ -1,3 +1,4 @@
+#![allow(deprecated)]
 //! TDD integration tests for `explicit-recovery-paths`.
 //!
 //! Verifies the agent loop wires up the L1-L5 recovery cascade and

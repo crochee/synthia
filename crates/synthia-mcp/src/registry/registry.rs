@@ -100,7 +100,7 @@ impl McpRegistry {
         }
         let configs = self.configs.read().expect("RwLock poisoned").clone();
         let mut result = HashMap::new();
-        for (name, _config) in configs.iter() {
+        for name in configs.keys() {
             let tools = self.discover_tools(name).await?;
             result.insert(name.clone(), tools);
         }

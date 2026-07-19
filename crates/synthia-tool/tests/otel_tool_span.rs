@@ -1,3 +1,4 @@
+#![allow(deprecated)]
 #![cfg(feature = "otel")]
 //! Integration tests for the `tool.execute` span emitted by
 //! [`synthia_tool::ToolRegistry::run_with_context`] when the `otel`

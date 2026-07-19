@@ -1,3 +1,4 @@
+#![allow(deprecated)]
 use std::{path::PathBuf, sync::Arc, time::Duration};
 
 use synthia_agent::task::{

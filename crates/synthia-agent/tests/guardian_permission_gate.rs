@@ -1,3 +1,4 @@
+#![allow(deprecated)]
 //! Integration tests for the Guardian permission gate wiring.
 //!
 //! These tests verify the integration between:

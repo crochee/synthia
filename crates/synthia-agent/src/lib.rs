@@ -1,4 +1,6 @@
-#![cfg_attr(test, allow(deprecated))]
+// Legacy Tool trait usage during deprecation window (v3 toolification).
+#![allow(deprecated)]
+
 pub mod agent;
 pub mod agent_file;
 pub mod agent_instance;

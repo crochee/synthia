@@ -1,3 +1,4 @@
+#![allow(deprecated)]
 #![cfg(feature = "otel")]
 //! Integration tests for Task 12 of the `otel-feature-integration`
 //! OpenSpec change: verify span creation does NOT modify the prompt

@@ -1,3 +1,4 @@
+#![allow(deprecated)]
 //! End-to-end UTF-8 safe truncation tests for `synthia-tool`.
 //!
 //! These tests cover the wire-up between the public

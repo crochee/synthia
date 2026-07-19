@@ -4,7 +4,7 @@ use std::{path::PathBuf, time::Duration};
 
 use serde::{Deserialize, Serialize};
 
-use crate::tool::{capability::ToolCapabilities, descriptor::ToolProvenance};
+use crate::tool::capability::ToolCapabilities;
 
 /// Input to a tool invocation.
 #[derive(Debug, Clone)]
@@ -20,7 +20,7 @@ pub struct ToolInput {
 }
 
 /// Output from a tool invocation.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct ToolOutput {
     /// Content parts (text, images, etc).
     #[serde(default)]
@@ -34,17 +34,6 @@ pub struct ToolOutput {
     /// Whether this is an error output.
     #[serde(default)]
     pub is_error: bool,
-}
-
-impl Default for ToolOutput {
-    fn default() -> Self {
-        Self {
-            content: Vec::new(),
-            structured: None,
-            metadata: ToolMetadata::default(),
-            is_error: false,
-        }
-    }
 }
 
 /// Content part (text or image).

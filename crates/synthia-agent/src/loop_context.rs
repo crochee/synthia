@@ -32,6 +32,10 @@ pub struct LoopContext {
     /// `iteration + 5` whenever a `self_reflect` call (LLM or auto-
     /// triggered) is processed.
     pub next_self_reflect_iteration: usize,
+    /// Count of `ForwardToMainAgent` hook outcomes processed this turn.
+    /// Reset to 0 at the start of each iteration. Rate-limited to
+    /// [`crate::steering::FORWARDED_RATE_LIMIT`] per turn.
+    pub forwarded_this_turn: usize,
 }
 
 impl LoopContext {
@@ -49,6 +53,7 @@ impl LoopContext {
             current_turn_id: None,
             session_start: Some(Instant::now()),
             next_self_reflect_iteration: 5,
+            forwarded_this_turn: 0,
         }
     }
 
@@ -97,6 +102,7 @@ impl LoopContext {
             // restored iteration so a resumed session does not instantly
             // re-reflect.
             next_self_reflect_iteration: metadata.iteration.saturating_add(5),
+            forwarded_this_turn: 0,
         }
     }
 

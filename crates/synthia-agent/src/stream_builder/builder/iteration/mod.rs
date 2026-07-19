@@ -27,6 +27,7 @@
 //! [`AgentEvent`]: crate::events::AgentEvent
 //! [`StreamBuilder`]: super::types::StreamBuilder
 
+mod auto_trigger;
 mod compact;
 mod init;
 mod llm;
@@ -34,6 +35,10 @@ mod loop_detect;
 mod reflect;
 mod types;
 
+pub(super) use auto_trigger::{
+    maybe_auto_trigger_compact_context,
+    maybe_auto_trigger_self_reflect,
+};
 pub(super) use compact::do_compact_step;
 pub(super) use init::{drain_steering, seed_initial_messages};
 pub(super) use llm::{
@@ -42,8 +47,5 @@ pub(super) use llm::{
     sample_llm_and_cascade,
 };
 pub(super) use loop_detect::check_doom_loop;
-pub(super) use reflect::{
-    end_of_session_reflect,
-    execute_self_reflect_tool_call,
-};
+pub(super) use reflect::end_of_session_reflect;
 pub(super) use types::{CompactOutcome, LlmSampleOutcome};

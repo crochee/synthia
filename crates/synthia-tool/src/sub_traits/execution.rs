@@ -57,9 +57,11 @@ mod tests {
         // The 5 methods are: execute, validate, dry_run, cost_estimate,
         // cancel.
         const METHOD_COUNT: usize = 5;
-        assert!(
-            METHOD_COUNT <= 5,
-            "ToolExecution exceeds 5 methods — consider splitting"
-        );
+        const {
+            assert!(
+                METHOD_COUNT <= 5,
+                "ToolExecution exceeds 5 methods — consider splitting"
+            )
+        };
     }
 }
