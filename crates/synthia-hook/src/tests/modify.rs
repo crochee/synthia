@@ -4,14 +4,14 @@
 //! or both, and that the unmodified field is left absent from the
 //! returned payload.
 
-use std::sync::Arc;
-
 use async_trait::async_trait;
 use synthia_core::Error;
 
+#[allow(deprecated)]
+use crate::traits::AgentHook;
 use crate::{
     HookRegistry,
-    traits::{AgentContext, AgentHook, ToolAction},
+    traits::{AgentContext, ToolAction},
 };
 
 #[derive(Debug)]
@@ -20,6 +20,7 @@ struct ModifyHookNameOnly {
 }
 
 #[async_trait]
+#[allow(deprecated)]
 impl AgentHook for ModifyHookNameOnly {
     async fn on_before_tool(
         &self,
@@ -38,6 +39,7 @@ struct ModifyHookInputOnly {
 }
 
 #[async_trait]
+#[allow(deprecated)]
 impl AgentHook for ModifyHookInputOnly {
     async fn on_before_tool(
         &self,
@@ -57,6 +59,7 @@ struct ModifyHookBoth {
 }
 
 #[async_trait]
+#[allow(deprecated)]
 impl AgentHook for ModifyHookBoth {
     async fn on_before_tool(
         &self,
@@ -177,6 +180,3 @@ async fn modify_hook_input_only_preserves_name_field() {
         _ => panic!("expected Modify action"),
     }
 }
-
-#[allow(dead_code)]
-fn _suppress_unused_arc(_: Arc<()>) {}

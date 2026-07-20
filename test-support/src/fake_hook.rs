@@ -2,7 +2,9 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use synthia_core::Error;
-use synthia_hook::traits::{AgentContext, AgentHook, ToolAction};
+#[allow(deprecated)]
+use synthia_hook::traits::AgentHook;
+use synthia_hook::traits::{AgentContext, ToolAction};
 use tokio::sync::Mutex;
 
 #[derive(Debug)]
@@ -29,6 +31,7 @@ impl Default for FakeHook {
 }
 
 #[async_trait]
+#[allow(deprecated)]
 impl AgentHook for FakeHook {
     async fn on_before_llm(
         &self,

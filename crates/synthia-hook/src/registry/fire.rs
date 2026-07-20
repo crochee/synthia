@@ -11,8 +11,10 @@ use synthia_core::Error;
 use ulid::Ulid;
 
 use super::{registry::HookRegistry, safety::safe_hook_fail_open};
+#[allow(deprecated)]
 use crate::traits::{AgentContext, ToolAction};
 
+#[allow(deprecated)]
 impl HookRegistry {
     /// Snapshot the IDs of all non-failed hooks.
     fn non_failed_ids(&self) -> Vec<Ulid> {

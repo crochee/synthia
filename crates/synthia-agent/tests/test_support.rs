@@ -19,7 +19,9 @@ use std::{
 
 use async_trait::async_trait;
 use synthia_agent::{
-    agent_instance::{AgentResult, AgentStatus, AgentTokenUsage},
+    AgentResult,
+    AgentStatus,
+    AgentTokenUsage,
     config::{AgentConfig, AgentRunConfig, AgentRunConfigBuilder},
     steering::SteeringChannel,
     subagent::{
@@ -336,7 +338,7 @@ impl ModelProvider for FakeProvider {
 
 /// A fake [`SubagentSessionFactory`] that returns a deterministic result
 /// without creating real child sessions. Useful for exercising
-/// [`AgentTool`] in integration tests without starting a server.
+/// sub-agent tool calls in integration tests without starting a server.
 pub struct FakeSubagentFactory {
     output: String,
 }

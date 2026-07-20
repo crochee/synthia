@@ -179,10 +179,10 @@ fn fire_agent_loop(
 // Tool (3 fire-able points)
 // =====================================================================
 
-fn fire_tool(reg: &extension_points::ToolExtensionRegistry) -> usize {
+async fn fire_tool(reg: &extension_points::ToolExtensionRegistry) -> usize {
     let counter = Arc::new(AtomicUsize::new(0));
     let c = counter.clone();
-    reg.register_before(
+    reg.register_before_sync(
         "matrix",
         Arc::new(move |_ev: &extension_points::BeforeToolCall| {
             c.fetch_add(1, Ordering::SeqCst);
@@ -190,7 +190,7 @@ fn fire_tool(reg: &extension_points::ToolExtensionRegistry) -> usize {
         }),
     );
     let c = counter.clone();
-    reg.register_after(
+    reg.register_after_sync(
         "matrix",
         Arc::new(move |_ev: &extension_points::AfterToolCall| {
             c.fetch_add(1, Ordering::SeqCst);
@@ -198,7 +198,7 @@ fn fire_tool(reg: &extension_points::ToolExtensionRegistry) -> usize {
         }),
     );
     let c = counter.clone();
-    reg.register_definition(
+    reg.register_definition_sync(
         "matrix",
         Arc::new(move |_ev: &extension_points::ToolDefinitionView| {
             c.fetch_add(1, Ordering::SeqCst);
@@ -209,17 +209,20 @@ fn fire_tool(reg: &extension_points::ToolExtensionRegistry) -> usize {
     reg.fire_before(extension_points::BeforeToolCall {
         tool_name: "matrix".into(),
         arguments: serde_json::json!({}),
-    });
+    })
+    .await;
     reg.fire_after(extension_points::AfterToolCall {
         tool_name: "matrix".into(),
         output: serde_json::json!({}),
         is_error: false,
-    });
+    })
+    .await;
     reg.fire_definition(extension_points::ToolDefinitionView {
         name: "matrix".into(),
         description: "matrix".into(),
         parameters: serde_json::json!({}),
-    });
+    })
+    .await;
 
     counter.load(Ordering::SeqCst)
 }
@@ -228,12 +231,12 @@ fn fire_tool(reg: &extension_points::ToolExtensionRegistry) -> usize {
 // LLM (8 points)
 // =====================================================================
 
-fn fire_llm(reg: &extension_points::LlmExtensionRegistry) -> usize {
+async fn fire_llm(reg: &extension_points::LlmExtensionRegistry) -> usize {
     let counter = Arc::new(AtomicUsize::new(0));
 
     {
         let c = counter.clone();
-        reg.register_system_prompt(
+        reg.register_system_prompt_sync(
             "matrix",
             Arc::new(
                 move |_ev: &extension_points::SystemPromptTransformInput| {
@@ -245,7 +248,7 @@ fn fire_llm(reg: &extension_points::LlmExtensionRegistry) -> usize {
     }
     {
         let c = counter.clone();
-        reg.register_messages(
+        reg.register_messages_sync(
             "matrix",
             Arc::new(move |_ev: &extension_points::MessagesTransformInput| {
                 c.fetch_add(1, Ordering::SeqCst);
@@ -255,7 +258,7 @@ fn fire_llm(reg: &extension_points::LlmExtensionRegistry) -> usize {
     }
     {
         let c = counter.clone();
-        reg.register_chat_params(
+        reg.register_chat_params_sync(
             "matrix",
             Arc::new(move |_ev: &extension_points::ChatParams| {
                 c.fetch_add(1, Ordering::SeqCst);
@@ -265,7 +268,7 @@ fn fire_llm(reg: &extension_points::LlmExtensionRegistry) -> usize {
     }
     {
         let c = counter.clone();
-        reg.register_chat_headers(
+        reg.register_chat_headers_sync(
             "matrix",
             Arc::new(move |_ev: &extension_points::ChatHeadersInput| {
                 c.fetch_add(1, Ordering::SeqCst);
@@ -275,7 +278,7 @@ fn fire_llm(reg: &extension_points::LlmExtensionRegistry) -> usize {
     }
     {
         let c = counter.clone();
-        reg.register_tool_choice(
+        reg.register_tool_choice_sync(
             "matrix",
             Arc::new(move |_ev: &extension_points::ToolChoiceInput| {
                 c.fetch_add(1, Ordering::SeqCst);
@@ -285,7 +288,7 @@ fn fire_llm(reg: &extension_points::LlmExtensionRegistry) -> usize {
     }
     {
         let c = counter.clone();
-        reg.register_model_select(
+        reg.register_model_select_sync(
             "matrix",
             Arc::new(move |_ev: &extension_points::ModelSelectInput| {
                 c.fetch_add(1, Ordering::SeqCst);
@@ -295,7 +298,7 @@ fn fire_llm(reg: &extension_points::LlmExtensionRegistry) -> usize {
     }
     {
         let c = counter.clone();
-        reg.register_cache_breakpoint(
+        reg.register_cache_breakpoint_sync(
             "matrix",
             Arc::new(move |_ev: &extension_points::CacheBreakpointInput| {
                 c.fetch_add(1, Ordering::SeqCst);
@@ -305,7 +308,7 @@ fn fire_llm(reg: &extension_points::LlmExtensionRegistry) -> usize {
     }
     {
         let c = counter.clone();
-        reg.register_response_transform(
+        reg.register_response_transform_sync(
             "matrix",
             Arc::new(move |_ev: &extension_points::ResponseTransformInput| {
                 c.fetch_add(1, Ordering::SeqCst);
@@ -316,31 +319,39 @@ fn fire_llm(reg: &extension_points::LlmExtensionRegistry) -> usize {
 
     reg.fire_system_prompt(extension_points::SystemPromptTransformInput::new(
         "s1", "current",
-    ));
+    ))
+    .await;
     reg.fire_messages(extension_points::MessagesTransformInput::new(
         "s1",
         serde_json::json!([]),
-    ));
-    reg.fire_chat_params(extension_points::ChatParams::default());
+    ))
+    .await;
+    reg.fire_chat_params(extension_points::ChatParams::default())
+        .await;
     reg.fire_chat_headers(extension_points::ChatHeadersInput::new(
         "s1",
         serde_json::json!({}),
-    ));
+    ))
+    .await;
     reg.fire_tool_choice(extension_points::ToolChoiceInput {
         session_id: "s1".into(),
         current: "auto".into(),
-    });
+    })
+    .await;
     reg.fire_model_select(extension_points::ModelSelectInput {
         session_id: "s1".into(),
         current: "default".into(),
-    });
+    })
+    .await;
     reg.fire_cache_breakpoint(&extension_points::CacheBreakpointInput {
         session_id: "s1".into(),
-    });
+    })
+    .await;
     reg.fire_response_transform(extension_points::ResponseTransformInput::new(
         "s1",
         serde_json::json!({}),
-    ));
+    ))
+    .await;
 
     counter.load(Ordering::SeqCst)
 }
@@ -546,12 +557,14 @@ fn fire_permission(
 // Provider (4 points)
 // =====================================================================
 
-fn fire_provider(reg: &extension_points::ProviderExtensionRegistry) -> usize {
+async fn fire_provider(
+    reg: &extension_points::ProviderExtensionRegistry,
+) -> usize {
     let counter = Arc::new(AtomicUsize::new(0));
 
     {
         let c = counter.clone();
-        reg.register_register(
+        reg.register_register_sync(
             "matrix",
             Arc::new(move |cfg: &extension_points::ProviderConfig| {
                 c.fetch_add(1, Ordering::SeqCst);
@@ -561,7 +574,7 @@ fn fire_provider(reg: &extension_points::ProviderExtensionRegistry) -> usize {
     }
     {
         let c = counter.clone();
-        reg.register_unregister(
+        reg.register_unregister_sync(
             "matrix",
             Arc::new(move |_name: &str| -> bool {
                 c.fetch_add(1, Ordering::SeqCst);
@@ -571,7 +584,7 @@ fn fire_provider(reg: &extension_points::ProviderExtensionRegistry) -> usize {
     }
     {
         let c = counter.clone();
-        reg.register_auth(
+        reg.register_auth_sync(
             "matrix",
             Arc::new(move |req: &extension_points::AuthRequest| {
                 c.fetch_add(1, Ordering::SeqCst);
@@ -581,7 +594,7 @@ fn fire_provider(reg: &extension_points::ProviderExtensionRegistry) -> usize {
     }
     {
         let c = counter.clone();
-        reg.register_fallback(
+        reg.register_fallback_sync(
             "matrix",
             Arc::new(move |ctx: &extension_points::FallbackContext| {
                 c.fetch_add(1, Ordering::SeqCst);
@@ -594,17 +607,20 @@ fn fire_provider(reg: &extension_points::ProviderExtensionRegistry) -> usize {
         "matrix",
         "openai",
         serde_json::json!({}),
-    ));
-    reg.fire_unregister("matrix");
+    ))
+    .await;
+    reg.fire_unregister("matrix").await;
     reg.fire_auth(extension_points::AuthRequest::new(
         "matrix",
         Some("openai".to_string()),
-    ));
+    ))
+    .await;
     reg.fire_fallback(extension_points::FallbackContext::new(
         "matrix",
         "transient",
         vec!["fallback-a".to_string()],
-    ));
+    ))
+    .await;
 
     counter.load(Ordering::SeqCst)
 }
@@ -970,8 +986,8 @@ fn fire_output_ui(reg: &extension_points::OutputUiExtensionRegistry) -> usize {
 // The test
 // =====================================================================
 
-#[test]
-fn all_fireable_extension_points_invoke_a_registered_handler() {
+#[tokio::test]
+async fn all_fireable_extension_points_invoke_a_registered_handler() {
     let agent_loop = extension_points::AgentLoopExtensionRegistry::new();
     let tool = extension_points::ToolExtensionRegistry::new();
     let llm = extension_points::LlmExtensionRegistry::new();
@@ -987,11 +1003,11 @@ fn all_fireable_extension_points_invoke_a_registered_handler() {
     );
 
     let agent_loop_fired = fire_agent_loop(&agent_loop);
-    let tool_fired = fire_tool(&tool);
-    let llm_fired = fire_llm(&llm);
+    let tool_fired = fire_tool(&tool).await;
+    let llm_fired = fire_llm(&llm).await;
     let context_fired = fire_context(&context);
     let permission_fired = fire_permission(&permission);
-    let provider_fired = fire_provider(&provider);
+    let provider_fired = fire_provider(&provider).await;
     let event_bus_fired = fire_event_bus(&event_bus);
     let plugin_lifecycle_fired = fire_plugin_lifecycle(&plugin_lifecycle);
     let session_tree_fired = fire_session_tree(&session_tree);

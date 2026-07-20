@@ -1,7 +1,7 @@
 //! Factory trait for creating real child sessions from the agent side.
 //!
 //! [`SubagentSessionFactory`] is injected into [`AgentRunConfig`] so that
-//! agent-side code (e.g. `AgentTool`) can spawn child sessions without
+//! agent-side code can spawn child sessions without
 //! depending on `synthia-server` types. The server provides the concrete
 //! implementation backed by `AppState`.
 
@@ -10,8 +10,8 @@ use thiserror::Error;
 use tokio::sync::mpsc;
 
 use crate::{
-    agent_instance::{AgentResult, AgentStatus, AgentTokenUsage},
     events::AgentEvent,
+    registry::instance::{AgentResult, AgentStatus, AgentTokenUsage},
 };
 
 /// Handle returned when a child session is created.
@@ -54,7 +54,7 @@ pub trait SubagentSessionFactory: Send + Sync {
     /// `parent_depth` is the spawn depth of the parent agent (root = 0).
     /// The child's depth SHALL be `parent_depth + 1`. The server-side
     /// implementation propagates this via `RunDependencies::subagent_depth`,
-    /// which `build_run_config` applies via `SubagentManager::set_depth`.
+    /// which `build_run_config` applies to the session's sub-agent depth.
     async fn create_child(
         &self,
         user_id: String,
@@ -72,9 +72,7 @@ pub trait SubagentSessionFactory: Send + Sync {
     ///
     /// `maybe_id` lets the caller request a specific child session id
     /// (matching [`create_child`]'s `maybe_id` parameter). This is used
-    /// by `AgentTool::call` so the caller can register the child's
-    /// session id with `SubagentManager::register_child_session` before
-    /// the run starts — enabling recursive subtree cancellation
+    /// for recursive subtree cancellation
     /// (spec: `subagent-tree-cancellation`). When `None`, the
     /// implementation generates a unique id internally.
     ///

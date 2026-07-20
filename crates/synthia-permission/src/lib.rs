@@ -1,4 +1,5 @@
 pub mod approval;
+pub mod approval_ui;
 pub mod ask_notifier;
 pub mod checker;
 pub mod layer;
@@ -10,6 +11,7 @@ pub mod rule;
 pub mod types;
 
 pub use approval::*;
+pub use approval_ui::TerminalApprovalService;
 pub use ask_notifier::*;
 pub use checker::*;
 pub use layer::*;

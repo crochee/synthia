@@ -23,9 +23,13 @@ use synthia_agent::{
     AgentRunConfig,
     SubagentSessionFactory,
     control::AgentControl,
-    tools::{AgentTool, agent_tools::team::SubagentManager},
+    interceptor::InterceptorChain,
 };
 use synthia_context::{ProtectionZone, assembler::ContextAssembler};
+use synthia_core::tool::{
+    extension_registry::ExtensionRegistry,
+    rollout::RolloutTracker,
+};
 use synthia_hook::HookRegistry;
 use synthia_permission::ApprovalService;
 use synthia_provider::{router::ModelRouter, traits::ModelProvider};
@@ -91,12 +95,16 @@ pub struct RunDependencies {
     pub sandbox_manager: Arc<dyn SandboxManager>,
     pub tool_orchestrator: Arc<dyn ToolOrchestrator>,
     pub agent_control: Arc<AgentControl>,
-    /// Spawn depth to apply to the session's [`SubagentManager`].
+    /// Spawn depth for sub-agent nesting control.
     ///
     /// Root sessions have depth 0; direct children have depth 1, etc.
-    /// `build_run_config` calls `manager.set_depth(subagent_depth)` so
-    /// that `AgentTool::call` can enforce `max_depth` for nested spawns.
     pub subagent_depth: usize,
+    /// Unified extension registry (FragmentRegistry + ToolRegistry).
+    pub extension_registry: Option<ExtensionRegistry>,
+    /// Interceptor chain for cross-cutting concerns.
+    pub interceptor_chain: Option<Arc<InterceptorChain>>,
+    /// Rollout tracker for file changes and token usage.
+    pub rollout_tracker: Option<Arc<RolloutTracker>>,
 }
 
 impl RunDependencies {
@@ -126,7 +134,37 @@ impl RunDependencies {
             tool_orchestrator,
             agent_control,
             subagent_depth,
+            extension_registry: None,
+            interceptor_chain: None,
+            rollout_tracker: None,
         }
+    }
+
+    /// Set the extension registry.
+    pub fn with_extension_registry(
+        mut self,
+        registry: ExtensionRegistry,
+    ) -> Self {
+        self.extension_registry = Some(registry);
+        self
+    }
+
+    /// Set the interceptor chain.
+    pub fn with_interceptor_chain(
+        mut self,
+        chain: Arc<InterceptorChain>,
+    ) -> Self {
+        self.interceptor_chain = Some(chain);
+        self
+    }
+
+    /// Set the rollout tracker.
+    pub fn with_rollout_tracker(
+        mut self,
+        tracker: Arc<RolloutTracker>,
+    ) -> Self {
+        self.rollout_tracker = Some(tracker);
+        self
     }
 }
 
@@ -315,16 +353,6 @@ impl ControllerInner {
             .map(|r| (*r).clone())
             .unwrap_or_else(|_| ToolRegistry::new());
 
-        // Register the subagent `task` tool. The shared AppState registry
-        // is built before the runtime control plane / child-session factory
-        // are available, so the tool is added per-session here. Propagate
-        // the configured spawn depth so `AgentTool::call` can enforce
-        // `max_depth` for nested spawns in production.
-        let manager = Arc::new(SubagentManager::new());
-        manager.set_depth(self.deps.subagent_depth);
-        let agent_tool = Arc::new(AgentTool::new(manager, true));
-        tool_registry.register(synthia_tool::ToolEntry::new(agent_tool));
-
         let protection_zone = ProtectionZone::default();
         let assembler = ContextAssembler::new(config.max_tokens)
             .with_protection_zone(protection_zone);
@@ -353,7 +381,9 @@ impl ControllerInner {
             tool_orchestrator: Some(Arc::clone(&self.deps.tool_orchestrator)),
             guardian_coordinator: None,
             extension_manager: None,
-            #[cfg(feature = "unified-registry")]
+            extension_registry: self.deps.extension_registry.clone(),
+            rollout_tracker: self.deps.rollout_tracker.clone(),
+            interceptor_chain: self.deps.interceptor_chain.clone(),
             loop_services: std::sync::OnceLock::new(),
         }
     }

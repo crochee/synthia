@@ -9,21 +9,16 @@ use synthia_provider::{
     registry::ProviderRegistry,
     router::ModelRouter,
     traits::ModelProvider,
-    types::Message,
 };
 use synthia_sandbox::SandboxManager;
 use synthia_session::{Store as SessionStore, manager::SessionManager};
 use synthia_tool::registry::ToolRegistry;
 use tokio::sync::mpsc;
-use tokio_util::sync::CancellationToken;
 
 use crate::{
-    checkpoint,
-    config::{AgentConfig, AgentRunConfig, AgentRunStateConfig},
+    config::AgentConfig,
     config_watcher::MultiConfigWatcher,
-    control::{AgentControl, AgentRegistry},
     steering::SteeringChannel,
-    stream_builder::StreamBuilder,
     types::*,
 };
 
@@ -61,15 +56,16 @@ pub(crate) mod otel_context {
     };
     use tracing::Instrument;
 
-    use super::{AgentOutput, AgentRunConfig};
+    use super::AgentOutput;
+    use crate::config::AgentRunConfig;
 
     /// Snapshot of the six task-local values populated at stream entry.
     ///
     /// `agent_id` and `turn_id` are not directly available at the
-    /// `run_stream` / `run_stream_with_state` boundary:
+    /// `run_stream` boundary:
     /// - `agent_id` — there is no explicit agent-instance ID field on
     ///   `AgentConfig` / `AgentRunConfig`; left empty here. A later
-    ///   task can populate it (e.g. from `AgentInstance` once the agent
+    ///   task can populate it (e.g. from the agent instance once the agent
     ///   is registered) or the processor will graceful-skip it.
     /// - `turn_id` — generated per-iteration inside the main loop
     ///   (`LoopContext::assign_new_turn_id`). Task 7 handles
@@ -845,7 +841,7 @@ pub struct Agent {
 /// `HeadlessApprovalService` / `NoopSandboxManager` when those are also
 /// `None`. The fallback is fail-closed for permission (deny-by-default)
 /// and explicit no-op for sandbox (caller accepted responsibility).
-fn ensure_tool_orchestrator(run_config: &mut AgentRunConfig) {
+fn ensure_tool_orchestrator(run_config: &mut crate::config::AgentRunConfig) {
     if run_config.tool_orchestrator.is_some() {
         return;
     }
@@ -875,53 +871,17 @@ fn ensure_tool_orchestrator(run_config: &mut AgentRunConfig) {
 }
 
 impl Agent {
-    pub fn with_mcp_manager(
-        mut self,
-        mcp_manager: synthia_mcp::McpManager,
-    ) -> Self {
-        self.mcp_manager = Some(mcp_manager);
-        self
-    }
-
-    pub fn with_steering_channel(
-        mut self,
-        channel: Arc<dyn SteeringChannel>,
-    ) -> Self {
-        self.steering_channel = Some(channel);
-        self
-    }
-
-    pub fn with_config_watcher(mut self, watcher: MultiConfigWatcher) -> Self {
-        self.config_watcher = Some(watcher);
-        self
-    }
-
-    pub fn with_approval_service(
-        mut self,
-        service: Arc<dyn ApprovalService>,
-    ) -> Self {
-        self.approval_service = Some(service);
-        self
-    }
-
-    pub fn with_sandbox_manager(
-        mut self,
-        manager: Arc<dyn SandboxManager>,
-    ) -> Self {
-        self.sandbox_manager = Some(manager);
-        self
-    }
-
-    pub fn run_stream(mut run_config: AgentRunConfig) -> AgentOutput {
+    pub fn run_stream(
+        mut run_config: crate::config::AgentRunConfig,
+    ) -> AgentOutput {
         // H1 fix: auto-assemble tool orchestrator when not injected.
         // Prevents silent degradation when CLI/Examples call run_stream
         // directly without going through Agent::resume (which does assembly).
         ensure_tool_orchestrator(&mut run_config);
 
-        // Bootstrap LoopServices (unified-registry feature).
+        // Bootstrap LoopServices.
         // Populates the OnceLock cache so subsequent accesses
         // through `run_config.loop_services` are O(1).
-        #[cfg(feature = "unified-registry")]
         {
             use crate::loop_services::LoopServices;
             if run_config.loop_services.get().is_none() {
@@ -946,16 +906,21 @@ impl Agent {
             let otel_ctx =
                 otel_context::OtelContext::from_run_config(&run_config);
             let stream =
-                StreamBuilder::from_config(&run_config).run(run_config);
+                crate::stream_builder::StreamBuilder::from_config(&run_config)
+                    .run(run_config);
             otel_context::wrap_output_with_otel(stream, otel_ctx)
         }
         #[cfg(not(feature = "otel"))]
         {
-            StreamBuilder::from_config(&run_config).run(run_config)
+            crate::stream_builder::StreamBuilder::from_config(&run_config)
+                .run(run_config)
         }
     }
 
-    fn assemble_default_orchestrator(&self, run_config: &mut AgentRunConfig) {
+    pub(crate) fn assemble_default_orchestrator(
+        &self,
+        run_config: &mut crate::config::AgentRunConfig,
+    ) {
         if run_config.tool_orchestrator.is_some() {
             return;
         }
@@ -974,34 +939,6 @@ impl Agent {
                 sandbox_manager,
             );
         run_config.tool_orchestrator = Some(orchestrator);
-    }
-
-    pub fn run_stream_with_state(
-        state_config: AgentRunStateConfig,
-    ) -> AgentOutput {
-        let AgentRunStateConfig {
-            run_config,
-            initial_messages,
-            start_iteration,
-        } = state_config;
-        // Snapshot the OTel context before `run_config` is moved into
-        // `builder.run(...)`. This also covers `Agent::resume`, which
-        // delegates here — so `resume`'s stream is wrapped transitively
-        // (Task 5.3), avoiding a double-wrap if `resume` wrapped
-        // separately.
-        #[cfg(feature = "otel")]
-        let otel_ctx = otel_context::OtelContext::from_run_config(&run_config);
-        let mut builder = StreamBuilder::from_config(&run_config);
-        builder.with_initial_state(initial_messages, start_iteration);
-        let stream = builder.run(run_config);
-        #[cfg(feature = "otel")]
-        {
-            otel_context::wrap_output_with_otel(stream, otel_ctx)
-        }
-        #[cfg(not(feature = "otel"))]
-        {
-            stream
-        }
     }
 
     pub async fn shutdown(&mut self) {
@@ -1041,106 +978,6 @@ impl Agent {
         }
 
         tracing::info!("Agent shut down complete");
-    }
-
-    pub fn resume(
-        &self,
-        user_id: String,
-        session_id: String,
-        cancel_token: CancellationToken,
-    ) -> AgentOutput {
-        let config = self.config.clone();
-
-        let checkpoint_dir =
-            config.checkpoint_dir.clone().unwrap_or_else(|| {
-                config.workspace_root.join(".agents").join("checkpoints")
-            });
-
-        let (messages, start_iteration) =
-            match checkpoint::Checkpoint::load_latest_by_session(
-                &checkpoint_dir,
-                &session_id,
-            ) {
-                Ok(Some(cp)) if !cp.messages.is_empty() => {
-                    let mut msgs = cp.messages;
-                    checkpoint::patch_tool_calls_recovery(&mut msgs);
-                    tracing::info!(
-                        session_id = %session_id,
-                        restored_iteration = %cp.iteration,
-                        message_count = %msgs.len(),
-                        "Resumed from checkpoint"
-                    );
-                    (msgs, cp.iteration)
-                }
-                _ => match self
-                    .session_store
-                    .load_messages_all::<Message>(&user_id, &session_id)
-                {
-                    Ok(msgs) if !msgs.is_empty() => {
-                        tracing::info!(
-                            session_id = %session_id,
-                            message_count = %msgs.len(),
-                            "Resumed from session JSONL (no checkpoint)"
-                        );
-                        (msgs, 0)
-                    }
-                    _ => {
-                        return Box::pin(futures::stream::once(async move {
-                            AgentEvent::Warning {
-                                message: format!(
-                                    "No checkpoint or session data found for session '{}', cannot resume",
-                                    session_id
-                                ),
-                            }
-                        }));
-                    }
-                },
-            };
-
-        let mut run_config = AgentRunConfig {
-            provider: Arc::clone(&self.provider),
-            tool_registry: self.tool_registry.clone(),
-            hook_registry: Arc::clone(&self.hook_registry),
-            model_router: Arc::clone(&self.model_router),
-            user_id,
-            session_id,
-            input: AgentInput::text(""),
-            config,
-            context_assembler: Some(Arc::clone(&self.context_assembler)),
-            session_store: self.session_store.clone(),
-            steering_channel: self.steering_channel.clone(),
-            session_input_queue: Some(
-                self.session_manager.input_queue().clone(),
-            ),
-            cancel_token,
-            memory_event_sender: self.memory_event_sender.clone(),
-            agent_control: Some(AgentControl::new(Arc::new(
-                AgentRegistry::new(),
-            ))),
-            fork_policy: Default::default(),
-            // Resume path does not carry a runtime compaction
-            // provider; callers that need L4 auto-compaction must
-            // build via `AgentRunConfigBuilder::compaction_provider`.
-            compaction_provider: None,
-            subagent_session_factory: None,
-            approval_service: None,
-            sandbox_manager: None,
-            tool_orchestrator: None,
-            guardian_coordinator: None,
-            extension_manager: None,
-            #[cfg(feature = "unified-registry")]
-            loop_services: std::sync::OnceLock::new(),
-        };
-
-        self.assemble_default_orchestrator(&mut run_config);
-
-        let state_config = AgentRunStateConfig {
-            run_config,
-            initial_messages: messages,
-            start_iteration,
-        };
-
-        Self::run_stream_with_state(state_config)
     }
 }
 
@@ -1241,7 +1078,7 @@ mod tests {
         provider: Arc<dyn ModelProvider>,
         workspace_root: std::path::PathBuf,
         session_dir: std::path::PathBuf,
-    ) -> AgentRunConfig {
+    ) -> crate::config::AgentRunConfig {
         AgentRunConfigBuilder::new()
             .provider(provider)
             .tool_registry(ToolRegistry::new())
@@ -1318,6 +1155,7 @@ mod tests {
             tool_name: "bash".to_string(),
             arguments: serde_json::json!({ "command": "echo hello" }),
             permission: Permission::RequireConfirm,
+            tool_id: None,
         };
         let context = ExecutionContext {
             session_id: "s".to_string(),
@@ -1354,6 +1192,7 @@ mod tests {
                 tool_name: tool_name.to_string(),
                 arguments: serde_json::json!({}),
                 permission: Permission::RequireConfirm,
+                tool_id: None,
             };
             let context = ExecutionContext {
                 session_id: "s".to_string(),
@@ -1449,6 +1288,7 @@ mod tests {
             tool_name: "bash".to_string(),
             arguments: serde_json::json!({ "command": "echo hi" }),
             permission: Permission::RequireConfirm,
+            tool_id: None,
         };
         let context = ExecutionContext {
             session_id: "s".to_string(),

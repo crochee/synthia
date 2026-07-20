@@ -44,10 +44,8 @@ use std::sync::Arc;
 
 use synthia_context::truncate::{
     DEFAULT_RETENTION,
-    TruncateConfig,
     cleanup_tool_output_store_async,
     default_tool_output_dir,
-    truncate_output,
 };
 use synthia_guardian::{ApprovalRequest, GuardianDecision, LoopDetectorSet};
 use synthia_hook::{AgentContext, ToolAction};
@@ -86,6 +84,7 @@ pub async fn execute_and_emit(
     >,
     memory_event_sender: Option<&Sender<MemoryEvent>>,
     agent_ctx: &AgentContext,
+    output_bound: Option<&synthia_core::tool::OutputBound>,
 ) -> ToolExecuteOutcome {
     let mut events = Vec::new();
 
@@ -407,34 +406,32 @@ pub async fn execute_and_emit(
         tool_results = combined;
     }
 
-    // Phase 4 + 5: L1 truncate, emit `ToolCallCompleted`,
+    // Phase 4 + 5: L1 output binding, emit `ToolCallCompleted`,
     // record into `ctx.recent_tool_results`, and send the
     // `MemoryEvent::tool_executed` event.
     //
-    // We allocate a per-iteration `TruncateConfig` rather
-    // than promote `StepSample::truncate_cfg` to
-    // `BuilderSteps` to avoid cross-step coupling.
+    // When `output_bound` is provided, we use
+    // `OutputBound::bind()` to truncate; otherwise the output
+    // passes through unchanged.
     let mut any_truncated = false;
     for result in &tool_results {
-        let truncate_cfg = TruncateConfig {
-            session_id: Some(session_id.to_string()),
-            tool_call_id: Some(result.tool_call_id.clone()),
-            ..TruncateConfig::default()
-        };
-        let truncate_result = truncate_output(&result.output, &truncate_cfg);
-        let effective_output = if truncate_result.truncated {
+        let bound = output_bound.map(|ob| ob.bind(&result.output));
+        let effective_output = if let Some(ref br) = bound
+            && br.truncated
+        {
             any_truncated = true;
             events.push(AgentEvent::RecoveryApplied {
                 level_number: 1,
                 tool_name: Some(result.tool_name.clone()),
                 message: format!(
                     "Truncated tool output ({} -> {} bytes)",
-                    truncate_result.original_bytes,
-                    truncate_result.output_bytes
+                    br.original_bytes, br.output_bytes
                 ),
                 iteration: ctx.iteration,
             });
-            truncate_result.output
+            bound.unwrap().output
+        } else if let Some(br) = bound {
+            br.output
         } else {
             result.output.clone()
         };
@@ -574,15 +571,19 @@ async fn collect_tool_calls(
         }
 
         // Phase 1b: fire legacy before_tool hooks for Modify support.
-        // The deprecated fire_before_tool can return ToolAction::Modify
+        // The fire_before_tool can return ToolAction::Modify
         // which rewrites the tool input — this capability is not yet
         // available in the new HookOutcome model.
         let call_json =
             serde_json::to_string(&tool_call.input).unwrap_or_default();
         let call_value: serde_json::Value =
             serde_json::from_str(&call_json).unwrap_or_default();
-        #[allow(deprecated)]
-        match steps.hooks.fire_before_tool(agent_ctx, &call_value).await {
+        match steps
+            .hooks
+            .get_registry()
+            .fire_before_tool(agent_ctx, &call_value)
+            .await
+        {
             Ok(ToolAction::Skip) => {
                 // Skip this tool
                 continue;

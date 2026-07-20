@@ -7,10 +7,12 @@ use futures::FutureExt;
 use synthia_core::Error;
 use ulid::Ulid;
 
+#[allow(deprecated)]
 use crate::traits::{AgentHook, FailPolicy};
 
 /// `format!("{:?}", hook)` — used as the default `HookInfo::name`
 /// since `AgentHook` does not require a `name()` method.
+#[allow(deprecated)]
 pub(super) fn get_hook_name(hook: &dyn AgentHook) -> String {
     format!("{:?}", hook)
 }

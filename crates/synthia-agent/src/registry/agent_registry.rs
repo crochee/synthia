@@ -10,10 +10,10 @@ use indexmap::IndexMap;
 use parking_lot::RwLock;
 use synthia_tool::registry::ToolRegistry;
 
-use crate::registry::instance::AgentInstance;
+use crate::registry::instances::RegistryInstance;
 
 /// Holds agent [`AgentDefinition`]s (read-only after load) and
-/// a live set of [`AgentInstance`]s (mutable, lifecycle
+/// a live set of [`RegistryInstance`]s (mutable, lifecycle
 /// managed by [`super::instances`]).
 ///
 /// `Clone` semantics are interesting: cloning an
@@ -25,7 +25,7 @@ pub struct AgentRegistry {
     pub(super) definitions:
         RwLock<IndexMap<String, super::types::AgentDefinition>>,
     pub(super) instances:
-        RwLock<IndexMap<String, Arc<std::sync::Mutex<AgentInstance>>>>,
+        RwLock<IndexMap<String, Arc<std::sync::Mutex<RegistryInstance>>>>,
     pub(super) max_depth: usize,
     pub(super) tool_registry: Option<Arc<ToolRegistry>>,
 }

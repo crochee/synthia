@@ -9,7 +9,6 @@
 use std::{sync::Arc, time::Duration};
 
 use indicatif::ProgressBar;
-#[allow(deprecated)]
 use synthia_agent::{
     Agent,
     AgentConfig,
@@ -60,12 +59,8 @@ impl Repl {
                 ..Default::default()
             };
 
-            #[allow(deprecated)]
-            let tool_registry = build_default_tool_registry(
-                ctx.workspace_root.clone(),
-                None,
-                None,
-            );
+            let tool_registry =
+                build_default_tool_registry(ctx.workspace_root.clone());
             let hook_registry = Arc::new(synthia_hook::HookRegistry::new());
 
             // Create model router
@@ -155,7 +150,9 @@ impl Repl {
                 tool_orchestrator: Some(tool_orchestrator),
                 guardian_coordinator: None,
                 extension_manager: None,
-                #[cfg(feature = "unified-registry")]
+                extension_registry: None,
+                rollout_tracker: None,
+                interceptor_chain: None,
                 loop_services: std::sync::OnceLock::new(),
             });
 

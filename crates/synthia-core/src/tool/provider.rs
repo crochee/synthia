@@ -28,11 +28,30 @@ pub trait ToolProvider: Send + Sync + 'static {
     async fn on_tool_event(&self, _event: &ToolEvent) {}
 
     /// Pre-execution hook. Default: no-op.
+    ///
+    /// **Deprecated:** use `InterceptorChain` with `PermissionInterceptor` /
+    /// `ApprovalInterceptor` at position 0 instead. The interceptor chain
+    /// is the unified security guard path and cannot be bypassed.
+    #[deprecated(
+        since = "0.12.0",
+        note = "Use InterceptorChain (synthia-agent::interceptor) instead; \
+                before_execute is not guaranteed to run — the InterceptorChain \
+                at position 0 is the authoritative guard."
+    )]
     async fn before_execute(&self, _call: &ToolCall) -> Result<(), ToolError> {
         Ok(())
     }
 
     /// Post-execution hook. Default: no-op.
+    ///
+    /// **Deprecated:** use `InterceptorChain` with `TraceInterceptor` /
+    /// `RetryInterceptor` for post-tool observability and retry logic.
+    #[deprecated(
+        since = "0.12.0",
+        note = "Use InterceptorChain (synthia-agent::interceptor) instead; \
+                after_execute is not guaranteed to run — the InterceptorChain \
+                is the authoritative post-tool hook path."
+    )]
     async fn after_execute(&self, _call: &ToolCall, _result: &ToolOutput) {}
 }
 

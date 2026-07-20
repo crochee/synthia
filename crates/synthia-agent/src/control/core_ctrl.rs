@@ -6,12 +6,12 @@ use std::{
 use tokio::task::JoinHandle;
 
 use crate::{
-    agent_instance::{AgentResult, AgentStatus},
     control::{
         agent_path::AgentPath,
         mailbox::{Mailbox, MailboxMessage},
         registry::{AgentMetadata, AgentRegistry},
     },
+    registry::instance::{AgentResult, AgentStatus},
 };
 
 /// Result of a completed background sub-agent task.
@@ -178,7 +178,7 @@ impl Clone for AgentControl {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::agent_instance::AgentTokenUsage;
+    use crate::registry::instance::AgentTokenUsage;
 
     #[test]
     fn test_agent_control_clone() {

@@ -40,4 +40,3 @@ tracing-subscriber.workspace = true
 [features]
 default = []
 otel = []
-unified-registry = ["synthia-core/unified-registry"]

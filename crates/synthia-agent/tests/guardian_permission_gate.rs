@@ -37,7 +37,9 @@ use std::{
 
 use async_trait::async_trait;
 use synthia_agent::{
-    agent_instance::{AgentResult, AgentStatus, AgentTokenUsage},
+    AgentResult,
+    AgentStatus,
+    AgentTokenUsage,
     subagent::{
         ChildSessionHandle,
         GuardianSubagentFactoryBridge,

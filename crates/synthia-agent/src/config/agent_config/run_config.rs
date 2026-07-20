@@ -7,6 +7,10 @@ use synthia_context::{
     assembler::ContextAssembler,
     compaction::level1::CompactionProvider,
 };
+use synthia_core::tool::{
+    extension_registry::ExtensionRegistry,
+    rollout::RolloutTracker,
+};
 use synthia_hook::HookRegistry;
 use synthia_memory::types::MemoryEvent;
 use synthia_permission::ApprovalService;
@@ -26,6 +30,7 @@ use super::agent_config::AgentConfig;
 use crate::{
     control::{AgentControl, fork_policy::ForkPolicy},
     input::AgentInput,
+    interceptor::InterceptorChain,
     steering::SteeringChannel,
     subagent::SubagentSessionFactory,
 };
@@ -34,6 +39,18 @@ use crate::{
 ///
 /// Holds the live provider, tool/hook registries, session store, and
 /// cancellation primitives. Construct via [`super::AgentRunConfigBuilder`].
+///
+/// # Migration Note
+///
+/// Several fields overlap with [`crate::AgentHandle`]:
+/// `provider`, `tool_registry`, `hook_registry`, `model_router`,
+/// `context_assembler`, `session_store`, `approval_service`,
+/// `sandbox_manager`, `memory_event_sender`.
+///
+/// New code should obtain these from `AgentHandle` instead of `AgentRunConfig`.
+/// The simplified [`crate::RunConfig`] only carries runtime parameters
+/// (`user_id`, `session_id`, `max_iterations`, `cancel_token`).
+/// See the `synthia-agent-composition-a2a` OpenSpec change for details.
 #[derive(Clone)]
 pub struct AgentRunConfig {
     pub provider: Arc<dyn ModelProvider>,
@@ -73,7 +90,7 @@ pub struct AgentRunConfig {
     /// field via [`super::AgentRunConfigBuilder::compaction_provider`].
     pub compaction_provider: Option<Arc<dyn CompactionProvider>>,
     /// Optional factory for creating real child sessions from agent-side
-    /// tools such as `AgentTool`. Injected by the server; `None` in
+    /// tools such as the task tool. Injected by the server; `None` in
     /// standalone / REPL / test contexts.
     pub subagent_session_factory: Option<Arc<dyn SubagentSessionFactory>>,
     /// Optional approval service used by the tool orchestrator when a tool
@@ -90,6 +107,24 @@ pub struct AgentRunConfig {
     /// When `None`, only static tools from `tool_registry` are available.
     pub extension_manager:
         Option<crate::tools::dynamic_provider::ExtensionManager>,
+    /// Unified extension registry for the Registry-First architecture.
+    ///
+    /// Aggregates tool and fragment registries with shared lifecycle
+    /// management. When `Some`, this becomes the primary interface for
+    /// accessing extensions; when `None` (the default), the legacy
+    /// per-field registries (`tool_registry`, etc.) are used instead.
+    /// This enables progressive migration of individual fields into
+    /// the unified registry without breaking existing code.
+    pub extension_registry: Option<ExtensionRegistry>,
+    /// Optional rollout tracker for tracking file changes and token
+    /// usage during the agent loop. `None` = no rollout tracking.
+    pub rollout_tracker: Option<Arc<RolloutTracker>>,
+    /// Optional interceptor chain for cross-cutting concerns
+    /// (permission, loop detection, approval, etc.).
+    /// When `Some`, BeforeTool/AfterTool events are dispatched
+    /// through the chain around tool execution. `None` = no
+    /// interceptor dispatch (legacy behavior).
+    pub interceptor_chain: Option<Arc<InterceptorChain>>,
     /// Optional [`GuardianCoordinator`] used as the permission gate before
     /// tool execution. `None` = Guardian disabled (legacy behavior). When
     /// `Some`, [`execute_and_emit`](crate::stream_builder::builder::tool_execution::execute::execute_and_emit)
@@ -100,7 +135,6 @@ pub struct AgentRunConfig {
     /// Cached loop services (bootstrap-once). Populated by
     /// [`LoopServices::bootstrap`] at the first call to
     /// `Agent::run_stream`. `None` until first access.
-    #[cfg(feature = "unified-registry")]
     pub loop_services: std::sync::OnceLock<crate::loop_services::LoopServices>,
 }
 

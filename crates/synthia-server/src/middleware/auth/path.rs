@@ -1,5 +1,6 @@
-/// Paths that bypass authentication (e.g., health checks).
-pub(super) const PUBLIC_PATHS: &[&str] = &["/health"];
+/// Paths that bypass authentication (health checks, A2A discovery).
+pub(super) const PUBLIC_PATHS: &[&str] =
+    &["/health", "/.well-known/agent-card.json"];
 
 fn url_decode_path(path: &str) -> String {
     let mut result = String::with_capacity(path.len());

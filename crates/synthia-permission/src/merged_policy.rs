@@ -3,6 +3,7 @@ use std::collections::HashMap;
 use crate::{
     layer::RuleLayer,
     rule::{PermissionAction, PermissionRule},
+    types::ToolCategory,
 };
 
 /// Resolved permission policy assembled from three priority layers.
@@ -70,6 +71,43 @@ impl MergedPolicy {
                 }
             })
             .unwrap_or(PermissionAction::Ask)
+    }
+
+    /// Resolve a request by tool name and optional category.
+    ///
+    /// Name-based matching takes priority over category-based matching.
+    /// If a direct name match is found, its action is returned. Otherwise,
+    /// a `category:X` pattern is constructed from the provided category
+    /// and looked up. If neither matches, `Ask` is returned (fail-closed).
+    pub fn evaluate_with_category(
+        &self,
+        tool_name: &str,
+        tool_category: Option<ToolCategory>,
+    ) -> PermissionAction {
+        // 1. Direct name match (highest priority)
+        if let Some((action, forced, _)) = self.rules.get(tool_name) {
+            return if *forced {
+                PermissionAction::Deny
+            } else {
+                *action
+            };
+        }
+
+        // 2. Category-based match
+        if let Some(category) = tool_category {
+            let category_key =
+                format!("category:{}", category.as_pattern_name());
+            if let Some((action, forced, _)) = self.rules.get(&category_key) {
+                return if *forced {
+                    PermissionAction::Deny
+                } else {
+                    *action
+                };
+            }
+        }
+
+        // 3. No match → fail-closed
+        PermissionAction::Ask
     }
 
     /// Number of distinct patterns currently held by the policy.
@@ -221,5 +259,129 @@ mod tests {
     fn unknown_pattern_asks() {
         let policy = MergedPolicy::default();
         assert_eq!(policy.evaluate("nonexistent_tool"), PermissionAction::Ask);
+    }
+
+    // ---- Category pattern tests ----
+
+    #[test]
+    fn category_shell_pattern_matches_shell_category() {
+        let defaults =
+            vec![rule("category:Shell", PermissionAction::Deny, false)];
+        let policy = MergedPolicy::new(&defaults, &[], &[]);
+        assert_eq!(
+            policy.evaluate_with_category("bash", Some(ToolCategory::Shell)),
+            PermissionAction::Deny
+        );
+    }
+
+    #[test]
+    fn category_filesystem_pattern_matches_filesystem_category() {
+        let defaults =
+            vec![rule("category:Filesystem", PermissionAction::Allow, false)];
+        let policy = MergedPolicy::new(&defaults, &[], &[]);
+        assert_eq!(
+            policy.evaluate_with_category(
+                "read_file",
+                Some(ToolCategory::Filesystem)
+            ),
+            PermissionAction::Allow
+        );
+    }
+
+    #[test]
+    fn category_shell_pattern_does_not_match_filesystem_category() {
+        let defaults =
+            vec![rule("category:Shell", PermissionAction::Deny, false)];
+        let policy = MergedPolicy::new(&defaults, &[], &[]);
+        assert_eq!(
+            policy.evaluate_with_category(
+                "read_file",
+                Some(ToolCategory::Filesystem)
+            ),
+            PermissionAction::Ask
+        );
+    }
+
+    #[test]
+    fn category_pattern_with_none_category_fail_closed() {
+        let defaults =
+            vec![rule("category:Shell", PermissionAction::Allow, false)];
+        let policy = MergedPolicy::new(&defaults, &[], &[]);
+        // Fail-closed: no category provided → category pattern doesn't match
+        assert_eq!(
+            policy.evaluate_with_category("bash", None),
+            PermissionAction::Ask
+        );
+    }
+
+    #[test]
+    fn name_match_takes_priority_over_category_match() {
+        let defaults = vec![
+            rule("bash", PermissionAction::Allow, false),
+            rule("category:Shell", PermissionAction::Deny, false),
+        ];
+        let policy = MergedPolicy::new(&defaults, &[], &[]);
+        // Name match "bash" → Allow wins over category:Shell → Deny
+        assert_eq!(
+            policy.evaluate_with_category("bash", Some(ToolCategory::Shell)),
+            PermissionAction::Allow
+        );
+    }
+
+    #[test]
+    fn mixed_name_and_category_patterns() {
+        let defaults = vec![
+            rule("bash", PermissionAction::Allow, false),
+            rule("category:Shell", PermissionAction::Deny, false),
+        ];
+        let policy = MergedPolicy::new(&defaults, &[], &[]);
+        // "bash" has name match → Allow
+        assert_eq!(
+            policy.evaluate_with_category("bash", Some(ToolCategory::Shell)),
+            PermissionAction::Allow
+        );
+        // "zsh" has no name match but category match → Deny
+        assert_eq!(
+            policy.evaluate_with_category("zsh", Some(ToolCategory::Shell)),
+            PermissionAction::Deny
+        );
+        // "read_file" has no name match and wrong category → Ask
+        assert_eq!(
+            policy.evaluate_with_category(
+                "read_file",
+                Some(ToolCategory::Filesystem)
+            ),
+            PermissionAction::Ask
+        );
+    }
+
+    #[test]
+    fn category_forced_rule_always_deny() {
+        let defaults =
+            vec![rule("category:Shell", PermissionAction::Allow, true)];
+        let policy = MergedPolicy::new(&defaults, &[], &[]);
+        assert_eq!(
+            policy.evaluate_with_category("bash", Some(ToolCategory::Shell)),
+            PermissionAction::Deny
+        );
+    }
+
+    #[test]
+    fn evaluate_with_category_without_category_matches_name_only() {
+        let defaults = vec![
+            rule("bash", PermissionAction::Allow, false),
+            rule("category:Shell", PermissionAction::Deny, false),
+        ];
+        let policy = MergedPolicy::new(&defaults, &[], &[]);
+        // Name match works, category pattern is not consulted
+        assert_eq!(
+            policy.evaluate_with_category("bash", None),
+            PermissionAction::Allow
+        );
+        // No name match, no category → Ask
+        assert_eq!(
+            policy.evaluate_with_category("zsh", None),
+            PermissionAction::Ask
+        );
     }
 }

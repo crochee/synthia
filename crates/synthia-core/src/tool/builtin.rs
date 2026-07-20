@@ -1,42 +1,36 @@
 //! BuiltinToolProvider — dual-map provider with immutable application tools
 //! and shadowable local tools.
 
-#[cfg(feature = "unified-registry")]
 use std::{collections::HashMap, sync::Arc};
 
-#[cfg(feature = "unified-registry")]
 use async_trait::async_trait;
-#[cfg(feature = "unified-registry")]
 use parking_lot::RwLock;
 
-#[cfg(feature = "unified-registry")]
 use crate::tool::{
     descriptor::{Tool, ToolDescriptor, ToolProvenance},
     provider::{ToolCall, ToolEvent, ToolProvider},
     registry::RegistrationError,
+    tool_name::ToolName,
     types::{ToolError, ToolOutput},
 };
 
 /// Inner state behind the RwLock.
-#[cfg(feature = "unified-registry")]
 struct BuiltinInner {
     /// Immutable core tools — registered once at startup.
-    applications: HashMap<String, Arc<dyn Tool>>,
+    applications: HashMap<ToolName, Arc<dyn Tool>>,
     /// Runtime additions — may shadow application tools (LIFO).
-    local: HashMap<String, Arc<dyn Tool>>,
+    local: HashMap<ToolName, Arc<dyn Tool>>,
     /// Cached descriptors for application tools.
-    application_descriptors: HashMap<String, ToolDescriptor>,
+    application_descriptors: HashMap<ToolName, ToolDescriptor>,
     /// Cached descriptors for local tools.
-    local_descriptors: HashMap<String, ToolDescriptor>,
+    local_descriptors: HashMap<ToolName, ToolDescriptor>,
 }
 
 /// Provider that owns application (immutable) and local (shadowable) tools.
-#[cfg(feature = "unified-registry")]
 pub struct BuiltinToolProvider {
     inner: RwLock<BuiltinInner>,
 }
 
-#[cfg(feature = "unified-registry")]
 impl BuiltinToolProvider {
     /// Create an empty provider.
     pub fn new() -> Self {
@@ -64,7 +58,7 @@ impl BuiltinToolProvider {
             && inner.applications.contains_key(&descriptor.name)
         {
             return Err(RegistrationError::CoreNameTaken {
-                name: descriptor.name,
+                name: descriptor.name.clone(),
             });
         }
         let name = descriptor.name.clone();
@@ -88,20 +82,20 @@ impl BuiltinToolProvider {
 
     /// Remove a local tool by name. Returns the removed tool, if any.
     pub fn remove_local(&mut self, name: &str) -> Option<Arc<dyn Tool>> {
+        let key =
+            ToolName::parse(name).unwrap_or_else(|| ToolName::plain(name));
         let mut inner = self.inner.write();
-        inner.local_descriptors.remove(name);
-        inner.local.remove(name)
+        inner.local_descriptors.remove(&key);
+        inner.local.remove(&key)
     }
 }
 
-#[cfg(feature = "unified-registry")]
 impl Default for BuiltinToolProvider {
     fn default() -> Self {
         Self::new()
     }
 }
 
-#[cfg(feature = "unified-registry")]
 #[async_trait]
 impl ToolProvider for BuiltinToolProvider {
     fn id(&self) -> &str {
@@ -117,12 +111,14 @@ impl ToolProvider for BuiltinToolProvider {
     }
 
     async fn get_tool(&self, name: &str) -> Option<Arc<dyn Tool>> {
+        let key =
+            ToolName::parse(name).unwrap_or_else(|| ToolName::plain(name));
         let inner = self.inner.read();
         // LIFO: local shadows application.
-        if let Some(tool) = inner.local.get(name) {
+        if let Some(tool) = inner.local.get(&key) {
             return Some(Arc::clone(tool));
         }
-        inner.applications.get(name).cloned()
+        inner.applications.get(&key).cloned()
     }
 
     async fn on_tool_event(&self, _event: &ToolEvent) {}

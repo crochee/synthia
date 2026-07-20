@@ -11,6 +11,10 @@ use synthia_context::{
         default_tool_output_dir,
     },
 };
+use synthia_core::tool::{
+    fragment::FragmentContext,
+    rollout::{ChangeType, FileChange},
+};
 use synthia_provider::types::Message;
 use synthia_telemetry::{
     CompactionAnalyticsAttempt,
@@ -44,7 +48,7 @@ use crate::{
 /// conversation context.
 fn format_background_task_notification(task: &CompletedTask) -> String {
     let (state, inner_tag) = match task.status {
-        crate::agent_instance::AgentStatus::Completed => {
+        crate::registry::instance::AgentStatus::Completed => {
             ("completed", "task_result")
         }
         _ => ("error", "task_error"),
@@ -122,7 +126,9 @@ impl StreamBuilder {
             // Guardian coordinator is consumed by `StepToolExecute`.
             guardian_coordinator: _,
             extension_manager: _,
-            #[cfg(feature = "unified-registry")]
+            extension_registry,
+            rollout_tracker,
+            interceptor_chain,
             loop_services,
         } = run_config;
 
@@ -189,6 +195,47 @@ impl StreamBuilder {
                 &input,
             );
 
+            // ── FragmentRegistry system prompt ──
+            // When the extension_registry is available, render active
+            // fragments and inject them as a system message. This
+            // replaces the legacy ContextAssembler system prompt path
+            // when fragments are registered. If no fragments are
+            // registered, fall through to the existing context
+            // assembler system prompt (inserted by `seed_initial_messages`
+            // via the `ContextAssembler::build_system_prompt()` path).
+            if let Some(ref ext_reg) = extension_registry {
+                let frag_reg = ext_reg.fragment_registry();
+                let frag_ctx = FragmentContext::new(
+                    &session_id_clone,
+                    &user_id,
+                );
+                let rendered = frag_reg.render_active(&frag_ctx).await;
+                if !rendered.is_empty() {
+                    let system_content: String = rendered
+                        .iter()
+                        .map(|(name, content)| {
+                            format!("## {name}\n{content}")
+                        })
+                        .collect::<Vec<String>>()
+                        .join("\n\n");
+                    // Check if a system message already exists and
+                    // replace it, otherwise prepend.
+                    if let Some(first) = ctx.messages.first_mut() {
+                        if first.role == synthia_provider::Role::System {
+                            first.content =
+                                synthia_provider::types::Content::text(
+                                    system_content,
+                                );
+                        }
+                    } else {
+                        ctx.messages.insert(
+                            0,
+                            Message::system(system_content),
+                        );
+                    }
+                }
+            }
+
             // Initialize `context_token_limit` from the configured token
             // budget when it was not restored from session metadata. Without
             // this, `LoopContext::token_ratio()` returns 0.0 (the field is
@@ -215,12 +262,11 @@ impl StreamBuilder {
             // `maybe_auto_trigger_compact_context`.
             let mut last_compact_iteration: Option<usize> = None;
 
-            // ── OperationContext (unified-registry) ──────────────
+            // ── OperationContext ──────────────
             // Creates an operation context with deadline derived
             // from `session_wall_clock_timeout` and the cancel
             // token. Used for deadline checks between turns
             // and goal status evaluation.
-            #[cfg(feature = "unified-registry")]
             let _op_ctx = synthia_service::context::OperationContext::for_session(
                 session_id_clone.clone(),
                 user_id.clone(),
@@ -231,12 +277,11 @@ impl StreamBuilder {
                 config.max_iterations,
                 config.session_wall_clock_timeout,
             ) {
-                // ── Deadline check (unified-registry, 10.13) ────
+                // ── Deadline check ────
                 // If the operation context has expired, break.
                 // The existing should_stop_with_timeout already
                 // handles wall-clock timeout; this provides an
                 // additional early-exit path via OperationContext.
-                #[cfg(feature = "unified-registry")]
                 if _op_ctx.is_expired() {
                     tracing::info!(
                         session_id = %session_id_clone,
@@ -247,9 +292,8 @@ impl StreamBuilder {
                     // additional observation point.
                 }
 
-                // ── Goal status check (unified-registry, 10.14) ──
+                // ── Goal status check ──
                 // If goal is achieved or blocked, break.
-                #[cfg(feature = "unified-registry")]
                 if let Some(services) = loop_services.get()
                     && let Some(ref tracker) = services.goal_tracker
                 {
@@ -286,7 +330,7 @@ impl StreamBuilder {
                     for task in completed {
                         let synthetic_msg = Message::user(format_background_task_notification(&task));
                         let state = match task.status {
-                            crate::agent_instance::AgentStatus::Completed => "completed",
+                            crate::registry::instance::AgentStatus::Completed => "completed",
                             _ => "error",
                         };
                         ctx.messages.push(synthetic_msg);
@@ -677,6 +721,18 @@ impl StreamBuilder {
                         // Accumulate token usage
                         ctx.cumulative_tokens += sampling.usage.total_tokens;
 
+                        // Record token usage in rollout tracker
+                        if let Some(ref rollout) = rollout_tracker {
+                            rollout
+                                .record_token_usage(
+                                    sampling.usage.prompt_tokens,
+                                    sampling.usage.completion_tokens,
+                                    sampling.usage.cached_prompt_tokens
+                                        .unwrap_or(0),
+                                )
+                                .await;
+                        }
+
                         // Emit usage callback for OTel cache token metrics
                         // (KV cache hit ratio observability).
                         if let Some(ref cb) = on_usage {
@@ -808,6 +864,128 @@ impl StreamBuilder {
                         )
                         .await;
 
+                        // Record file changes in rollout tracker for
+                        // tools that modify files.
+                        if let Some(ref rollout) = rollout_tracker {
+                            for tool_call in &sampling.tool_calls {
+                                let (change_type, file_path) =
+                                    match tool_call.name.as_str() {
+                                        "write" => {
+                                            let p = tool_call
+                                                .input
+                                                .get("file_path")
+                                                .or_else(|| {
+                                                    tool_call.input.get("path")
+                                                })
+                                                .and_then(|v| v.as_str())
+                                                .unwrap_or("");
+                                            (ChangeType::Created, p)
+                                        }
+                                        "edit" | "multi_edit" => {
+                                            let p = tool_call
+                                                .input
+                                                .get("file_path")
+                                                .or_else(|| {
+                                                    tool_call.input.get("path")
+                                                })
+                                                .and_then(|v| v.as_str())
+                                                .unwrap_or("");
+                                            (ChangeType::Modified, p)
+                                        }
+                                        "apply_patch" => {
+                                            let p = tool_call
+                                                .input
+                                                .get("path")
+                                                .or_else(|| {
+                                                    tool_call
+                                                        .input
+                                                        .get("file_path")
+                                                })
+                                                .and_then(|v| v.as_str())
+                                                .unwrap_or("");
+                                            (ChangeType::Modified, p)
+                                        }
+                                        _ => continue,
+                                    };
+                                if !file_path.is_empty() {
+                                    rollout
+                                        .record_change(FileChange {
+                                            path: std::path::PathBuf::from(
+                                                file_path,
+                                            ),
+                                            change_type,
+                                            tool_name: tool_call.name.clone(),
+                                            iteration: ctx.iteration,
+                                        })
+                                        .await;
+                                }
+                            }
+                        }
+
+                        // ── InterceptorChain BeforeTool dispatch ──
+                        // When an interceptor chain is configured, dispatch
+                        // BeforeTool events for each tool call. If any call
+                        // is short-circuited (e.g. by PermissionInterceptor),
+                        // skip that tool and emit a ToolCallSkipped event.
+                        let mut skipped_tools: Vec<String> = Vec::new();
+                        if let Some(ref chain) = interceptor_chain {
+                            for tool_call in &sampling.tool_calls {
+                                let mut ic = crate::interceptor::InterceptorContext::new(
+                                    &session_id_clone,
+                                    &session_id_clone,
+                                );
+                                ic.iteration = ctx.iteration;
+                                // Pass tool arguments as JSON string for
+                                // LoopDetectInterceptor.
+                                if let Ok(args_str) = serde_json::to_string(&tool_call.input) {
+                                    let map = ic.ensure_data_object();
+                                    map.insert(
+                                        "tool_args".to_string(),
+                                        serde_json::Value::String(args_str),
+                                    );
+                                }
+                                let event =
+                                    crate::interceptor::InterceptorEvent::BeforeTool {
+                                        tool_name: tool_call.name.clone(),
+                                    };
+                                match chain.dispatch(&mut ic, &event).await {
+                                    Ok(()) => {}
+                                    Err(
+                                        crate::interceptor::InterceptorError::ShortCircuited { name },
+                                    ) => {
+                                        tracing::warn!(
+                                            tool = %tool_call.name,
+                                            interceptor = %name,
+                                            "InterceptorChain short-circuited tool call"
+                                        );
+                                        skipped_tools.push(tool_call.name.clone());
+                                        yield AgentEvent::ToolCallCompleted {
+                                            tool_name: tool_call.name.clone(),
+                                            output: format!(
+                                                "Tool call blocked by interceptor: {name}"
+                                            ),
+                                            is_error: true,
+                                        };
+                                        ctx.add_tool_result(
+                                            tool_call.name.clone(),
+                                            tool_call.id.clone(),
+                                            format!(
+                                                "Tool call blocked by interceptor: {name}"
+                                            ),
+                                            false,
+                                        );
+                                    }
+                                    Err(e) => {
+                                        tracing::warn!(
+                                            tool = %tool_call.name,
+                                            error = %e,
+                                            "InterceptorChain dispatch failed, proceeding with execution"
+                                        );
+                                    }
+                                }
+                            }
+                        }
+
                         let tool_outcome = super::super::tool_execution::execute_and_emit(
                             &mut steps,
                             &mut ctx,
@@ -819,11 +997,52 @@ impl StreamBuilder {
                             compaction_provider_runtime.as_deref(),
                             memory_event_sender.as_ref(),
                             &agent_ctx,
+                            loop_services.get().and_then(|s| s.output_bound.as_ref()),
                         )
                         .await;
                         match tool_outcome {
                             super::super::tool_execution::ToolExecuteOutcome::Continue { events } => {
                                 for ev in events { yield ev; }
+
+                                // ── InterceptorChain AfterTool dispatch ──
+                                // When an interceptor chain is configured,
+                                // dispatch AfterTool events for each tool
+                                // call that was not skipped by BeforeTool.
+                                if let Some(ref chain) = interceptor_chain {
+                                    for tool_call in &sampling.tool_calls {
+                                        if skipped_tools.contains(&tool_call.name) {
+                                            continue;
+                                        }
+                                        let mut ic = crate::interceptor::InterceptorContext::new(
+                                            &session_id_clone,
+                                            &session_id_clone,
+                                        );
+                                        ic.iteration = ctx.iteration;
+                                        // Write cumulative token usage so
+                                        // CompactInterceptor can check the
+                                        // threshold.
+                                        let map = ic.ensure_data_object();
+                                        map.insert(
+                                            "token_usage".to_string(),
+                                            serde_json::Value::Number(
+                                                serde_json::Number::from(
+                                                    ctx.cumulative_tokens,
+                                                ),
+                                            ),
+                                        );
+                                        let event =
+                                            crate::interceptor::InterceptorEvent::AfterTool {
+                                                tool_name: tool_call.name.clone(),
+                                            };
+                                        if let Err(e) = chain.dispatch(&mut ic, &event).await {
+                                            tracing::debug!(
+                                                tool = %tool_call.name,
+                                                error = %e,
+                                                "InterceptorChain AfterTool dispatch error (non-blocking)"
+                                            );
+                                        }
+                                    }
+                                }
 
                                 for ev in super::super::iteration::maybe_auto_trigger_self_reflect(
                                     &steps.tool_execute,
@@ -956,9 +1175,8 @@ impl StreamBuilder {
 
                         yield AgentEvent::IterationCompleted { iteration: ctx.iteration };
 
-                        // ── Goal tracking (unified-registry, 10.14) ──
+                        // ── Goal tracking ──
                         // Update the goal tracker with iteration progress.
-                        #[cfg(feature = "unified-registry")]
                         if let Some(services) = loop_services.get()
                             && let Some(ref tracker) = services.goal_tracker
                         {
@@ -1008,6 +1226,24 @@ impl StreamBuilder {
             );
             steps.hook_dispatcher.dispatch(&session_end_event).await;
 
+            // ── InterceptorChain SessionEnd dispatch ──
+            // Notify interceptors that the session is ending so they can
+            // reset their state (e.g. LoopDetectInterceptor resets its
+            // detector on SessionEnd).
+            if let Some(ref chain) = interceptor_chain {
+                let mut ic = crate::interceptor::InterceptorContext::new(
+                    &session_id_clone,
+                    &session_id_clone,
+                );
+                ic.iteration = ctx.iteration;
+                if let Err(e) = chain.dispatch(&mut ic, &crate::interceptor::InterceptorEvent::SessionEnd).await {
+                    tracing::debug!(
+                        error = %e,
+                        "InterceptorChain SessionEnd dispatch error (non-blocking)"
+                    );
+                }
+            }
+
             let final_turn_id = ctx.current_turn_id.unwrap_or_default();
             emit_turn_event(
                 session_store.event_store(),
@@ -1038,8 +1274,22 @@ impl StreamBuilder {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Arc;
+
+    use synthia_core::tool::{
+        builtin_fragments::SystemPromptFragment,
+        extension_registry::ExtensionRegistry,
+        fragment::FragmentRegistry,
+        registry::ToolRegistry as CoreToolRegistry,
+        rollout::{ChangeType, FileChange, RolloutTracker},
+    };
+
     use super::*;
-    use crate::{agent_instance::AgentStatus, control::CompletedTask};
+    use crate::{
+        control::CompletedTask,
+        interceptor::InterceptorChain,
+        registry::instance::AgentStatus,
+    };
 
     #[test]
     fn format_completed_task_notification() {
@@ -1085,5 +1335,334 @@ mod tests {
         };
         let xml = format_background_task_notification(&task);
         assert!(xml.contains("<raw>value</raw>"));
+    }
+
+    // ── FragmentRegistry activation test ─────────────────────────────────
+    //
+    // Mirrors the main_loop's FragmentRegistry integration:
+    // 1. Build ExtensionRegistry with registered fragments
+    // 2. Call render_active() to get rendered fragments
+    // 3. Construct system content using the same format as main_loop
+    // 4. Inject into messages (replace existing system msg or prepend)
+    #[tokio::test]
+    async fn fragment_registry_activation_builds_system_prompt() {
+        // Build FragmentRegistry with a SystemPromptFragment
+        let frag_reg = Arc::new(FragmentRegistry::new());
+        frag_reg
+            .register(Arc::new(SystemPromptFragment::new(
+                "You are Synthia, an AI coding assistant.",
+            )))
+            .await
+            .unwrap();
+
+        // Build ExtensionRegistry
+        let ext_reg =
+            ExtensionRegistry::new(Arc::new(CoreToolRegistry::new()), frag_reg);
+
+        // Simulate main_loop's FragmentRegistry integration
+        let frag_reg = ext_reg.fragment_registry();
+        let frag_ctx = FragmentContext::new("test-session", "test-user");
+        let rendered = frag_reg.render_active(&frag_ctx).await;
+
+        // At least one fragment rendered
+        assert!(
+            !rendered.is_empty(),
+            "expected at least one rendered fragment"
+        );
+
+        // Build system content using the same format as main_loop
+        let system_content: String = rendered
+            .iter()
+            .map(|(name, content)| format!("## {name}\n{content}"))
+            .collect::<Vec<String>>()
+            .join("\n\n");
+
+        assert!(
+            system_content.contains("system_prompt"),
+            "system prompt fragment should be rendered"
+        );
+        assert!(
+            system_content.contains("You are Synthia"),
+            "system prompt content should be included"
+        );
+
+        // Inject into messages — same logic as main_loop
+        let mut messages: Vec<Message> = vec![Message::system("old system")];
+        if let Some(first) = messages.first_mut()
+            && first.role == synthia_provider::Role::System
+        {
+            first.content =
+                synthia_provider::types::Content::text(system_content.clone());
+        }
+        assert_eq!(messages.len(), 1);
+        let extracted = messages[0].content.extract_text();
+        assert_eq!(extracted, Some(system_content));
+    }
+
+    // ── FragmentRegistry: inactive fragments are excluded ────────────────
+    #[tokio::test]
+    async fn fragment_registry_inactive_fragments_excluded() {
+        let frag_reg = Arc::new(FragmentRegistry::new());
+        // Register an inactive fragment
+        frag_reg
+            .register(Arc::new(
+                SystemPromptFragment::new("inactive content")
+                    .with_active(false),
+            ))
+            .await
+            .unwrap();
+
+        let ext_reg =
+            ExtensionRegistry::new(Arc::new(CoreToolRegistry::new()), frag_reg);
+
+        let frag_ctx = FragmentContext::new("test-session", "test-user");
+        let rendered =
+            ext_reg.fragment_registry().render_active(&frag_ctx).await;
+
+        assert!(
+            rendered.is_empty(),
+            "inactive fragments should not be rendered"
+        );
+    }
+
+    // ── InterceptorChain dispatch test ──────────────────────────────────
+    //
+    // Mirrors the main_loop's InterceptorChain integration:
+    // 1. Build InterceptorChain with TraceInterceptor
+    // 2. Dispatch BeforeTool/AfterTool events
+    // 3. Verify dispatch succeeds (no short-circuit)
+    // 4. Dispatch SessionEnd event
+    #[tokio::test]
+    async fn interceptor_chain_before_after_tool_dispatch() {
+        use crate::interceptor::{InterceptorContext, InterceptorEvent};
+
+        let chain = InterceptorChain::default_with_guard(None, None, None);
+        // The default chain includes TraceInterceptor; dispatch should succeed.
+        let session_id = "test-session";
+
+        // BeforeTool
+        let mut ic = InterceptorContext::new(session_id, session_id);
+        ic.iteration = 1;
+        let event = InterceptorEvent::BeforeTool {
+            tool_name: "bash".to_string(),
+        };
+        let result = chain.dispatch(&mut ic, &event).await;
+        assert!(result.is_ok(), "BeforeTool dispatch should succeed");
+
+        // AfterTool
+        let mut ic = InterceptorContext::new(session_id, session_id);
+        ic.iteration = 1;
+        let map = ic.ensure_data_object();
+        map.insert(
+            "token_usage".to_string(),
+            serde_json::Value::Number(serde_json::Number::from(1000)),
+        );
+        let event = InterceptorEvent::AfterTool {
+            tool_name: "bash".to_string(),
+        };
+        let result = chain.dispatch(&mut ic, &event).await;
+        assert!(result.is_ok(), "AfterTool dispatch should succeed");
+    }
+
+    // ── InterceptorChain: short-circuit behavior ────────────────────────
+    #[tokio::test]
+    async fn interceptor_chain_short_circuit_blocks_tool() {
+        use crate::interceptor::{
+            InterceptorContext,
+            InterceptorEvent,
+            PermissionInterceptor,
+        };
+
+        // Add a blocking permission interceptor for "bash"
+        let mut custom_chain = InterceptorChain::new();
+        custom_chain.add(Arc::new(PermissionInterceptor::blocking(&["bash"])));
+
+        let mut ic = InterceptorContext::new("test-session", "test-session");
+        ic.iteration = 1;
+        let event = InterceptorEvent::BeforeTool {
+            tool_name: "bash".to_string(),
+        };
+        let result = custom_chain.dispatch(&mut ic, &event).await;
+        assert!(result.is_err(), "blocked tool should short-circuit");
+        match result.unwrap_err() {
+            crate::interceptor::InterceptorError::ShortCircuited { name } => {
+                assert!(
+                    name.contains("permission"),
+                    "short-circuit should be from PermissionInterceptor, got: {name}"
+                );
+            }
+            other => panic!("expected ShortCircuited, got {other}"),
+        }
+
+        // Non-blocked tool should pass
+        let mut ic = InterceptorContext::new("test-session", "test-session");
+        let event = InterceptorEvent::BeforeTool {
+            tool_name: "read_file".to_string(),
+        };
+        let result = custom_chain.dispatch(&mut ic, &event).await;
+        assert!(result.is_ok(), "non-blocked tool should pass");
+    }
+
+    // ── InterceptorChain: SessionEnd dispatch ───────────────────────────
+    #[tokio::test]
+    async fn interceptor_chain_session_end_dispatch() {
+        use crate::interceptor::{InterceptorContext, InterceptorEvent};
+
+        let chain = InterceptorChain::default_with_guard(None, None, None);
+        let mut ic = InterceptorContext::new("test-session", "test-session");
+        ic.iteration = 5;
+        let event = InterceptorEvent::SessionEnd;
+        let result = chain.dispatch(&mut ic, &event).await;
+        assert!(result.is_ok(), "SessionEnd dispatch should succeed");
+    }
+
+    // ── RolloutTracker call test ────────────────────────────────────────
+    //
+    // Mirrors the main_loop's RolloutTracker integration:
+    // 1. Record token usage after LLM response
+    // 2. Record file changes after tool execution
+    // 3. Verify summary reflects all recorded data
+    #[tokio::test]
+    async fn rollout_tracker_records_token_and_file_changes() {
+        let tracker = RolloutTracker::new();
+
+        // Simulate LLM response — record token usage
+        tracker.record_token_usage(500, 200, 50).await;
+        tracker.record_token_usage(300, 150, 30).await;
+
+        // Simulate tool execution — record file changes
+        tracker
+            .record_change(FileChange {
+                path: std::path::PathBuf::from("src/main.rs"),
+                change_type: ChangeType::Modified,
+                tool_name: "edit_file".to_string(),
+                iteration: 1,
+            })
+            .await;
+        tracker
+            .record_change(FileChange {
+                path: std::path::PathBuf::from("src/lib.rs"),
+                change_type: ChangeType::Created,
+                tool_name: "write_file".to_string(),
+                iteration: 2,
+            })
+            .await;
+        tracker
+            .record_change(FileChange {
+                path: std::path::PathBuf::from("src/old.rs"),
+                change_type: ChangeType::Deleted,
+                tool_name: "bash".to_string(),
+                iteration: 3,
+            })
+            .await;
+
+        // Verify token budget
+        let budget = tracker.token_budget().await;
+        assert_eq!(budget.prompt_tokens, 800);
+        assert_eq!(budget.completion_tokens, 350);
+        assert_eq!(budget.cached_tokens, 80);
+        assert_eq!(budget.total_used, 1150);
+
+        // Verify changes
+        let changes = tracker.changes().await;
+        assert_eq!(changes.len(), 3);
+
+        // Verify summary
+        let summary = tracker.summary().await;
+        assert_eq!(summary.total_changes, 3);
+        assert_eq!(summary.files_created, 1);
+        assert_eq!(summary.files_modified, 1);
+        assert_eq!(summary.files_deleted, 1);
+        assert_eq!(summary.total_tokens_used, 1150);
+
+        // Verify by-tool grouping (mirrors main_loop's tool name tracking)
+        let by_tool = tracker.changes_by_tool().await;
+        assert_eq!(by_tool.get("edit_file"), Some(&1));
+        assert_eq!(by_tool.get("write_file"), Some(&1));
+        assert_eq!(by_tool.get("bash"), Some(&1));
+    }
+
+    // ── RolloutTracker: with token limit ────────────────────────────────
+    #[tokio::test]
+    async fn rollout_tracker_with_token_limit() {
+        let tracker = RolloutTracker::new_with_token_limit(1000);
+
+        tracker.record_token_usage(600, 300, 50).await;
+        let budget = tracker.token_budget().await;
+        assert_eq!(budget.total_used, 900);
+        assert!(!budget.is_exhausted());
+
+        tracker.record_token_usage(100, 50, 0).await;
+        let budget = tracker.token_budget().await;
+        assert!(budget.is_exhausted());
+
+        let summary = tracker.summary().await;
+        assert_eq!(summary.token_remaining, Some(0));
+    }
+
+    // ── Full integration: ExtensionRegistry + InterceptorChain + RolloutTracker ──
+    //
+    // Simulates the full wiring path used in main_loop:
+    // AppState → AgentFactory → AgentRunConfig → main_loop
+    #[tokio::test]
+    async fn full_wiring_integration() {
+        // Build FragmentRegistry
+        let frag_reg = Arc::new(FragmentRegistry::new());
+        frag_reg
+            .register(Arc::new(SystemPromptFragment::new(
+                "You are Synthia, an AI coding assistant.",
+            )))
+            .await
+            .unwrap();
+
+        // Build ExtensionRegistry
+        let ext_reg =
+            ExtensionRegistry::new(Arc::new(CoreToolRegistry::new()), frag_reg);
+
+        // Build InterceptorChain
+        let chain = InterceptorChain::default_with_guard(None, None, None);
+
+        // Build RolloutTracker
+        let rollout = RolloutTracker::new();
+
+        // Simulate FragmentRegistry → system prompt
+        let frag_ctx = FragmentContext::new("test-session", "test-user");
+        let rendered =
+            ext_reg.fragment_registry().render_active(&frag_ctx).await;
+        assert!(!rendered.is_empty());
+        let system_content: String = rendered
+            .iter()
+            .map(|(name, content)| format!("## {name}\n{content}"))
+            .collect::<Vec<String>>()
+            .join("\n\n");
+        assert!(system_content.contains("Synthia"));
+
+        // Simulate InterceptorChain → BeforeTool dispatch
+        use crate::interceptor::{InterceptorContext, InterceptorEvent};
+        let mut ic = InterceptorContext::new("test-session", "test-session");
+        ic.iteration = 1;
+        let event = InterceptorEvent::BeforeTool {
+            tool_name: "read_file".to_string(),
+        };
+        assert!(chain.dispatch(&mut ic, &event).await.is_ok());
+
+        // Simulate RolloutTracker → record token + file change
+        rollout.record_token_usage(500, 200, 50).await;
+        rollout
+            .record_change(FileChange {
+                path: std::path::PathBuf::from("src/main.rs"),
+                change_type: ChangeType::Modified,
+                tool_name: "edit_file".to_string(),
+                iteration: 1,
+            })
+            .await;
+
+        let summary = rollout.summary().await;
+        assert_eq!(summary.total_changes, 1);
+        assert_eq!(summary.total_tokens_used, 700);
+
+        // Simulate SessionEnd
+        let event = InterceptorEvent::SessionEnd;
+        assert!(chain.dispatch(&mut ic, &event).await.is_ok());
     }
 }

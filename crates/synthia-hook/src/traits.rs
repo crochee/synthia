@@ -95,6 +95,10 @@ pub enum ToolAction {
     },
 }
 
+#[deprecated(
+    since = "0.2.0",
+    note = "Use the new `Hook` trait instead. AgentHook will be removed after the migration is complete."
+)]
 #[async_trait]
 pub trait AgentHook: Send + Sync + std::fmt::Debug {
     fn fail_policy(&self) -> FailPolicy {

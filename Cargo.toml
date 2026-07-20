@@ -11,7 +11,6 @@ members = [
     "crates/synthia-sandbox",
     "crates/synthia-tool-bash",
     "crates/synthia-tool-exec-base",
-    "crates/synthia-exec",
     "crates/synthia-mcp",
     "crates/synthia-command",
     "crates/synthia-skill",
@@ -30,12 +29,11 @@ members = [
     "crates/synthia-protocol",
     "crates/synthia-session-v2",
     "crates/synthia-service",
-    "crates/synthia-extension",
-    "crates/synthia-event",
     "crates/synthia-event-v2",
     "crates/synthia-extension-v2",
     "crates/synthia-goal-service",
     "crates/synthia-tool-materialization",
+    "crates/synthia-a2a",
     "test-support",
 ]
 resolver = "2"

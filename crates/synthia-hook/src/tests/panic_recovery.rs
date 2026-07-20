@@ -13,15 +13,18 @@ use std::sync::{
 use async_trait::async_trait;
 use synthia_core::Error;
 
+#[allow(deprecated)]
+use crate::traits::AgentHook;
 use crate::{
     HookRegistry,
-    traits::{AgentContext, AgentHook, ToolAction},
+    traits::{AgentContext, ToolAction},
 };
 
 #[derive(Debug)]
 struct PanickingHook;
 
 #[async_trait]
+#[allow(deprecated)]
 impl AgentHook for PanickingHook {
     async fn on_before_llm(
         &self,
@@ -171,6 +174,7 @@ struct NormalHook {
 }
 
 #[async_trait]
+#[allow(deprecated)]
 impl AgentHook for NormalHook {
     async fn on_before_llm(
         &self,
@@ -220,6 +224,7 @@ impl SecondOfThreePanickingHook {
 }
 
 #[async_trait]
+#[allow(deprecated)]
 impl AgentHook for SecondOfThreePanickingHook {
     async fn on_before_tool(
         &self,
@@ -238,6 +243,7 @@ struct FirstHook {
 }
 
 #[async_trait]
+#[allow(deprecated)]
 impl AgentHook for FirstHook {
     async fn on_before_tool(
         &self,
@@ -255,6 +261,7 @@ struct ThirdHook {
 }
 
 #[async_trait]
+#[allow(deprecated)]
 impl AgentHook for ThirdHook {
     async fn on_before_tool(
         &self,

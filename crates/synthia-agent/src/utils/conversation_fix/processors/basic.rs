@@ -7,7 +7,6 @@ use synthia_provider::{Content, Message, Role};
 use super::super::{
     content_ops::{is_empty_content, merge_text_in_message, trim_text_content},
     keys::compute_message_key,
-    pipeline::MessageProcessor,
 };
 
 // ---------- 1. deduplicate_messages ----------
@@ -136,12 +135,4 @@ pub(crate) fn remove_empty_messages(
         .collect();
 
     (filtered, issues)
-}
-
-// Force the imports above to be used when feature flags
-// clip them out — they are referenced by the test
-// module via `super::`.
-#[allow(dead_code)]
-pub(super) fn _force_use() {
-    let _: MessageProcessor = deduplicate_messages;
 }

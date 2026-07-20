@@ -38,9 +38,10 @@ pub use outcome::{HookEvent, HookOutcome};
 pub use registry::{HookHandle, HookRegistry};
 // Re-export from provider for convenience.
 pub use synthia_provider::types::{Message, Role};
+#[allow(deprecated)]
+pub use traits::AgentHook;
 pub use traits::{
     AgentContext,
-    AgentHook,
     ToolAction,
     ToolCall,
     message_from_value,

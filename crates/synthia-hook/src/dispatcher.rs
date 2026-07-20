@@ -41,6 +41,7 @@ impl UnifiedHookDispatcher {
     ///
     /// Only non-failed hooks are included. The adapter bridges the
     /// old 6-method `AgentHook` trait to the new `Hook` trait.
+    #[allow(deprecated)]
     pub fn from_hook_registry(registry: &crate::HookRegistry) -> Self {
         let hooks = registry.snapshot_adapted_hooks();
         Self { hooks }

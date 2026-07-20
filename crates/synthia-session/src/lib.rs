@@ -202,9 +202,6 @@ pub use types::*;
 // New code should reach for these directly; legacy re-exports stay
 // until 0.3.0 so external crates that still import `synthia_session::Store`
 // etc. continue to compile.
-#[allow(deprecated)]
-pub mod deprecation;
 pub mod migration;
-pub use deprecation::*;
 pub use migration::*;
 pub use synthia_session_v2::*;

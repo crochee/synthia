@@ -10,7 +10,6 @@ pub mod text;
 pub mod time;
 pub mod token;
 
-#[cfg(feature = "unified-registry")]
 pub mod tool;
 
 pub use error::*;

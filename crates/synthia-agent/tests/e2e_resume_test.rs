@@ -1,8 +1,7 @@
-#![allow(deprecated)]
-//! Integration test for the resume() / run_stream_with_state() fix.
+//! Integration test for the StreamBuilder initial-state (resume) fix.
 //!
 //! Verifies that:
-//! 1. Initial messages passed to run_stream_with_state are preserved (not dropped)
+//! 1. Initial messages passed to StreamBuilder::with_initial_state are preserved (not dropped)
 //! 2. The start_iteration counter is applied to the LoopContext
 //!    (first IterationStarted event has iteration == start_iteration + 1)
 //! 3. The resumed session produces a complete event stream
@@ -12,8 +11,8 @@ use std::sync::{Arc, Mutex};
 use async_trait::async_trait;
 use futures::StreamExt;
 use synthia_agent::{
-    agent::Agent,
-    config::{AgentConfig, AgentRunStateConfig},
+    config::AgentConfig,
+    stream_builder::StreamBuilder,
     types::{AgentEvent, AgentInput},
 };
 use synthia_hook::HookRegistry;
@@ -132,14 +131,11 @@ async fn test_resume_preserves_initial_messages_and_iteration() {
         CancellationToken::new(),
     );
 
-    let state_config = AgentRunStateConfig {
-        run_config,
-        initial_messages: initial_messages.clone(),
-        start_iteration,
-    };
+    let mut builder = StreamBuilder::from_config(&run_config);
+    builder.with_initial_state(initial_messages.clone(), start_iteration);
+    let stream = builder.run(run_config);
 
-    let events: Vec<AgentEvent> =
-        Agent::run_stream_with_state(state_config).collect().await;
+    let events: Vec<AgentEvent> = stream.collect().await;
 
     // The session should have started and ended
     assert!(
@@ -233,14 +229,11 @@ async fn test_resume_with_empty_state_falls_back_to_input() {
         CancellationToken::new(),
     );
 
-    let state_config = AgentRunStateConfig {
-        run_config,
-        initial_messages: vec![],
-        start_iteration: 0,
-    };
+    let mut builder = StreamBuilder::from_config(&run_config);
+    builder.with_initial_state(vec![], 0);
+    let stream = builder.run(run_config);
 
-    let events: Vec<AgentEvent> =
-        Agent::run_stream_with_state(state_config).collect().await;
+    let events: Vec<AgentEvent> = stream.collect().await;
 
     assert!(
         events

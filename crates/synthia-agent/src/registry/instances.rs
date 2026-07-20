@@ -1,24 +1,26 @@
-//! Instance lifecycle — `spawn` / `get_instance` / `stop` /
+//! Instance lifecycle — `spawn` / `instance_exists` / `stop` /
 //! `stop_tree` / `wrap_as_tool` / `list_instances` /
 //! `instance_count`.
-//!
-//! All instance state lives in a `RwLock<IndexMap<_, Arc<Mutex<AgentInstance>>>>`.
-//! `stop_tree` walks the parent/child graph via the private
-//! [`collect_descendants`] helper to remove a whole subtree in
-//! one lock acquisition.
 
 use std::sync::{Arc, Mutex};
 
-use chrono::Utc;
 use indexmap::IndexMap;
 use synthia_core::{Error, generate_session_id};
-use synthia_session::types::{Session, SessionConfig, TokenBudget};
 
 use super::agent_registry::AgentRegistry;
 use crate::registry::{
-    instance::{AgentInstance, AgentStatus},
+    instance::AgentStatus,
     tool_wrapper::AgentToolWrapper,
+    types::AgentDefinition,
 };
+
+/// Internal representation of a live agent instance managed by
+/// [`AgentRegistry`].
+pub(crate) struct RegistryInstance {
+    pub definition: Option<AgentDefinition>,
+    pub state: AgentStatus,
+    pub parent_id: Option<String>,
+}
 
 impl AgentRegistry {
     /// Spawn a new agent instance from a loaded definition.
@@ -33,7 +35,7 @@ impl AgentRegistry {
         &self,
         agent_name: &str,
         parent_id: Option<String>,
-        token_budget: Option<TokenBudget>,
+        _token_budget: Option<synthia_session::types::TokenBudget>,
     ) -> Result<String, Error> {
         if let Some(ref pid) = parent_id {
             let instances = self.instances.read();
@@ -57,31 +59,11 @@ impl AgentRegistry {
         drop(defs);
 
         let instance_id = generate_session_id();
-        let session_id = generate_session_id();
-        let budget = token_budget.unwrap_or_default();
 
-        let session = Session::with_config(
-            session_id,
-            SessionConfig::default(),
-            budget.clone(),
-        );
-
-        let instance = AgentInstance {
-            id: instance_id.clone(),
+        let instance = RegistryInstance {
             definition: Some(definition),
-            session: Some(session),
-            token_budget: Some(budget),
             state: AgentStatus::Idle,
             parent_id,
-            created_at: Utc::now(),
-            role: String::new(),
-            capabilities: Vec::new(),
-            system_prompt: String::new(),
-            tools: Vec::new(),
-            metadata: std::collections::HashMap::new(),
-            fork_policy: crate::control::fork_policy::ForkPolicy::SystemOnly,
-            depth: 0,
-            result_tx: None,
         };
 
         let mut instances = self.instances.write();
@@ -90,15 +72,10 @@ impl AgentRegistry {
         Ok(instance_id)
     }
 
-    /// Get a clone of the `Arc<Mutex<AgentInstance>>` for
-    /// the given id. Returns `None` if no such instance is
-    /// registered.
-    pub fn get_instance(
-        &self,
-        instance_id: &str,
-    ) -> Option<Arc<Mutex<AgentInstance>>> {
+    /// Check whether a live instance with the given id exists.
+    pub fn instance_exists(&self, instance_id: &str) -> bool {
         let instances = self.instances.read();
-        instances.get(instance_id).cloned()
+        instances.contains_key(instance_id)
     }
 
     /// Stop and remove a single instance.
@@ -127,7 +104,7 @@ impl AgentRegistry {
         let mut instances = self.instances.write();
 
         fn collect_descendants(
-            instances: &IndexMap<String, Arc<Mutex<AgentInstance>>>,
+            instances: &IndexMap<String, Arc<Mutex<RegistryInstance>>>,
             target_id: &str,
         ) -> Vec<String> {
             let mut result = Vec::new();

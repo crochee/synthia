@@ -7,13 +7,13 @@ use std::time::Duration;
 
 use criterion::{Criterion, black_box, criterion_group, criterion_main};
 
-#[allow(dead_code)]
+#[allow(dead_code)] // reason: benchmark helper
 fn event_append_throughput() {
     // Placeholder: actual implementation would append JSON events to a file
     let _ = black_box(42);
 }
 
-#[allow(dead_code)]
+#[allow(dead_code)] // reason: benchmark helper
 pub fn criterion_benchmark(c: &mut Criterion) {
     let mut group = c.benchmark_group("event_append_throughput");
 

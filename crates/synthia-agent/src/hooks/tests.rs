@@ -36,7 +36,9 @@ use std::sync::{
 };
 
 use synthia_core::Error;
-use synthia_hook::{AgentContext, AgentHook, HookRegistry, ToolAction};
+#[allow(deprecated)]
+use synthia_hook::AgentHook;
+use synthia_hook::{AgentContext, HookRegistry, ToolAction};
 
 use super::*;
 
@@ -61,6 +63,7 @@ impl PanickingHook {
 }
 
 #[async_trait::async_trait]
+#[allow(deprecated)]
 impl AgentHook for PanickingHook {
     async fn on_before_llm(
         &self,
@@ -137,6 +140,7 @@ impl CountingHook {
 }
 
 #[async_trait::async_trait]
+#[allow(deprecated)]
 impl AgentHook for CountingHook {
     async fn on_before_llm(
         &self,
@@ -198,6 +202,7 @@ struct ModifyingHookForExecutor {
 }
 
 #[async_trait::async_trait]
+#[allow(deprecated)]
 impl AgentHook for ModifyingHookForExecutor {
     async fn on_before_tool(
         &self,

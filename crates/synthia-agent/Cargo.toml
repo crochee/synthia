@@ -58,7 +58,6 @@ tiktoken-rs = "0.5"
 nix = { version = "0.29", features = ["signal", "process"] }
 
 [features]
-unified-registry = ["synthia-core/unified-registry", "synthia-tool/unified-registry"]
 observability = [
     "dep:tracing-opentelemetry",
     "dep:opentelemetry",
@@ -68,8 +67,8 @@ observability = [
     "dep:metrics-exporter-prometheus",
 ]
 # Enable OpenTelemetry context injection via `synthia-telemetry`'s
-# `SpanAttributesProcessor`. When enabled, `Agent::run_stream` /
-# `Agent::run_stream_with_state` populate six `tokio::task_local`
+# `SpanAttributesProcessor`. When enabled, `Agent::run_stream`
+# populates six `tokio::task_local`
 # variables (session.id / user.id / agent.id / turn.id / gen_ai.system
 # / gen_ai.request.model) so the processor can inject standard span
 # attributes on `on_start`.

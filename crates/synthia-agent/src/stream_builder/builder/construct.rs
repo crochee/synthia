@@ -76,11 +76,9 @@ impl BuilderSteps {
     /// arms accumulate state that should not leak across
     /// sessions.
     pub(super) fn new(config: &AgentRunConfig, hooks: HookBuilder) -> Self {
-        // Construct the UnifiedHookDispatcher. When the unified-registry
-        // feature is enabled and LoopServices has already bootstrapped a
-        // dispatcher, reuse it; otherwise construct a fresh one from the
-        // HookRegistry.
-        #[cfg(feature = "unified-registry")]
+        // Construct the UnifiedHookDispatcher. If LoopServices has already
+        // bootstrapped a dispatcher, reuse it; otherwise construct a fresh
+        // one from the HookRegistry.
         let hook_dispatcher = config
             .loop_services
             .get()
@@ -94,16 +92,6 @@ impl BuilderSteps {
                     .add_hook(Arc::new(synthia_hook::LoopDetector::new()));
                 Arc::new(dispatcher)
             });
-
-        #[cfg(not(feature = "unified-registry"))]
-        let hook_dispatcher = {
-            let mut dispatcher =
-                synthia_hook::UnifiedHookDispatcher::from_hook_registry(
-                    hooks.get_registry(),
-                );
-            dispatcher.add_hook(Arc::new(synthia_hook::LoopDetector::new()));
-            Arc::new(dispatcher)
-        };
 
         Self {
             sample: StepSample::new(config.config.clone()),

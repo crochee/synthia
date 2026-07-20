@@ -13,13 +13,12 @@ use synthia_server::{create_router, state::AppState};
 use synthia_session::manager::SessionManager;
 use tower::ServiceExt;
 
-fn setup_app() -> Arc<AppState> {
+async fn setup_app() -> Arc<AppState> {
     let tmp = tempfile::tempdir().expect("create temp dir for tests");
     let session_manager = SessionManager::new(tmp.path().join("sessions"));
-    Arc::new(AppState::for_test(
-        session_manager,
-        tmp.path().join("workspace"),
-    ))
+    Arc::new(
+        AppState::for_test(session_manager, tmp.path().join("workspace")).await,
+    )
 }
 
 async fn body_to_json(body: Body) -> serde_json::Value {
@@ -29,8 +28,8 @@ async fn body_to_json(body: Body) -> serde_json::Value {
 
 #[tokio::test]
 async fn test_resolve_approval_via_http() {
-    let app = setup_app();
-    let router = create_router(app.clone());
+    let app = setup_app().await;
+    let router = create_router(app.clone()).await;
 
     // Submit an approval request directly through the shared state.
     let (request_id, outcome_rx) = app.approval_state.submit(
@@ -84,8 +83,8 @@ async fn test_resolve_approval_via_http() {
 
 #[tokio::test]
 async fn test_resolve_unknown_approval_returns_404() {
-    let app = setup_app();
-    let router = create_router(app);
+    let app = setup_app().await;
+    let router = create_router(app).await;
 
     let response = router
         .oneshot(
@@ -104,8 +103,8 @@ async fn test_resolve_unknown_approval_returns_404() {
 
 #[tokio::test]
 async fn test_resolve_with_invalid_outcome_returns_400() {
-    let app = setup_app();
-    let router = create_router(app.clone());
+    let app = setup_app().await;
+    let router = create_router(app.clone()).await;
 
     let (request_id, _rx) = app
         .approval_state

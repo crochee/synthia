@@ -26,6 +26,7 @@ impl ToolOrchestrator for MockOrchestrator {
             tool_name: request.tool_name,
             outcome: serde_json::json!({"ok": true}),
             is_error: false,
+            tool_id: request.tool_id,
         })
     }
 
@@ -74,6 +75,7 @@ async fn tool_runtime_execute_batch() {
         tool_name: "test_tool".to_string(),
         arguments: serde_json::json!({}),
         permission: synthia_permission::Permission::AutoApprove,
+        tool_id: None,
     }];
 
     let context = ExecutionContext {

@@ -16,12 +16,15 @@ use async_trait::async_trait;
 use synthia_core::{Error, Registry};
 
 use super::*;
-use crate::traits::{AgentContext, AgentHook, ToolAction};
+#[allow(deprecated)]
+use crate::traits::AgentHook;
+use crate::traits::{AgentContext, ToolAction};
 
 #[derive(Debug)]
 struct TestHook;
 
 #[async_trait]
+#[allow(deprecated)]
 impl AgentHook for TestHook {
     async fn on_before_llm(
         &self,

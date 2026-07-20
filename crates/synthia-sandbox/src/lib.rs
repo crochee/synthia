@@ -45,7 +45,7 @@ impl SandboxPolicy {
 }
 
 /// A concrete sandboxing attempt selected by a [`SandboxManager`].
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum SandboxAttempt {
     /// No sandboxing is required.
     None,
@@ -61,6 +61,8 @@ pub enum SandboxAttempt {
     },
     /// Use seccomp-bpf (stub).
     Seccomp { workspace: PathBuf },
+    /// Use a WASM runtime (stub).
+    Wasm { runtime: String },
     /// Sandboxing is requested but unavailable on this platform.
     Unavailable,
 }
@@ -96,6 +98,10 @@ impl SandboxAttempt {
             SandboxAttempt::Seccomp { .. } => Err(SandboxError::new(
                 "UNSUPPORTED",
                 "seccomp wrapping not implemented",
+            )),
+            SandboxAttempt::Wasm { .. } => Err(SandboxError::new(
+                "UNSUPPORTED",
+                "WASM sandbox not yet implemented",
             )),
             SandboxAttempt::Unavailable => {
                 Err(SandboxError::new("UNAVAILABLE", "sandbox unavailable"))
@@ -331,6 +337,42 @@ mod tests {
         let mut cmd = Command::new("echo");
         let err = attempt.wrap(&mut cmd).unwrap_err();
         assert_eq!(err.code, "UNAVAILABLE");
+    }
+
+    #[test]
+    fn wasm_variant_construction() {
+        let attempt = SandboxAttempt::Wasm {
+            runtime: "wasmtime".to_string(),
+        };
+        let SandboxAttempt::Wasm { runtime } = attempt else {
+            panic!("expected Wasm variant");
+        };
+        assert_eq!(runtime, "wasmtime");
+    }
+
+    #[test]
+    fn wasm_wrap_returns_unsupported() {
+        let attempt = SandboxAttempt::Wasm {
+            runtime: "wasmer".to_string(),
+        };
+        let mut cmd = Command::new("echo");
+        let err = attempt.wrap(&mut cmd).unwrap_err();
+        assert_eq!(err.code, "UNSUPPORTED");
+        assert_eq!(err.message, "WASM sandbox not yet implemented");
+    }
+
+    #[test]
+    fn wasm_serde_roundtrip() {
+        let attempt = SandboxAttempt::Wasm {
+            runtime: "wasmtime".to_string(),
+        };
+        let serialized = serde_json::to_string(&attempt).expect("serialize");
+        let deserialized: SandboxAttempt =
+            serde_json::from_str(&serialized).expect("deserialize");
+        assert_eq!(
+            attempt, deserialized,
+            "Wasm variant should roundtrip through serde"
+        );
     }
 
     #[test]

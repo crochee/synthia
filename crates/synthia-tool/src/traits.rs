@@ -25,13 +25,6 @@ pub enum ExecutionMode {
     Sequential,
 }
 
-#[cfg_attr(
-    feature = "unified-registry",
-    deprecated(
-        since = "0.1.0",
-        note = "use the unified Tool trait in synthia_core::tool (feature `unified-registry`)"
-    )
-)]
 #[async_trait]
 pub trait Tool: Send + Sync {
     fn name(&self) -> &str;

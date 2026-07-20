@@ -1,3 +1,4 @@
+#![allow(deprecated)]
 //! Unit tests for `ContextAssembler` — context assembly, priority trimming,
 //! and protection zone behavior.
 //!
@@ -348,4 +349,143 @@ fn temp_dir_isolation_for_assembly() {
 
     // Should produce a valid result with no temp file conflicts
     assert!(!result.request.messages.is_empty());
+}
+
+// ---------------------------------------------------------------------------
+// FragmentRegistry delegation layer
+// ---------------------------------------------------------------------------
+
+use std::sync::Arc;
+
+use async_trait::async_trait;
+use synthia_context::fragment_delegation::build_system_prompt_from_fragments;
+use synthia_core::tool::{
+    ContextFragment,
+    FragmentContext,
+    FragmentError,
+    FragmentRegistry,
+};
+
+/// Stub fragment for integration tests.
+struct StubFragment {
+    name: String,
+    priority: u32,
+    active: bool,
+    content: String,
+}
+
+impl StubFragment {
+    fn new(name: &str, priority: u32, active: bool, content: &str) -> Self {
+        Self {
+            name: name.to_string(),
+            priority,
+            active,
+            content: content.to_string(),
+        }
+    }
+}
+
+#[async_trait]
+impl ContextFragment for StubFragment {
+    fn name(&self) -> &str {
+        &self.name
+    }
+
+    fn priority(&self) -> u32 {
+        self.priority
+    }
+
+    fn is_active(&self) -> bool {
+        self.active
+    }
+
+    async fn render(
+        &self,
+        _ctx: &FragmentContext,
+    ) -> Result<String, FragmentError> {
+        Ok(self.content.clone())
+    }
+}
+
+fn frag_ctx() -> FragmentContext {
+    FragmentContext::new("itest-session", "itest-user")
+}
+
+#[tokio::test]
+async fn fragment_delegation_empty_registry() {
+    let registry = FragmentRegistry::new();
+    let result = build_system_prompt_from_fragments(&registry, &frag_ctx())
+        .await
+        .unwrap();
+    assert!(result.is_empty());
+}
+
+#[tokio::test]
+async fn fragment_delegation_multiple_fragments() {
+    let registry = FragmentRegistry::new();
+    registry
+        .register(Arc::new(StubFragment::new(
+            "identity",
+            0,
+            true,
+            "You are a helpful assistant.",
+        )))
+        .await
+        .unwrap();
+    registry
+        .register(Arc::new(StubFragment::new(
+            "skills",
+            10,
+            true,
+            "Available skills: search, code",
+        )))
+        .await
+        .unwrap();
+    registry
+        .register(Arc::new(StubFragment::new(
+            "memory",
+            20,
+            true,
+            "User prefers concise answers.",
+        )))
+        .await
+        .unwrap();
+
+    let result = build_system_prompt_from_fragments(&registry, &frag_ctx())
+        .await
+        .unwrap();
+
+    assert!(result.contains("You are a helpful assistant."));
+    assert!(result.contains("Available skills: search, code"));
+    assert!(result.contains("User prefers concise answers."));
+}
+
+#[tokio::test]
+async fn fragment_delegation_skips_inactive() {
+    let registry = FragmentRegistry::new();
+    registry
+        .register(Arc::new(StubFragment::new(
+            "active",
+            0,
+            true,
+            "visible content",
+        )))
+        .await
+        .unwrap();
+    registry
+        .register(Arc::new(StubFragment::new(
+            "inactive",
+            1,
+            false,
+            "hidden content",
+        )))
+        .await
+        .unwrap();
+
+    let result = build_system_prompt_from_fragments(&registry, &frag_ctx())
+        .await
+        .unwrap();
+
+    assert!(result.contains("visible content"));
+    assert!(!result.contains("hidden content"));
 }

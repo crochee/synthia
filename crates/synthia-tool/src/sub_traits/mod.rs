@@ -19,16 +19,8 @@ pub mod category;
 pub mod definition;
 pub mod execution;
 pub mod lifecycle;
-pub mod permission;
 
 pub use category::ToolCategory;
 pub use definition::{ToolDefinition, ToolMetadataSnapshot};
 pub use execution::ToolExecution;
 pub use lifecycle::ToolLifecycle;
-pub use permission::{
-    PermissionAlwaysAllow,
-    PermissionAlwaysDeny,
-    PermissionContext,
-    PermissionDecision,
-    ToolPermission,
-};

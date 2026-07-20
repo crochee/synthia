@@ -4,10 +4,12 @@ version.workspace = true
 edition.workspace = true
 
 [dependencies]
+synthia-core = { path = "../synthia-core" }
 synthia-permission = { path = "../synthia-permission" }
 synthia-sandbox = { path = "../synthia-sandbox" }
 synthia-tool = { path = "../synthia-tool" }
 synthia-tool-exec-base = { path = "../synthia-tool-exec-base" }
+synthia-tool-materialization = { path = "../synthia-tool-materialization" }
 async-trait.workspace = true
 dashmap.workspace = true
 futures.workspace = true

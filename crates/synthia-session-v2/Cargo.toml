@@ -17,7 +17,6 @@ tokio = { version = "1", features = ["fs", "io-util", "rt", "sync", "time", "mac
 
 [features]
 default = []
-unified-registry = []
 
 [dev-dependencies]
 pretty_assertions = "1"

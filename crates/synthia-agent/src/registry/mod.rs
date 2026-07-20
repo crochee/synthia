@@ -9,7 +9,7 @@
 //!   ([`AgentRegistry::load_from_path`] + the private
 //!   `load_definition_from_dir`).
 //! - [`instances`]: instance lifecycle — `spawn`,
-//!   `get_instance`, `stop`, `stop_tree`, `wrap_as_tool`,
+//!   `instance_exists`, `stop`, `stop_tree`, `wrap_as_tool`,
 //!   `list_instances`, `instance_count`.
 //! - [`query`]: definition-level read queries —
 //!   `filter_definitions` (used by `Registry::list`),
@@ -20,8 +20,8 @@
 //! Sibling modules (kept as separate files because they
 //! predate the split):
 //!
-//! - [`instance`]: the [`AgentInstance`] struct +
-//!   [`AgentStatus`] enum.
+//! - [`instance`]: the [`AgentStatus`] enum +
+//!   [`AgentResult`] / [`AgentTokenUsage`] types.
 //! - [`permission_builder`]: agent permission policy
 //!   building (allowed tools, merged policy).
 //! - [`tool_wrapper`]: the [`AgentToolWrapper`] adapter.
@@ -44,7 +44,7 @@ pub mod tool_wrapper;
 pub mod types;
 
 pub use agent_registry::AgentRegistry;
-pub use instance::{AgentInstance, AgentResult, AgentStatus};
+pub use instance::{AgentResult, AgentStatus, AgentTokenUsage};
 pub use permission_builder::{
     build_allowed_tools,
     build_merged_policy,

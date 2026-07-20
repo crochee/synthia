@@ -134,8 +134,7 @@ async fn test_spawn_instance() {
     let instance_id = registry.spawn("test-agent", None, None);
     assert!(instance_id.is_ok());
 
-    let instance = registry.get_instance(&instance_id.unwrap());
-    assert!(instance.is_some());
+    assert!(registry.instance_exists(&instance_id.unwrap()));
 }
 
 #[tokio::test]
@@ -188,7 +187,7 @@ async fn test_stop_instance() {
     registry.stop(&instance_id).await.unwrap();
 
     assert_eq!(registry.instance_count(), 0);
-    assert!(registry.get_instance(&instance_id).is_none());
+    assert!(!registry.instance_exists(&instance_id));
 }
 
 #[tokio::test]

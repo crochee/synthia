@@ -7,6 +7,7 @@ use async_trait::async_trait;
 use crate::tool::{
     descriptor::{Tool, ToolDescriptor, ToolProvenance},
     provider::{ToolCall, ToolEvent, ToolProvider},
+    tool_name::ToolName,
     types::{ToolError, ToolOutput},
 };
 
@@ -15,8 +16,8 @@ use crate::tool::{
 pub struct PluginToolProvider {
     plugin_id: String,
     prompt_visible_provenance: bool,
-    tools: HashMap<String, Arc<dyn Tool>>,
-    descriptors: HashMap<String, ToolDescriptor>,
+    tools: HashMap<ToolName, Arc<dyn Tool>>,
+    descriptors: HashMap<ToolName, ToolDescriptor>,
 }
 
 impl PluginToolProvider {
@@ -67,7 +68,9 @@ impl ToolProvider for PluginToolProvider {
     }
 
     async fn get_tool(&self, name: &str) -> Option<Arc<dyn Tool>> {
-        self.tools.get(name).cloned()
+        let key =
+            ToolName::parse(name).unwrap_or_else(|| ToolName::plain(name));
+        self.tools.get(&key).cloned()
     }
 
     async fn on_tool_event(&self, _event: &ToolEvent) {}

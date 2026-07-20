@@ -23,6 +23,7 @@ pub use repair::{
     micro_compact,
 };
 #[allow(unused_imports)]
+// reason: used by crate-internal tests (lib target sees it as unused)
 pub(crate) use types::classify_message;
 pub use types::{
     MessageClassification,

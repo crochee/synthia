@@ -1,4 +1,4 @@
-//! MCP connection trait and transport configuration (feature-gated behind `unified-registry`).
+//! MCP connection trait and transport configuration.
 
 use std::collections::HashMap;
 

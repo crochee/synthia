@@ -11,9 +11,10 @@
 //!   (`Proceed`), substitute it (`Modify`), or short-circuit it
 //!   (`Skip { reason }`). This is the only way to give hooks data-flow
 //!   influence without breaking the rest of the design.
-//! - **Synchronous dispatch**: tool-extension handlers must complete
-//!   before the tool call continues (a `Skip` may deny the call).
-//!   Asynchronous hooks are explicitly out of scope.
+//! - **Asynchronous dispatch**: handler closures return
+//!   `BoxFuture<'static, Action<T>>`, allowing async work (e.g. network
+//!   calls, DB lookups). Synchronous handlers are supported via the
+//!   `register_*_sync()` convenience methods.
 //! - **Per-tool vs all-tools**: handlers can register for a specific tool
 //!   (e.g. `"bash"`) or for all tools (use `*` as the tool name).
 //!
@@ -39,7 +40,9 @@
 use std::sync::Arc;
 
 use dashmap::DashMap;
+use futures::future::BoxFuture;
 use serde::{Deserialize, Serialize};
+use tracing::Instrument;
 
 /// Decision a tool-extension handler can return.
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -77,16 +80,45 @@ pub struct ToolDefinitionView {
     pub parameters: serde_json::Value,
 }
 
-/// Handler for `tool.execute.before`. Returns an `Action<BeforeToolCall>`.
-pub type BeforeHandler =
+/// Handler for `tool.execute.before`. Returns a `BoxFuture` that resolves
+/// to `Action<BeforeToolCall>`.
+pub type BeforeHandler = Arc<
+    dyn Fn(&BeforeToolCall) -> BoxFuture<'static, Action<BeforeToolCall>>
+        + Send
+        + Sync,
+>;
+
+/// Handler for `tool.execute.after`. Returns a `BoxFuture` that resolves
+/// to `Action<AfterToolCall>`.
+pub type AfterHandler = Arc<
+    dyn Fn(&AfterToolCall) -> BoxFuture<'static, Action<AfterToolCall>>
+        + Send
+        + Sync,
+>;
+
+/// Handler for `tool.definition.transform`. Returns a `BoxFuture` that resolves
+/// to `Action<ToolDefinitionView>`.
+pub type DefinitionHandler = Arc<
+    dyn Fn(
+            &ToolDefinitionView,
+        ) -> BoxFuture<'static, Action<ToolDefinitionView>>
+        + Send
+        + Sync,
+>;
+
+/// Synchronous handler signature for `tool.execute.before`.
+/// Used by `register_before_sync` to wrap a sync closure into an async one.
+pub type SyncBeforeHandler =
     Arc<dyn Fn(&BeforeToolCall) -> Action<BeforeToolCall> + Send + Sync>;
 
-/// Handler for `tool.execute.after`. Returns an `Action<AfterToolCall>`.
-pub type AfterHandler =
+/// Synchronous handler signature for `tool.execute.after`.
+/// Used by `register_after_sync` to wrap a sync closure into an async one.
+pub type SyncAfterHandler =
     Arc<dyn Fn(&AfterToolCall) -> Action<AfterToolCall> + Send + Sync>;
 
-/// Handler for `tool.definition.transform`. Returns an `Action<ToolDefinitionView>`.
-pub type DefinitionHandler = Arc<
+/// Synchronous handler signature for `tool.definition.transform`.
+/// Used by `register_definition_sync` to wrap a sync closure into an async one.
+pub type SyncDefinitionHandler = Arc<
     dyn Fn(&ToolDefinitionView) -> Action<ToolDefinitionView> + Send + Sync,
 >;
 
@@ -141,10 +173,34 @@ impl ToolExtensionRegistry {
         self.active_keys.insert(format!("before:{}", key), ());
     }
 
+    /// Register a synchronous `before` handler. The closure is wrapped in
+    /// an async adapter so it can be used alongside async handlers.
+    pub fn register_before_sync(
+        &self,
+        tool_name: &str,
+        handler: SyncBeforeHandler,
+    ) {
+        let async_handler: BeforeHandler =
+            Arc::new(move |ev| Box::pin(std::future::ready(handler(ev))));
+        self.register_before(tool_name, async_handler);
+    }
+
     pub fn register_after(&self, tool_name: &str, handler: AfterHandler) {
         let key = tool_name.to_string();
         self.after.entry(key.clone()).or_default().push(handler);
         self.active_keys.insert(format!("after:{}", key), ());
+    }
+
+    /// Register a synchronous `after` handler. The closure is wrapped in
+    /// an async adapter so it can be used alongside async handlers.
+    pub fn register_after_sync(
+        &self,
+        tool_name: &str,
+        handler: SyncAfterHandler,
+    ) {
+        let async_handler: AfterHandler =
+            Arc::new(move |ev| Box::pin(std::future::ready(handler(ev))));
+        self.register_after(tool_name, async_handler);
     }
 
     pub fn register_definition(
@@ -158,6 +214,18 @@ impl ToolExtensionRegistry {
             .or_default()
             .push(handler);
         self.active_keys.insert(format!("definition:{}", key), ());
+    }
+
+    /// Register a synchronous `definition` handler. The closure is wrapped
+    /// in an async adapter so it can be used alongside async handlers.
+    pub fn register_definition_sync(
+        &self,
+        tool_name: &str,
+        handler: SyncDefinitionHandler,
+    ) {
+        let async_handler: DefinitionHandler =
+            Arc::new(move |v| Box::pin(std::future::ready(handler(v))));
+        self.register_definition(tool_name, async_handler);
     }
 
     /// `true` if any handler is registered for `point` and `tool_name`
@@ -179,7 +247,7 @@ impl ToolExtensionRegistry {
     /// `extension_id = handler_idx` so OTel consumers can attribute
     /// each handler fire to the specific extension (P9 observability
     /// requirement). The span is a no-op without the `otel` feature.
-    pub fn fire_before(
+    pub async fn fire_before(
         &self,
         mut event: BeforeToolCall,
     ) -> Action<BeforeToolCall> {
@@ -187,16 +255,16 @@ impl ToolExtensionRegistry {
             if let Some(handlers) = self.before.get(&key) {
                 for (idx, handler) in handlers.value().iter().enumerate() {
                     let extension_id = format!("{}#{}", key, idx);
-                    let _span = tracing::info_span!(
+                    let span = tracing::info_span!(
                         target: "synthia.extension",
                         "extension.hook",
                         point = "tool.execute.before",
                         scope = "tool",
                         extension_id = extension_id.as_str(),
                         tool_name = event.tool_name.as_str(),
-                    )
-                    .entered();
-                    match handler(&event) {
+                    );
+                    let action = handler(&event).instrument(span).await;
+                    match action {
                         Action::Proceed => {}
                         Action::Modify(replacement) => {
                             event = replacement;
@@ -217,7 +285,7 @@ impl ToolExtensionRegistry {
     /// Emits a `tracing::info_span!` per dispatched handler with
     /// `point = "tool.execute.after"`, `scope = "tool"`, and
     /// `extension_id = handler_idx`.
-    pub fn fire_after(
+    pub async fn fire_after(
         &self,
         mut event: AfterToolCall,
     ) -> Action<AfterToolCall> {
@@ -225,7 +293,7 @@ impl ToolExtensionRegistry {
             if let Some(handlers) = self.after.get(&key) {
                 for (idx, handler) in handlers.value().iter().enumerate() {
                     let extension_id = format!("{}#{}", key, idx);
-                    let _span = tracing::info_span!(
+                    let span = tracing::info_span!(
                         target: "synthia.extension",
                         "extension.hook",
                         point = "tool.execute.after",
@@ -233,9 +301,9 @@ impl ToolExtensionRegistry {
                         extension_id = extension_id.as_str(),
                         tool_name = event.tool_name.as_str(),
                         is_error = event.is_error,
-                    )
-                    .entered();
-                    match handler(&event) {
+                    );
+                    let action = handler(&event).instrument(span).await;
+                    match action {
                         Action::Proceed => {}
                         Action::Modify(replacement) => {
                             event = replacement;
@@ -256,7 +324,7 @@ impl ToolExtensionRegistry {
     /// Emits a `tracing::info_span!` per dispatched handler with
     /// `point = "tool.definition.transform"`, `scope = "tool"`, and
     /// `extension_id = handler_idx`.
-    pub fn fire_definition(
+    pub async fn fire_definition(
         &self,
         mut view: ToolDefinitionView,
     ) -> Action<ToolDefinitionView> {
@@ -264,16 +332,19 @@ impl ToolExtensionRegistry {
             if let Some(handlers) = self.definition.get(&key) {
                 for (idx, handler) in handlers.value().iter().enumerate() {
                     let extension_id = format!("{}#{}", key, idx);
-                    let _span = tracing::info_span!(
-                        target: "synthia.extension",
-                        "extension.hook",
-                        point = "tool.definition.transform",
-                        scope = "tool",
-                        extension_id = extension_id.as_str(),
-                        tool_name = view.name.as_str(),
-                    )
-                    .entered();
-                    match handler(&view) {
+                    let action = {
+                        let _span = tracing::info_span!(
+                            target: "synthia.extension",
+                            "extension.hook",
+                            point = "tool.definition.transform",
+                            scope = "tool",
+                            extension_id = extension_id.as_str(),
+                            tool_name = view.name.as_str(),
+                        )
+                        .entered();
+                        handler(&view).await
+                    };
+                    match action {
                         Action::Proceed => {}
                         Action::Modify(replacement) => {
                             view = replacement;
@@ -299,10 +370,14 @@ mod tests {
         let calls = Arc::new(AtomicUsize::new(0));
         let c = calls.clone();
         let h: BeforeHandler = Arc::new(move |ev| {
-            c.fetch_add(1, Ordering::SeqCst);
-            Action::Modify(BeforeToolCall {
-                tool_name: ev.tool_name.clone(),
-                arguments: serde_json::json!({ "rewritten": true }),
+            let c = c.clone();
+            let tool_name = ev.tool_name.clone();
+            Box::pin(async move {
+                c.fetch_add(1, Ordering::SeqCst);
+                Action::Modify(BeforeToolCall {
+                    tool_name,
+                    arguments: serde_json::json!({ "rewritten": true }),
+                })
             })
         });
         (h, calls)
@@ -312,11 +387,17 @@ mod tests {
         let calls = Arc::new(AtomicUsize::new(0));
         let c = calls.clone();
         let h: AfterHandler = Arc::new(move |ev| {
-            c.fetch_add(1, Ordering::SeqCst);
-            Action::Modify(AfterToolCall {
-                tool_name: ev.tool_name.clone(),
-                output: serde_json::json!({ "wrapped": ev.output.clone() }),
-                is_error: ev.is_error,
+            let c = c.clone();
+            let tool_name = ev.tool_name.clone();
+            let output = ev.output.clone();
+            let is_error = ev.is_error;
+            Box::pin(async move {
+                c.fetch_add(1, Ordering::SeqCst);
+                Action::Modify(AfterToolCall {
+                    tool_name,
+                    output: serde_json::json!({ "wrapped": output }),
+                    is_error,
+                })
             })
         });
         (h, calls)
@@ -326,34 +407,42 @@ mod tests {
         let calls = Arc::new(AtomicUsize::new(0));
         let c = calls.clone();
         let h: DefinitionHandler = Arc::new(move |v| {
-            c.fetch_add(1, Ordering::SeqCst);
-            Action::Modify(ToolDefinitionView {
-                name: format!("{}_v2", v.name),
-                description: v.description.clone(),
-                parameters: v.parameters.clone(),
+            let c = c.clone();
+            let name = format!("{}_v2", v.name);
+            let description = v.description.clone();
+            let parameters = v.parameters.clone();
+            Box::pin(async move {
+                c.fetch_add(1, Ordering::SeqCst);
+                Action::Modify(ToolDefinitionView {
+                    name,
+                    description,
+                    parameters,
+                })
             })
         });
         (h, calls)
     }
 
-    #[test]
-    fn new_registry_is_empty() {
+    #[tokio::test]
+    async fn new_registry_is_empty() {
         let reg = ToolExtensionRegistry::new();
         assert!(!reg.has_handlers("before", "bash"));
         assert!(!reg.has_handlers("after", "bash"));
         assert!(!reg.has_handlers("definition", "bash"));
     }
 
-    #[test]
-    fn before_handler_modifies_arguments() {
+    #[tokio::test]
+    async fn before_handler_modifies_arguments() {
         let reg = ToolExtensionRegistry::new();
         let (h, calls) = make_before();
         reg.register_before("bash", h);
 
-        let result = reg.fire_before(BeforeToolCall {
-            tool_name: "bash".to_string(),
-            arguments: serde_json::json!({"cmd": "ls"}),
-        });
+        let result = reg
+            .fire_before(BeforeToolCall {
+                tool_name: "bash".to_string(),
+                arguments: serde_json::json!({"cmd": "ls"}),
+            })
+            .await;
         match result {
             Action::Modify(ev) => {
                 assert_eq!(
@@ -366,16 +455,18 @@ mod tests {
         assert_eq!(calls.load(Ordering::SeqCst), 1);
     }
 
-    #[test]
-    fn after_handler_modifies_output() {
+    #[tokio::test]
+    async fn after_handler_modifies_output() {
         let reg = ToolExtensionRegistry::new();
         let (h, _) = make_after();
         reg.register_after("read_file", h);
-        let result = reg.fire_after(AfterToolCall {
-            tool_name: "read_file".to_string(),
-            output: serde_json::json!("hello"),
-            is_error: false,
-        });
+        let result = reg
+            .fire_after(AfterToolCall {
+                tool_name: "read_file".to_string(),
+                output: serde_json::json!("hello"),
+                is_error: false,
+            })
+            .await;
         if let Action::Modify(ev) = result {
             assert_eq!(ev.output, serde_json::json!({"wrapped": "hello"}));
         } else {
@@ -383,16 +474,18 @@ mod tests {
         }
     }
 
-    #[test]
-    fn definition_handler_rewrites_name() {
+    #[tokio::test]
+    async fn definition_handler_rewrites_name() {
         let reg = ToolExtensionRegistry::new();
         let (h, _) = make_defn();
         reg.register_definition("bash", h);
-        let result = reg.fire_definition(ToolDefinitionView {
-            name: "bash".to_string(),
-            description: "run shell".to_string(),
-            parameters: serde_json::json!({}),
-        });
+        let result = reg
+            .fire_definition(ToolDefinitionView {
+                name: "bash".to_string(),
+                description: "run shell".to_string(),
+                parameters: serde_json::json!({}),
+            })
+            .await;
         if let Action::Modify(v) = result {
             assert_eq!(v.name, "bash_v2");
         } else {
@@ -400,8 +493,8 @@ mod tests {
         }
     }
 
-    #[test]
-    fn wildcard_handler_matches_every_tool() {
+    #[tokio::test]
+    async fn wildcard_handler_matches_every_tool() {
         let reg = ToolExtensionRegistry::new();
         let (h, calls) = make_before();
         reg.register_before("*", h);
@@ -409,25 +502,30 @@ mod tests {
         reg.fire_before(BeforeToolCall {
             tool_name: "any_tool".to_string(),
             arguments: serde_json::json!({}),
-        });
+        })
+        .await;
         assert_eq!(calls.load(Ordering::SeqCst), 1);
         assert!(reg.has_handlers("before", "any_tool"));
     }
 
-    #[test]
-    fn skip_short_circuits_the_chain() {
+    #[tokio::test]
+    async fn skip_short_circuits_the_chain() {
         let reg = ToolExtensionRegistry::new();
-        let skipper: BeforeHandler = Arc::new(|_| Action::Skip {
-            reason: "policy denied".to_string(),
+        let skipper: BeforeHandler = Arc::new(|_| {
+            Box::pin(std::future::ready(Action::Skip {
+                reason: "policy denied".to_string(),
+            }))
         });
         let (modifier, calls) = make_before();
         reg.register_before("bash", skipper);
         reg.register_before("bash", modifier);
 
-        let result = reg.fire_before(BeforeToolCall {
-            tool_name: "bash".to_string(),
-            arguments: serde_json::json!({}),
-        });
+        let result = reg
+            .fire_before(BeforeToolCall {
+                tool_name: "bash".to_string(),
+                arguments: serde_json::json!({}),
+            })
+            .await;
         match result {
             Action::Skip { reason } => assert_eq!(reason, "policy denied"),
             _ => panic!("expected Skip"),
@@ -436,27 +534,29 @@ mod tests {
         assert_eq!(calls.load(Ordering::SeqCst), 0);
     }
 
-    #[test]
-    fn multiple_modifiers_apply_in_registration_order() {
+    #[tokio::test]
+    async fn multiple_modifiers_apply_in_registration_order() {
         let reg = ToolExtensionRegistry::new();
         let h1: BeforeHandler = Arc::new(|ev| {
-            Action::Modify(BeforeToolCall {
+            Box::pin(std::future::ready(Action::Modify(BeforeToolCall {
                 tool_name: ev.tool_name.clone(),
                 arguments: serde_json::json!({ "step": 1 }),
-            })
+            })))
         });
         let h2: BeforeHandler = Arc::new(|ev| {
-            Action::Modify(BeforeToolCall {
+            Box::pin(std::future::ready(Action::Modify(BeforeToolCall {
                 tool_name: ev.tool_name.clone(),
                 arguments: serde_json::json!({ "step": 2 }),
-            })
+            })))
         });
         reg.register_before("bash", h1);
         reg.register_before("bash", h2);
-        let result = reg.fire_before(BeforeToolCall {
-            tool_name: "bash".to_string(),
-            arguments: serde_json::json!({}),
-        });
+        let result = reg
+            .fire_before(BeforeToolCall {
+                tool_name: "bash".to_string(),
+                arguments: serde_json::json!({}),
+            })
+            .await;
         if let Action::Modify(ev) = result {
             assert_eq!(ev.arguments, serde_json::json!({ "step": 2 }));
         } else {
@@ -464,8 +564,8 @@ mod tests {
         }
     }
 
-    #[test]
-    fn has_handlers_distinguishes_specific_vs_wildcard() {
+    #[tokio::test]
+    async fn has_handlers_distinguishes_specific_vs_wildcard() {
         let reg = ToolExtensionRegistry::new();
         let (h, _) = make_before();
         reg.register_before("bash", h);
@@ -473,18 +573,137 @@ mod tests {
         assert!(!reg.has_handlers("before", "read_file"));
     }
 
-    #[test]
-    fn fire_with_no_handlers_returns_proceed() {
+    #[tokio::test]
+    async fn fire_with_no_handlers_returns_proceed() {
         let reg = ToolExtensionRegistry::new();
-        let result = reg.fire_before(BeforeToolCall {
-            tool_name: "nope".to_string(),
-            arguments: serde_json::json!({}),
-        });
+        let result = reg
+            .fire_before(BeforeToolCall {
+                tool_name: "nope".to_string(),
+                arguments: serde_json::json!({}),
+            })
+            .await;
         // No handlers means the event passes through unchanged.
         if let Action::Modify(ev) = result {
             assert_eq!(ev.tool_name, "nope");
         } else {
             panic!("expected Modify with original event");
+        }
+    }
+
+    #[tokio::test]
+    async fn register_before_sync_wraps_sync_handler() {
+        let reg = ToolExtensionRegistry::new();
+        let calls = Arc::new(AtomicUsize::new(0));
+        let c = calls.clone();
+        let sync_h: SyncBeforeHandler = Arc::new(move |ev| {
+            c.fetch_add(1, Ordering::SeqCst);
+            Action::Modify(BeforeToolCall {
+                tool_name: ev.tool_name.clone(),
+                arguments: serde_json::json!({ "sync": true }),
+            })
+        });
+        reg.register_before_sync("bash", sync_h);
+
+        let result = reg
+            .fire_before(BeforeToolCall {
+                tool_name: "bash".to_string(),
+                arguments: serde_json::json!({}),
+            })
+            .await;
+        if let Action::Modify(ev) = result {
+            assert_eq!(ev.arguments, serde_json::json!({ "sync": true }));
+        } else {
+            panic!("expected Modify");
+        }
+        assert_eq!(calls.load(Ordering::SeqCst), 1);
+    }
+
+    #[tokio::test]
+    async fn register_after_sync_wraps_sync_handler() {
+        let reg = ToolExtensionRegistry::new();
+        let calls = Arc::new(AtomicUsize::new(0));
+        let c = calls.clone();
+        let sync_h: SyncAfterHandler = Arc::new(move |ev| {
+            c.fetch_add(1, Ordering::SeqCst);
+            Action::Modify(AfterToolCall {
+                tool_name: ev.tool_name.clone(),
+                output: serde_json::json!({ "sync": true }),
+                is_error: ev.is_error,
+            })
+        });
+        reg.register_after_sync("bash", sync_h);
+
+        let result = reg
+            .fire_after(AfterToolCall {
+                tool_name: "bash".to_string(),
+                output: serde_json::json!("hello"),
+                is_error: false,
+            })
+            .await;
+        if let Action::Modify(ev) = result {
+            assert_eq!(ev.output, serde_json::json!({ "sync": true }));
+        } else {
+            panic!("expected Modify");
+        }
+        assert_eq!(calls.load(Ordering::SeqCst), 1);
+    }
+
+    #[tokio::test]
+    async fn register_definition_sync_wraps_sync_handler() {
+        let reg = ToolExtensionRegistry::new();
+        let calls = Arc::new(AtomicUsize::new(0));
+        let c = calls.clone();
+        let sync_h: SyncDefinitionHandler = Arc::new(move |v| {
+            c.fetch_add(1, Ordering::SeqCst);
+            Action::Modify(ToolDefinitionView {
+                name: format!("{}_sync", v.name),
+                description: v.description.clone(),
+                parameters: v.parameters.clone(),
+            })
+        });
+        reg.register_definition_sync("bash", sync_h);
+
+        let result = reg
+            .fire_definition(ToolDefinitionView {
+                name: "bash".to_string(),
+                description: "run shell".to_string(),
+                parameters: serde_json::json!({}),
+            })
+            .await;
+        if let Action::Modify(v) = result {
+            assert_eq!(v.name, "bash_sync");
+        } else {
+            panic!("expected Modify");
+        }
+        assert_eq!(calls.load(Ordering::SeqCst), 1);
+    }
+
+    #[tokio::test]
+    async fn async_handler_performs_async_work() {
+        let reg = ToolExtensionRegistry::new();
+        let h: BeforeHandler = Arc::new(|ev| {
+            let tool_name = ev.tool_name.clone();
+            Box::pin(async move {
+                // Simulate async work (e.g. a DB lookup)
+                tokio::time::sleep(std::time::Duration::from_millis(1)).await;
+                Action::Modify(BeforeToolCall {
+                    tool_name,
+                    arguments: serde_json::json!({ "async": true }),
+                })
+            })
+        });
+        reg.register_before("bash", h);
+
+        let result = reg
+            .fire_before(BeforeToolCall {
+                tool_name: "bash".to_string(),
+                arguments: serde_json::json!({}),
+            })
+            .await;
+        if let Action::Modify(ev) = result {
+            assert_eq!(ev.arguments, serde_json::json!({ "async": true }));
+        } else {
+            panic!("expected Modify");
         }
     }
 
@@ -502,8 +721,12 @@ mod tests {
             handles.push(tokio::spawn(async move {
                 let counter = counter.clone();
                 let h: BeforeHandler = std::sync::Arc::new(move |_ev| {
-                    counter.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-                    Action::Proceed
+                    let counter = counter.clone();
+                    Box::pin(async move {
+                        counter
+                            .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                        Action::Proceed
+                    })
                 });
                 reg.register_before("bash", h);
             }));
@@ -516,7 +739,8 @@ mod tests {
         reg.fire_before(BeforeToolCall {
             tool_name: "bash".to_string(),
             arguments: serde_json::json!({}),
-        });
+        })
+        .await;
         assert_eq!(counter.load(std::sync::atomic::Ordering::SeqCst), 64);
     }
 
@@ -527,10 +751,14 @@ mod tests {
             std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
         let counter_clone = counter.clone();
         let h: BeforeHandler = std::sync::Arc::new(move |ev| {
-            counter_clone.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-            Action::Modify(BeforeToolCall {
-                tool_name: ev.tool_name.clone(),
-                arguments: serde_json::json!({ "wrapped": true }),
+            let counter_clone = counter_clone.clone();
+            let tool_name = ev.tool_name.clone();
+            Box::pin(async move {
+                counter_clone.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                Action::Modify(BeforeToolCall {
+                    tool_name,
+                    arguments: serde_json::json!({ "wrapped": true }),
+                })
             })
         });
         reg.register_before("bash", h);
@@ -543,7 +771,8 @@ mod tests {
                     reg.fire_before(BeforeToolCall {
                         tool_name: "bash".to_string(),
                         arguments: serde_json::json!({}),
-                    });
+                    })
+                    .await;
                 }
             }));
         }
@@ -566,13 +795,15 @@ mod tests {
             handles.push(tokio::spawn(async move {
                 for j in 0..8 {
                     let h: BeforeHandler = std::sync::Arc::new(move |ev| {
-                        Action::Modify(BeforeToolCall {
-                            tool_name: ev.tool_name.clone(),
-                            arguments: serde_json::json!({
-                                "r": i,
-                                "h": j,
-                            }),
-                        })
+                        Box::pin(std::future::ready(Action::Modify(
+                            BeforeToolCall {
+                                tool_name: ev.tool_name.clone(),
+                                arguments: serde_json::json!({
+                                    "r": i,
+                                    "h": j,
+                                }),
+                            },
+                        )))
                     });
                     reg.register_before("bash", h);
                 }
@@ -585,7 +816,8 @@ mod tests {
                     reg.fire_before(BeforeToolCall {
                         tool_name: "bash".to_string(),
                         arguments: serde_json::json!({}),
-                    });
+                    })
+                    .await;
                 }
             }));
         }

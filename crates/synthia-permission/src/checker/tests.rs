@@ -8,7 +8,7 @@ mod tests {
         level::Permission,
         merged_policy::MergedPolicy,
         rule::{PermissionAction, PermissionRule},
-        types::PermissionRequest,
+        types::{PermissionRequest, ToolCategory},
     };
 
     fn req(name: &str, requires: bool) -> PermissionRequest {
@@ -484,6 +484,159 @@ mod tests {
         assert_eq!(
             decisions.get("unknown_tool"),
             Some(&Permission::RequireConfirm)
+        );
+    }
+
+    // ---- Category-aware security_check_with_category tests ----
+
+    #[tokio::test]
+    async fn test_category_filesystem_triggers_path_traversal() {
+        // A tool with Filesystem category should trigger path traversal
+        // check even if the tool name is not a known file tool name.
+        let checker = PermissionChecker::allow_all()
+            .with_workspace_root(Path::new("/workspace"));
+        let input = serde_json::json!({"path": "/etc/passwd"});
+        let req = PermissionRequest::new("custom_fs_tool".into(), input, true)
+            .with_category(ToolCategory::Filesystem);
+        let decisions = checker.check(&[req]).await.unwrap();
+        match decisions.get("custom_fs_tool") {
+            Some(Permission::Deny { reason }) => {
+                assert!(
+                    reason.contains("outside workspace"),
+                    "unexpected deny reason: {reason}"
+                );
+            }
+            other => panic!("expected Deny, got {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_category_edit_triggers_path_traversal() {
+        // Edit category also triggers path traversal check.
+        let checker = PermissionChecker::allow_all()
+            .with_workspace_root(Path::new("/workspace"));
+        let input = serde_json::json!({"path": "/etc/passwd"});
+        let req =
+            PermissionRequest::new("custom_edit_tool".into(), input, true)
+                .with_category(ToolCategory::Edit);
+        let decisions = checker.check(&[req]).await.unwrap();
+        assert!(
+            matches!(
+                decisions.get("custom_edit_tool"),
+                Some(Permission::Deny { .. })
+            ),
+            "Edit category should trigger path traversal check"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_category_shell_triggers_dangerous_command() {
+        // Shell category triggers dangerous command check.
+        let checker = PermissionChecker::allow_all();
+        let input = serde_json::json!({"command": "rm -rf /tmp/test"});
+        let req = PermissionRequest::new("custom_shell".into(), input, true)
+            .with_category(ToolCategory::Shell);
+        let decisions = checker.check(&[req]).await.unwrap();
+        assert!(
+            matches!(
+                decisions.get("custom_shell"),
+                Some(Permission::Deny { .. })
+            ),
+            "Shell category should trigger dangerous command check"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_category_search_no_prescreen() {
+        // Search category has no special security pre-screen, so even
+        // a path outside workspace passes (policy decides).
+        let checker = PermissionChecker::allow_all()
+            .with_workspace_root(Path::new("/workspace"));
+        let input = serde_json::json!({"path": "/etc/passwd"});
+        let req = PermissionRequest::new("search_tool".into(), input, true)
+            .with_category(ToolCategory::Search);
+        let decisions = checker.check(&[req]).await.unwrap();
+        // allow_all policy for unknown tool → RequireConfirm (not Deny)
+        assert!(
+            matches!(
+                decisions.get("search_tool"),
+                Some(Permission::RequireConfirm)
+            ),
+            "Search category should not trigger path traversal pre-screen"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_category_none_falls_back_to_name_matching() {
+        // When category is None, the old name-matching logic is used.
+        let checker = PermissionChecker::allow_all()
+            .with_workspace_root(Path::new("/workspace"));
+        let input = serde_json::json!({"path": "/etc/passwd"});
+        // "read_file" with no category → name match → path traversal
+        let req = PermissionRequest::new("read_file".into(), input, true);
+        let decisions = checker.check(&[req]).await.unwrap();
+        assert!(
+            matches!(decisions.get("read_file"), Some(Permission::Deny { .. })),
+            "None category should fall back to name matching"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_category_none_unknown_name_passes() {
+        // When category is None and tool name is unknown, no pre-screen.
+        let checker = PermissionChecker::allow_all()
+            .with_workspace_root(Path::new("/workspace"));
+        let input = serde_json::json!({"path": "/etc/passwd"});
+        let req = PermissionRequest::new("unknown_tool".into(), input, true);
+        let decisions = checker.check(&[req]).await.unwrap();
+        // allow_all policy for unknown tool → RequireConfirm (not Deny)
+        assert!(
+            matches!(
+                decisions.get("unknown_tool"),
+                Some(Permission::RequireConfirm)
+            ),
+            "Unknown name with no category should not trigger pre-screen"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_category_filesystem_safe_path_passes() {
+        // Filesystem category with a workspace-internal path should pass
+        // the security pre-screen.
+        let checker = PermissionChecker::allow_all()
+            .with_workspace_root(Path::new("/workspace"));
+        let input = serde_json::json!({"path": "src/main.rs"});
+        let req = PermissionRequest::new("custom_fs_tool".into(), input, true)
+            .with_category(ToolCategory::Filesystem);
+        let decisions = checker.check(&[req]).await.unwrap();
+        assert!(
+            matches!(
+                decisions.get("custom_fs_tool"),
+                Some(Permission::RequireConfirm)
+            ),
+            "Filesystem category with safe path should not deny"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_category_shell_safe_command_passes() {
+        // Shell category with a safe command should pass pre-screen.
+        let policy = MergedPolicy::new(
+            &[rule("custom_shell", PermissionAction::Allow, false)],
+            &[],
+            &[],
+        );
+        let checker = PermissionChecker::new(policy);
+        let input = serde_json::json!({"command": "ls -la"});
+        let req = PermissionRequest::new("custom_shell".into(), input, true)
+            .with_category(ToolCategory::Shell);
+        let decisions = checker.check(&[req]).await.unwrap();
+        assert!(
+            matches!(
+                decisions.get("custom_shell"),
+                Some(Permission::AutoApprove)
+            ),
+            "Shell category with safe command should not deny"
         );
     }
 }

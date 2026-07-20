@@ -55,6 +55,7 @@ impl<T: ?Sized> AgentHookAdapter<T> {
 }
 
 #[async_trait]
+#[allow(deprecated)]
 impl<T: crate::traits::AgentHook + ?Sized + 'static> Hook
     for AgentHookAdapter<T>
 {

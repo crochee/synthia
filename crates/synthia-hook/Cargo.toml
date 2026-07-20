@@ -18,7 +18,6 @@ ulid.workspace = true
 
 [features]
 default = []
-unified-registry = []
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["macros", "rt"] }

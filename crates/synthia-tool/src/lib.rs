@@ -10,7 +10,6 @@ pub mod scoped_registry;
 pub mod sub_traits;
 pub mod traits;
 pub mod types;
-#[cfg(feature = "unified-registry")]
 pub mod unified_adapter;
 
 #[cfg(test)]
@@ -29,16 +28,11 @@ pub use scoped_registry::{
     ToolScope,
 };
 pub use sub_traits::{
-    PermissionAlwaysAllow,
-    PermissionAlwaysDeny,
-    PermissionContext,
-    PermissionDecision,
     ToolCategory,
     ToolDefinition,
     ToolExecution,
     ToolLifecycle,
     ToolMetadataSnapshot,
-    ToolPermission,
 };
 pub use traits::*;
 pub use types::*;

@@ -20,5 +20,3 @@ mod tests;
 mod types;
 
 pub use processor::OpenAIStreamProcessorV2;
-#[allow(unused_imports)]
-pub use types::*;

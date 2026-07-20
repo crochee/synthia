@@ -122,7 +122,9 @@ mod tests {
             tool_orchestrator: None,
             guardian_coordinator: None,
             extension_manager: None,
-            #[cfg(feature = "unified-registry")]
+            extension_registry: None,
+            rollout_tracker: None,
+            interceptor_chain: None,
             loop_services: std::sync::OnceLock::new(),
         }
     }

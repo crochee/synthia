@@ -1,48 +1,18 @@
 use axum::response::IntoResponse;
 
-pub mod chat;
+pub mod a2a;
+pub mod commands;
+pub mod health;
+pub mod helpers;
 pub mod job;
 pub mod mcp;
-pub mod session;
-pub mod skill;
-pub mod submission;
+pub mod mcp_servers;
+pub mod memory;
+pub mod providers;
+pub mod skills;
 pub mod tool;
-pub mod v2;
-pub mod ws;
-pub mod ws_event;
 
-#[allow(deprecated)]
-pub use chat::chat_handler;
-pub use session::{
-    create_session,
-    delete_session,
-    get_session,
-    get_session_messages,
-    get_session_tools,
-    list_sessions,
-    send_message,
-};
-pub use skill::{delete_skill, get_skill, list_skills, register_skill};
-pub use submission::post_submission;
 pub use tool::{delete_tool, get_tool, list_tools, register_tool};
-pub use v2::{
-    create_provider,
-    create_skill,
-    delete_provider,
-    delete_session_v2,
-    delete_skill as delete_skill_v2,
-    get_provider,
-    get_session_detail,
-    get_skill as get_skill_v2,
-    list_providers as list_providers_v2,
-    list_skills as list_skills_v2,
-    reload_skills,
-    search_memory,
-};
-pub use ws::stream_handler;
-pub use ws_event::get_ws;
-
-pub use crate::sse_stream::stream_sse_handler;
 
 pub async fn ok_response() -> impl axum::response::IntoResponse {
     axum::Json(serde_json::json!({ "status": "ok" }))

@@ -20,8 +20,9 @@ use crate::{
 /// Public API for managing a session tree + append-only JSONL file.
 pub struct SessionManager {
     tree: Arc<RwLock<SessionTree>>,
-    /// Path to the JSONL file (retained for reload logic in a later round).
+    /// Path to the JSONL file.
     #[allow(dead_code)]
+    // reason: retained for reload/reopen logic in a later round
     path: Arc<RwLock<PathBuf>>,
     write_tx: mpsc::Sender<TreeCmd>,
     flush_handle: Mutex<Option<JoinHandle<()>>>,

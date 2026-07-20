@@ -151,6 +151,7 @@ impl StepToolExecute {
                 tool_name: call.name.clone(),
                 arguments: call.input.clone(),
                 permission: default_permission_for_tool(&call.name),
+                tool_id: None,
             };
 
             match orchestrator

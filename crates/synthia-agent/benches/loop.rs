@@ -13,14 +13,14 @@ use criterion::{
     criterion_main,
 };
 
-#[allow(dead_code)]
+#[allow(dead_code)] // reason: benchmark helper
 fn agent_loop_latency() {
     // Placeholder: actual implementation would require setting up
     // the full agent context with a mock provider
     let _ = black_box(42);
 }
 
-#[allow(dead_code)]
+#[allow(dead_code)] // reason: benchmark helper
 pub fn criterion_benchmark(c: &mut Criterion) {
     // Warm-up phase: 3 seconds
     let mut group = c.benchmark_group("agent_loop_latency");

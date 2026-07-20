@@ -1,6 +1,8 @@
-// Legacy Tool trait usage during deprecation window (v3 toolification).
+// TODO: Migrate ContextAssembler → FragmentRegistry::render_active() in
+// session/controller.rs and state/agent_factory.rs, then remove this allow.
 #![allow(deprecated)]
 
+pub mod a2a;
 pub mod api;
 pub mod approval;
 pub mod auth;
@@ -15,7 +17,6 @@ pub mod scheduler;
 pub mod server;
 pub mod session;
 pub mod sse;
-pub mod sse_stream;
 pub mod state;
 pub mod workspace;
 

@@ -11,7 +11,7 @@ use crate::{
     level::Permission,
     merged_policy::MergedPolicy,
     rule::{PermissionAction, PermissionRule},
-    types::PermissionRequest,
+    types::{PermissionRequest, ToolCategory},
 };
 
 pub type Result<T> = std::result::Result<T, Error>;
@@ -197,9 +197,11 @@ impl PermissionChecker {
                 continue;
             }
 
-            if let Some(deny_reason) =
-                self.security_check(&req.tool_name, &req.input)
-            {
+            if let Some(deny_reason) = self.security_check_with_category(
+                &req.tool_name,
+                &req.input,
+                req.tool_category,
+            ) {
                 decisions.insert(
                     req.tool_name.clone(),
                     Permission::Deny {
@@ -229,7 +231,9 @@ impl PermissionChecker {
                 continue;
             }
 
-            let action = self.policy.evaluate(&req.tool_name);
+            let action = self
+                .policy
+                .evaluate_with_category(&req.tool_name, req.tool_category);
             decisions
                 .insert(req.tool_name.clone(), action_to_permission(action));
         }
@@ -281,6 +285,26 @@ impl PermissionChecker {
             }
             "bash" | "shell" => self.check_dangerous_command(input),
             _ => None,
+        }
+    }
+
+    /// Category-aware security pre-screen. Routes by `ToolCategory`
+    /// when available, falling back to name-matching via
+    /// [`security_check`](Self::security_check) when the category is
+    /// `None`.
+    fn security_check_with_category(
+        &self,
+        tool_name: &str,
+        input: &serde_json::Value,
+        category: Option<ToolCategory>,
+    ) -> Option<String> {
+        match category {
+            Some(ToolCategory::Filesystem) | Some(ToolCategory::Edit) => {
+                self.check_path_traversal(input)
+            }
+            Some(ToolCategory::Shell) => self.check_dangerous_command(input),
+            Some(_) => None,
+            None => self.security_check(tool_name, input),
         }
     }
 

@@ -9,8 +9,13 @@ use synthia_agent::{
     AgentOutput,
     AgentRunConfig,
     control::{AgentControl, AgentRegistry},
+    interceptor::InterceptorChain,
 };
 use synthia_context::{ProtectionZone, assembler::ContextAssembler};
+use synthia_core::tool::{
+    extension_registry::ExtensionRegistry,
+    rollout::RolloutTracker,
+};
 use synthia_hook::HookRegistry;
 use synthia_permission::ApprovalService;
 use synthia_provider::{router::ModelRouter, traits::ModelProvider};
@@ -44,6 +49,12 @@ pub struct AgentFactory {
     /// `None`, [`AgentFactory::create`] falls back to
     /// `SERVER_DEFAULT_USER_ID` to preserve the §1 invariant.
     user_id: Option<String>,
+    /// Unified extension registry for Registry-First architecture.
+    extension_registry: Option<ExtensionRegistry>,
+    /// Interceptor chain for cross-cutting concerns.
+    interceptor_chain: Option<Arc<InterceptorChain>>,
+    /// Rollout tracker for file changes and token usage.
+    rollout_tracker: Option<Arc<RolloutTracker>>,
 }
 
 impl AgentFactory {
@@ -69,6 +80,9 @@ impl AgentFactory {
             tool_orchestrator,
             agent_control,
             user_id: None,
+            extension_registry: None,
+            interceptor_chain: None,
+            rollout_tracker: None,
         }
     }
 
@@ -96,6 +110,9 @@ impl AgentFactory {
             tool_orchestrator,
             agent_control,
             user_id: Some(user_id),
+            extension_registry: None,
+            interceptor_chain: None,
+            rollout_tracker: None,
         }
     }
 
@@ -210,14 +227,16 @@ impl AgentFactory {
             tool_orchestrator: Some(Arc::clone(&self.tool_orchestrator)),
             guardian_coordinator: None,
             extension_manager: None,
-            #[cfg(feature = "unified-registry")]
+            extension_registry: self.extension_registry.clone(),
+            rollout_tracker: self.rollout_tracker.clone(),
+            interceptor_chain: self.interceptor_chain.clone(),
             loop_services: std::sync::OnceLock::new(),
         })
     }
 
     /// Create from an existing `AppState` for convenience.
     pub fn from_state(state: &AppState) -> Self {
-        Self::new(
+        let mut factory = Self::new(
             state.workspace_root.clone(),
             state.default_provider.clone(),
             state.tool_registry.clone(),
@@ -226,6 +245,10 @@ impl AgentFactory {
             Arc::clone(&state.sandbox_manager),
             Arc::clone(&state.tool_orchestrator),
             Arc::new(AgentControl::new(Arc::new(AgentRegistry::new()))),
-        )
+        );
+        factory.extension_registry = Some(state.extension_registry.clone());
+        factory.interceptor_chain = Some(Arc::clone(&state.interceptor_chain));
+        factory.rollout_tracker = Some(Arc::clone(&state.rollout_tracker));
+        factory
     }
 }

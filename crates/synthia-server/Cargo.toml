@@ -5,6 +5,9 @@ edition.workspace = true
 
 [dependencies]
 synthia-agent = { path = "../synthia-agent" }
+synthia-a2a = { path = "../synthia-a2a" }
+a2a-lf = "0.3"
+a2a-server-lf = "0.4"
 synthia-command = { path = "../synthia-command" }
 synthia-context = { path = "../synthia-context" }
 synthia-hook = { path = "../synthia-hook" }
@@ -46,7 +49,6 @@ test-support = { path = "../../test-support", optional = true }
 
 [features]
 test-utils = ["dep:test-support"]
-unified-registry = ["synthia-agent/unified-registry"]
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["macros", "rt", "rt-multi-thread"] }

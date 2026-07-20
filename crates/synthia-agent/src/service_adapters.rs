@@ -3,8 +3,6 @@
 //! Each adapter wraps a concrete service type from a sibling crate
 //! and implements both [`Service`] and the corresponding subtrait
 //! from [`synthia_service::subtraits`].
-//!
-//! Feature-gated behind `unified-registry`.
 
 use std::sync::Arc;
 

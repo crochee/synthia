@@ -17,6 +17,10 @@
 //!   configuration (`register`), the auth token (`auth`), or the
 //!   fallback chain (`fallback`). `provider.unregister` returns a
 //!   boolean indicating whether a provider was removed.
+//! - **Asynchronous dispatch**: handler closures return
+//!   `BoxFuture<'static, ...>`, allowing async work. Synchronous
+//!   handlers are supported via the `register_*_sync()` convenience
+//!   methods.
 //! - **OTel-friendly**: every fire emits a `tracing::info_span!` named
 //!   `extension.hook.<point>` with `point`, `scope = "provider"`, and
 //!   `extension_id` (per-handler). Replacements emit a
@@ -37,6 +41,7 @@ use std::sync::{
 };
 
 use dashmap::DashMap;
+use futures::future::BoxFuture;
 use serde::{Deserialize, Serialize};
 
 use super::tool::Action;
@@ -127,15 +132,40 @@ pub type FallbackChain = Vec<String>;
 // Handler aliases
 // =====================================================================
 
-pub type RegisterHandler =
+pub type RegisterHandler = Arc<
+    dyn Fn(&ProviderConfig) -> BoxFuture<'static, Action<ProviderConfig>>
+        + Send
+        + Sync,
+>;
+
+pub type UnregisterHandler =
+    Arc<dyn Fn(&str) -> BoxFuture<'static, bool> + Send + Sync>;
+
+pub type AuthHandler = Arc<
+    dyn Fn(&AuthRequest) -> BoxFuture<'static, Action<AuthRequest>>
+        + Send
+        + Sync,
+>;
+
+pub type FallbackHandler = Arc<
+    dyn Fn(&FallbackContext) -> BoxFuture<'static, Action<FallbackChain>>
+        + Send
+        + Sync,
+>;
+
+// =====================================================================
+// Sync handler aliases (for register_*_sync convenience methods)
+// =====================================================================
+
+pub type SyncRegisterHandler =
     Arc<dyn Fn(&ProviderConfig) -> Action<ProviderConfig> + Send + Sync>;
 
-pub type UnregisterHandler = Arc<dyn Fn(&str) -> bool + Send + Sync>;
+pub type SyncUnregisterHandler = Arc<dyn Fn(&str) -> bool + Send + Sync>;
 
-pub type AuthHandler =
+pub type SyncAuthHandler =
     Arc<dyn Fn(&AuthRequest) -> Action<AuthRequest> + Send + Sync>;
 
-pub type FallbackHandler =
+pub type SyncFallbackHandler =
     Arc<dyn Fn(&FallbackContext) -> Action<FallbackChain> + Send + Sync>;
 
 // =====================================================================
@@ -193,6 +223,16 @@ impl ProviderExtensionRegistry {
         self.active_keys.insert("provider.register".into(), ());
     }
 
+    pub fn register_register_sync(
+        &self,
+        id: impl Into<String>,
+        handler: SyncRegisterHandler,
+    ) {
+        let async_handler: RegisterHandler =
+            Arc::new(move |cfg| Box::pin(std::future::ready(handler(cfg))));
+        self.register_register(id, async_handler);
+    }
+
     pub fn register_unregister(
         &self,
         id: impl Into<String>,
@@ -202,9 +242,29 @@ impl ProviderExtensionRegistry {
         self.active_keys.insert("provider.unregister".into(), ());
     }
 
+    pub fn register_unregister_sync(
+        &self,
+        id: impl Into<String>,
+        handler: SyncUnregisterHandler,
+    ) {
+        let async_handler: UnregisterHandler =
+            Arc::new(move |name| Box::pin(std::future::ready(handler(name))));
+        self.register_unregister(id, async_handler);
+    }
+
     pub fn register_auth(&self, id: impl Into<String>, handler: AuthHandler) {
         self.auth.entry(id.into()).or_default().push(handler);
         self.active_keys.insert("provider.auth".into(), ());
+    }
+
+    pub fn register_auth_sync(
+        &self,
+        id: impl Into<String>,
+        handler: SyncAuthHandler,
+    ) {
+        let async_handler: AuthHandler =
+            Arc::new(move |req| Box::pin(std::future::ready(handler(req))));
+        self.register_auth(id, async_handler);
     }
 
     pub fn register_fallback(
@@ -214,6 +274,16 @@ impl ProviderExtensionRegistry {
     ) {
         self.fallback.entry(id.into()).or_default().push(handler);
         self.active_keys.insert("provider.fallback".into(), ());
+    }
+
+    pub fn register_fallback_sync(
+        &self,
+        id: impl Into<String>,
+        handler: SyncFallbackHandler,
+    ) {
+        let async_handler: FallbackHandler =
+            Arc::new(move |ctx| Box::pin(std::future::ready(handler(ctx))));
+        self.register_fallback(id, async_handler);
     }
 
     pub fn has_handlers(&self, point: &str) -> bool {
@@ -233,23 +303,26 @@ impl ProviderExtensionRegistry {
     /// Each successful fire bumps the cache version. If a new
     /// provider replaces an existing one with the same name, a
     /// `provider.replaced` OTel event is emitted.
-    pub fn fire_register(
+    pub async fn fire_register(
         &self,
         mut config: ProviderConfig,
     ) -> Action<ProviderConfig> {
         for entry in self.register.iter() {
             for (idx, handler) in entry.value().iter().enumerate() {
                 let extension_id = format!("{}#{}", entry.key(), idx);
-                let _span = tracing::info_span!(
-                    target: "synthia.extension",
-                    "extension.hook",
-                    point = "provider.register",
-                    scope = "provider",
-                    extension_id = extension_id.as_str(),
-                    provider_name = config.name.as_str(),
-                )
-                .entered();
-                match handler(&config) {
+                let action = {
+                    let _span = tracing::info_span!(
+                        target: "synthia.extension",
+                        "extension.hook",
+                        point = "provider.register",
+                        scope = "provider",
+                        extension_id = extension_id.as_str(),
+                        provider_name = config.name.as_str(),
+                    )
+                    .entered();
+                    handler(&config).await
+                };
+                match action {
                     Action::Proceed => {}
                     Action::Modify(replacement) => {
                         if replacement.name == config.name
@@ -277,21 +350,24 @@ impl ProviderExtensionRegistry {
     /// Fire `provider.unregister`. Returns `true` if any handler
     /// reported removal. Each successful fire bumps the cache
     /// version.
-    pub fn fire_unregister(&self, name: &str) -> bool {
+    pub async fn fire_unregister(&self, name: &str) -> bool {
         let mut removed = false;
         for entry in self.unregister.iter() {
             for (idx, handler) in entry.value().iter().enumerate() {
                 let extension_id = format!("{}#{}", entry.key(), idx);
-                let _span = tracing::info_span!(
-                    target: "synthia.extension",
-                    "extension.hook",
-                    point = "provider.unregister",
-                    scope = "provider",
-                    extension_id = extension_id.as_str(),
-                    provider_name = name,
-                )
-                .entered();
-                if handler(name) {
+                let result = {
+                    let _span = tracing::info_span!(
+                        target: "synthia.extension",
+                        "extension.hook",
+                        point = "provider.unregister",
+                        scope = "provider",
+                        extension_id = extension_id.as_str(),
+                        provider_name = name,
+                    )
+                    .entered();
+                    handler(name).await
+                };
+                if result {
                     removed = true;
                 }
             }
@@ -305,20 +381,23 @@ impl ProviderExtensionRegistry {
     /// Fire `provider.auth`. The chain rotates the token in place;
     /// the orchestrator uses the final `current_token` for the
     /// request. Each successful fire bumps the cache version.
-    pub fn fire_auth(&self, mut req: AuthRequest) -> Action<AuthRequest> {
+    pub async fn fire_auth(&self, mut req: AuthRequest) -> Action<AuthRequest> {
         for entry in self.auth.iter() {
             for (idx, handler) in entry.value().iter().enumerate() {
                 let extension_id = format!("{}#{}", entry.key(), idx);
-                let _span = tracing::info_span!(
-                    target: "synthia.extension",
-                    "extension.hook",
-                    point = "provider.auth",
-                    scope = "provider",
-                    extension_id = extension_id.as_str(),
-                    provider_name = req.provider_name.as_str(),
-                )
-                .entered();
-                match handler(&req) {
+                let action = {
+                    let _span = tracing::info_span!(
+                        target: "synthia.extension",
+                        "extension.hook",
+                        point = "provider.auth",
+                        scope = "provider",
+                        extension_id = extension_id.as_str(),
+                        provider_name = req.provider_name.as_str(),
+                    )
+                    .entered();
+                    handler(&req).await
+                };
+                match action {
                     Action::Proceed => {}
                     Action::Modify(replacement) => {
                         req = replacement;
@@ -335,23 +414,26 @@ impl ProviderExtensionRegistry {
 
     /// Fire `provider.fallback`. The chain builds a fallback chain
     /// in registration order. The first non-empty `Modify` wins.
-    pub fn fire_fallback(
+    pub async fn fire_fallback(
         &self,
         mut ctx: FallbackContext,
     ) -> Action<FallbackChain> {
         for entry in self.fallback.iter() {
             for (idx, handler) in entry.value().iter().enumerate() {
                 let extension_id = format!("{}#{}", entry.key(), idx);
-                let _span = tracing::info_span!(
-                    target: "synthia.extension",
-                    "extension.hook",
-                    point = "provider.fallback",
-                    scope = "provider",
-                    extension_id = extension_id.as_str(),
-                    provider_name = ctx.primary.as_str(),
-                )
-                .entered();
-                match handler(&ctx) {
+                let action = {
+                    let _span = tracing::info_span!(
+                        target: "synthia.extension",
+                        "extension.hook",
+                        point = "provider.fallback",
+                        scope = "provider",
+                        extension_id = extension_id.as_str(),
+                        provider_name = ctx.primary.as_str(),
+                    )
+                    .entered();
+                    handler(&ctx).await
+                };
+                match action {
                     Action::Proceed => {}
                     Action::Modify(replacement) => {
                         if !replacement.is_empty() {
@@ -375,8 +457,8 @@ impl ProviderExtensionRegistry {
 mod tests {
     use super::*;
 
-    #[test]
-    fn new_registry_is_empty() {
+    #[tokio::test]
+    async fn new_registry_is_empty() {
         let reg = ProviderExtensionRegistry::new();
         assert!(!reg.has_handlers("provider.register"));
         assert!(!reg.has_handlers("provider.unregister"));
@@ -385,10 +467,12 @@ mod tests {
         assert_eq!(reg.cache_version(), 0);
     }
 
-    #[test]
-    fn register_bumps_cache_version() {
+    #[tokio::test]
+    async fn register_bumps_cache_version() {
         let reg = ProviderExtensionRegistry::new();
-        let h: RegisterHandler = Arc::new(|c| Action::Modify(c.clone()));
+        let h: RegisterHandler = Arc::new(|c| {
+            Box::pin(std::future::ready(Action::Modify(c.clone())))
+        });
         reg.register_register("noop", h);
 
         let config = ProviderConfig::new(
@@ -397,75 +481,139 @@ mod tests {
             serde_json::json!({"base_url": "https://api.openai.com"}),
         );
         let v0 = reg.cache_version();
-        let _ = reg.fire_register(config);
+        let _ = reg.fire_register(config).await;
         assert_eq!(reg.cache_version(), v0 + 1);
     }
 
-    #[test]
-    fn auth_token_rotation() {
+    #[tokio::test]
+    async fn auth_token_rotation() {
         let reg = ProviderExtensionRegistry::new();
         let h: AuthHandler = Arc::new(|req| {
             let mut next = req.clone();
             next.current_token = Some("rotated-token".to_string());
-            Action::Modify(next)
+            Box::pin(std::future::ready(Action::Modify(next)))
         });
         reg.register_auth("token-rotator", h);
 
         let req = AuthRequest::new("openai", Some("old-token".to_string()));
-        let Action::Modify(r) = reg.fire_auth(req) else {
+        let Action::Modify(r) = reg.fire_auth(req).await else {
             panic!("expected Modify")
         };
         assert_eq!(r.current_token.as_deref(), Some("rotated-token"));
     }
 
-    #[test]
-    fn fallback_chain_iterated_in_order() {
+    #[tokio::test]
+    async fn fallback_chain_iterated_in_order() {
         let reg = ProviderExtensionRegistry::new();
         let h: FallbackHandler = Arc::new(|ctx| {
-            Action::Modify(vec![
+            Box::pin(std::future::ready(Action::Modify(vec![
                 ctx.primary.clone(),
                 "secondary".to_string(),
                 "tertiary".to_string(),
-            ])
+            ])))
         });
         reg.register_fallback("chain-1", h);
 
         let ctx = FallbackContext::new("primary", "rate-limited", Vec::new());
-        let Action::Modify(chain) = reg.fire_fallback(ctx) else {
+        let Action::Modify(chain) = reg.fire_fallback(ctx).await else {
             panic!("expected Modify")
         };
         assert_eq!(chain, vec!["primary", "secondary", "tertiary"]);
     }
 
-    #[test]
-    fn unregister_returns_true_when_handler_removes() {
+    #[tokio::test]
+    async fn unregister_returns_true_when_handler_removes() {
         let reg = ProviderExtensionRegistry::new();
-        let h: UnregisterHandler = Arc::new(|name| name == "to-remove");
+        let h: UnregisterHandler =
+            Arc::new(|name| Box::pin(std::future::ready(name == "to-remove")));
         reg.register_unregister("remover", h);
 
-        assert!(reg.fire_unregister("to-remove"));
-        assert!(!reg.fire_unregister("non-existent"));
+        assert!(reg.fire_unregister("to-remove").await);
+        assert!(!reg.fire_unregister("non-existent").await);
     }
 
-    #[test]
-    fn concurrent_register_increments_cache_version() {
-        use std::sync::Arc as StdArc;
-        let reg = StdArc::new(ProviderExtensionRegistry::new());
+    #[tokio::test]
+    async fn register_sync_wraps_sync_handler() {
+        let reg = ProviderExtensionRegistry::new();
+        let h: SyncRegisterHandler = Arc::new(|c| Action::Modify(c.clone()));
+        reg.register_register_sync("noop", h);
+
+        let config = ProviderConfig::new(
+            "openai",
+            "openai",
+            serde_json::json!({"base_url": "https://api.openai.com"}),
+        );
+        let v0 = reg.cache_version();
+        let result = reg.fire_register(config).await;
+        assert!(matches!(result, Action::Modify(_)));
+        assert_eq!(reg.cache_version(), v0 + 1);
+    }
+
+    #[tokio::test]
+    async fn unregister_sync_wraps_sync_handler() {
+        let reg = ProviderExtensionRegistry::new();
+        let h: SyncUnregisterHandler = Arc::new(|name| name == "to-remove");
+        reg.register_unregister_sync("remover", h);
+
+        assert!(reg.fire_unregister("to-remove").await);
+        assert!(!reg.fire_unregister("non-existent").await);
+    }
+
+    #[tokio::test]
+    async fn auth_sync_wraps_sync_handler() {
+        let reg = ProviderExtensionRegistry::new();
+        let h: SyncAuthHandler = Arc::new(|req| {
+            let mut next = req.clone();
+            next.current_token = Some("sync-rotated".to_string());
+            Action::Modify(next)
+        });
+        reg.register_auth_sync("sync-rotator", h);
+
+        let req = AuthRequest::new("openai", Some("old-token".to_string()));
+        let Action::Modify(r) = reg.fire_auth(req).await else {
+            panic!("expected Modify")
+        };
+        assert_eq!(r.current_token.as_deref(), Some("sync-rotated"));
+    }
+
+    #[tokio::test]
+    async fn fallback_sync_wraps_sync_handler() {
+        let reg = ProviderExtensionRegistry::new();
+        let h: SyncFallbackHandler = Arc::new(|ctx| {
+            Action::Modify(vec![
+                ctx.primary.clone(),
+                "fallback-sync".to_string(),
+            ])
+        });
+        reg.register_fallback_sync("chain-sync", h);
+
+        let ctx = FallbackContext::new("primary", "error", Vec::new());
+        let Action::Modify(chain) = reg.fire_fallback(ctx).await else {
+            panic!("expected Modify")
+        };
+        assert_eq!(chain, vec!["primary", "fallback-sync"]);
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn concurrent_register_increments_cache_version() {
+        let reg = std::sync::Arc::new(ProviderExtensionRegistry::new());
         let mut handles = Vec::new();
         for i in 0..16 {
             let reg = reg.clone();
-            handles.push(std::thread::spawn(move || {
+            handles.push(tokio::spawn(async move {
                 let h: RegisterHandler = Arc::new(move |c| {
-                    Action::Modify(ProviderConfig {
-                        name: format!("p{}", i),
-                        ..c.clone()
-                    })
+                    Box::pin(std::future::ready(Action::Modify(
+                        ProviderConfig {
+                            name: format!("p{}", i),
+                            ..c.clone()
+                        },
+                    )))
                 });
                 reg.register_register(format!("h{}", i), h);
             }));
         }
         for h in handles {
-            h.join().unwrap();
+            h.await.unwrap();
         }
         // Concurrent registration must not panic and all handlers
         // should be present.

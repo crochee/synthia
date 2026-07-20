@@ -1,10 +1,10 @@
 //! Error types for `synthia-session`.
 //!
 //! Centralised so that [`crate::types`] and [`crate::store`] can refer to the
-//! same `StoreError` / `HashChainError` enums without a circular module
-//! dependency. The `HashChainError` variants in particular close the
-//! cross-user session access path that the 2026-06-16 adversarial review
-//! identified as a P0 vulnerability.
+//! same `StoreError` enum without a circular module dependency. The
+//! `CrossUserAccess` variant in particular closes the cross-user session
+//! access path that the 2026-06-16 adversarial review identified as a P0
+//! vulnerability.
 
 use thiserror::Error;
 
@@ -48,13 +48,6 @@ pub enum StoreError {
     #[error("Serialization error: {0}")]
     Serde(#[from] serde_json::Error),
 }
-
-/// `HashChainError` is a thin alias kept for naming consistency with
-/// the spec (`spec.md`: "MUST return
-/// `Err(HashChainError::CrossUserAccess)`"). The single source of truth
-/// is [`StoreError`]; this alias is for code that already names the
-/// error after the integrity check.
-pub type HashChainError = StoreError;
 
 #[cfg(test)]
 mod tests {

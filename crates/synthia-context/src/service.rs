@@ -142,6 +142,7 @@ impl DefaultContextService {
 }
 
 impl DefaultContextService {
+    #[allow(deprecated)]
     pub fn assemble(&self, request: &ContextRequest) -> ContextResult {
         let messages = Self::trim_to_budget(request);
 

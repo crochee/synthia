@@ -3,11 +3,12 @@
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 use async_trait::async_trait;
-use synthia_core::Error;
 
+#[allow(deprecated)]
+use crate::traits::AgentHook;
 use crate::{
     HookRegistry,
-    traits::{AgentContext, AgentHook, ToolAction, ToolCall},
+    traits::{AgentContext, ToolAction, ToolCall},
 };
 
 #[derive(Debug)]
@@ -24,6 +25,7 @@ impl TestHook {
 }
 
 #[async_trait]
+#[allow(deprecated)]
 impl AgentHook for TestHook {
     async fn on_before_llm(
         &self,
@@ -123,6 +125,3 @@ fn message_roundtrip() {
     let msg2 = crate::message_from_value(&v).unwrap();
     assert_eq!(msg, msg2);
 }
-
-#[allow(dead_code)]
-fn _suppress_unused_error(_: &Error) {}

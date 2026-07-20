@@ -3,14 +3,23 @@
 use std::{collections::HashMap, path::PathBuf, sync::Arc};
 
 use dashmap::DashMap;
-#[allow(deprecated)]
 use synthia_agent::{
     AgentEvent,
     build_default_tool_registry,
     control::{AgentControl, AgentRegistry as AgentControlRegistry},
+    interceptor::InterceptorChain,
     tools::orchestrator::build_default_tool_orchestrator,
 };
 use synthia_command::CommandRegistry;
+use synthia_core::tool::{
+    builtin_fragments::SystemPromptFragment,
+    extension_registry::ExtensionRegistry,
+    fragment::FragmentRegistry,
+    plugin_registry::PluginRegistry,
+    registry::ToolRegistry as CoreToolRegistry,
+    rollout::RolloutTracker,
+    skill_registry::SkillRegistry,
+};
 use synthia_hook::HookRegistry;
 use synthia_mcp::{McpManager, McpRegistry};
 use synthia_permission::ApprovalService;
@@ -84,10 +93,18 @@ pub struct AppState {
     pub tool_resolver: Arc<DynamicResolver>,
     /// Tool orchestrator that routes tool calls through approval and sandbox.
     pub tool_orchestrator: Arc<dyn ToolOrchestrator>,
+    /// Unified extension registry aggregating FragmentRegistry, ToolRegistry, etc.
+    pub extension_registry: ExtensionRegistry,
+    /// Interceptor chain for cross-cutting concerns (permission, loop detect, etc.).
+    pub interceptor_chain: Arc<InterceptorChain>,
+    /// Rollout tracker for file changes and token usage tracking.
+    pub rollout_tracker: Arc<RolloutTracker>,
+    /// A2A protocol service (lazy-initialized).
+    a2a_service: Arc<tokio::sync::OnceCell<crate::a2a::A2aService>>,
 }
 
 impl AppState {
-    pub fn new(workspace_root: PathBuf) -> Arc<Self> {
+    pub async fn new(workspace_root: PathBuf) -> Arc<Self> {
         let workspace_config =
             WorkspaceConfig::load_from_dir(&workspace_root).unwrap_or_else(|e| {
                 tracing::warn!(error = %e, "Failed to load workspace config, using env fallback");
@@ -106,11 +123,8 @@ impl AppState {
 
         let session_manager =
             Arc::new(SessionManager::new(workspace_root.join("sessions")));
-        #[allow(deprecated)]
         let tool_registry = Arc::new(RwLock::new(build_default_tool_registry(
             workspace_root.clone(),
-            None,
-            None,
         )));
         let hooks = HookRegistry::new();
         let hook_registry = Arc::new(RwLock::new(hooks));
@@ -143,6 +157,59 @@ impl AppState {
                 sandbox_manager.clone(),
             );
 
+        // Build FragmentRegistry with built-in fragments
+        let fragment_registry = Arc::new(FragmentRegistry::new());
+        fragment_registry
+            .register(Arc::new(SystemPromptFragment::new(
+                "You are Synthia, an AI coding assistant. Help the user with their tasks.",
+            )))
+            .await
+            .expect("failed to register SystemPromptFragment");
+
+        // Build SkillRegistry with built-in skills
+        let skill_registry = Arc::new(SkillRegistry::new());
+        {
+            use synthia_core::tool::builtin_skills::{
+                CodingSkill,
+                DebugSkill,
+                SearchSkill,
+            };
+            skill_registry
+                .register(Arc::new(CodingSkill)
+                    as Arc<dyn synthia_core::tool::skill_registry::Skill>)
+                .await
+                .expect("failed to register CodingSkill");
+            skill_registry
+                .register(Arc::new(SearchSkill)
+                    as Arc<dyn synthia_core::tool::skill_registry::Skill>)
+                .await
+                .expect("failed to register SearchSkill");
+            skill_registry
+                .register(Arc::new(DebugSkill)
+                    as Arc<dyn synthia_core::tool::skill_registry::Skill>)
+                .await
+                .expect("failed to register DebugSkill");
+        }
+
+        // Build PluginRegistry (empty — plugins loaded on demand)
+        let plugin_registry = Arc::new(PluginRegistry::new());
+
+        // Build ExtensionRegistry (uses core ToolRegistry + FragmentRegistry + SkillRegistry + PluginRegistry)
+        let core_tool_registry = Arc::new(CoreToolRegistry::new());
+        let extension_registry = ExtensionRegistry::with_all(
+            core_tool_registry,
+            Arc::clone(&fragment_registry),
+            Arc::clone(&skill_registry),
+            Arc::clone(&plugin_registry),
+        );
+
+        // Build InterceptorChain with default guard
+        let interceptor_chain =
+            Arc::new(InterceptorChain::default_with_guard(None, None, None));
+
+        // Build RolloutTracker
+        let rollout_tracker = Arc::new(RolloutTracker::new());
+
         Arc::new_cyclic(|weak| Self {
             tool_registry,
             hook_registry,
@@ -169,12 +236,23 @@ impl AppState {
             approval_service,
             sandbox_manager,
             tool_orchestrator,
+            extension_registry,
+            interceptor_chain,
+            rollout_tracker,
+            a2a_service: Arc::new(tokio::sync::OnceCell::new()),
         })
     }
 
     /// Create an AppState for testing with in-memory components and no LLM provider dependency.
+    ///
+    /// Unlike the production `new()`, this uses `FakeProvider` with empty
+    /// responses and `HeadlessApprovalService`.  Registry-First components
+    /// (FragmentRegistry, SkillRegistry, PluginRegistry, InterceptorChain)
+    /// are initialized with the same built-in registrations as `new()` so
+    /// that tests observe realistic wiring without needing external
+    /// dependencies.
     #[cfg(any(test, feature = "test-utils"))]
-    pub fn for_test(
+    pub async fn for_test(
         session_manager: SessionManager,
         workspace_root: PathBuf,
     ) -> Self {
@@ -185,11 +263,8 @@ impl AppState {
         let default_provider: Arc<dyn ModelProvider> =
             Arc::new(test_support::FakeProvider::new(vec![]));
 
-        #[allow(deprecated)]
         let tool_registry = Arc::new(RwLock::new(build_default_tool_registry(
             workspace_root.clone(),
-            None,
-            None,
         )));
         let hook_registry = Arc::new(RwLock::new(HookRegistry::new()));
         let command_registry = Arc::new(RwLock::new(CommandRegistry::new()));
@@ -215,6 +290,60 @@ impl AppState {
                 approval_service.clone(),
                 sandbox_manager.clone(),
             );
+
+        // Build FragmentRegistry with built-in SystemPromptFragment
+        // (matches production AppState::new() registration)
+        let fragment_registry = Arc::new(FragmentRegistry::new());
+        fragment_registry
+            .register(Arc::new(SystemPromptFragment::new(
+                "You are Synthia, an AI coding assistant. Help the user with their tasks.",
+            )))
+            .await
+            .expect("failed to register SystemPromptFragment");
+
+        // Build SkillRegistry with built-in skills
+        let skill_registry = Arc::new(SkillRegistry::new());
+        {
+            use synthia_core::tool::builtin_skills::{
+                CodingSkill,
+                DebugSkill,
+                SearchSkill,
+            };
+            skill_registry
+                .register(Arc::new(CodingSkill)
+                    as Arc<dyn synthia_core::tool::skill_registry::Skill>)
+                .await
+                .expect("failed to register CodingSkill");
+            skill_registry
+                .register(Arc::new(SearchSkill)
+                    as Arc<dyn synthia_core::tool::skill_registry::Skill>)
+                .await
+                .expect("failed to register SearchSkill");
+            skill_registry
+                .register(Arc::new(DebugSkill)
+                    as Arc<dyn synthia_core::tool::skill_registry::Skill>)
+                .await
+                .expect("failed to register DebugSkill");
+        }
+
+        // Build PluginRegistry (empty — plugins loaded on demand)
+        let plugin_registry = Arc::new(PluginRegistry::new());
+
+        // Build ExtensionRegistry (mirrors production configuration)
+        let core_tool_registry = Arc::new(CoreToolRegistry::new());
+        let extension_registry = ExtensionRegistry::with_all(
+            core_tool_registry,
+            Arc::clone(&fragment_registry),
+            Arc::clone(&skill_registry),
+            Arc::clone(&plugin_registry),
+        );
+
+        // Build InterceptorChain with default guard (mirrors production)
+        let interceptor_chain =
+            Arc::new(InterceptorChain::default_with_guard(None, None, None));
+
+        // Build RolloutTracker
+        let rollout_tracker = Arc::new(RolloutTracker::new());
 
         Self {
             tool_registry,
@@ -245,6 +374,10 @@ impl AppState {
             approval_service,
             sandbox_manager,
             tool_orchestrator,
+            extension_registry,
+            interceptor_chain,
+            rollout_tracker,
+            a2a_service: Arc::new(tokio::sync::OnceCell::new()),
         }
     }
 
@@ -281,6 +414,22 @@ impl AppState {
         broadcasters.remove(&key);
     }
 
+    /// Gets or lazily initializes the A2A service.
+    ///
+    /// Uses `OnceCell` to ensure only one `A2aService` is created.
+    /// The `Arc<Self>` is passed from the caller (route handler) because
+    /// `&self` cannot produce an `Arc<Self>`.
+    pub async fn a2a_service(
+        self: &Arc<Self>,
+        base_url: String,
+    ) -> &crate::a2a::A2aService {
+        self.a2a_service
+            .get_or_init(|| async {
+                crate::a2a::A2aService::new(self.clone(), base_url).await
+            })
+            .await
+    }
+
     /// Gets or creates a [`SessionController`] for `(user_id, session_id)`,
     /// restoring the session from the on-disk store if it is not already
     /// loaded in memory.
@@ -300,8 +449,8 @@ impl AppState {
     /// and an optional parent spawn depth.
     ///
     /// When `parent_depth` is `Some(d)`, the created controller's
-    /// `SubagentManager` will be configured with depth `d + 1` so that
-    /// `AgentTool::call` can enforce `max_depth` for nested spawns. When
+    /// sub-agent depth will be configured as `d + 1` so that
+    /// nested spawns can enforce `max_depth`. When
     /// `None`, the controller is treated as a root session (depth 0).
     pub async fn get_or_create_session_controller_with_parent(
         &self,
@@ -347,7 +496,10 @@ impl AppState {
             Arc::clone(&self.tool_orchestrator),
             Arc::new(AgentControl::new(Arc::new(AgentControlRegistry::new()))),
             child_depth,
-        );
+        )
+        .with_extension_registry(self.extension_registry.clone())
+        .with_interceptor_chain(Arc::clone(&self.interceptor_chain))
+        .with_rollout_tracker(Arc::clone(&self.rollout_tracker));
 
         let controller = SessionController::spawn(
             user_id,

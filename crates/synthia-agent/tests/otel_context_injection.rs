@@ -1,8 +1,7 @@
-#![allow(deprecated)]
 //! Integration test for OTel task-local context injection (Task 5).
 //!
 //! Verifies the `tokio::task_local` propagation pattern that
-//! `Agent::run_stream` / `Agent::run_stream_with_state` rely on to make
+//! `Agent::run_stream` relies on to make
 //! the six context values reachable by `SpanAttributesProcessor::on_start`.
 //!
 //! A full `Agent::run_stream` end-to-end test requires constructing an

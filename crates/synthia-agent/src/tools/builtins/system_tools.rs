@@ -179,6 +179,7 @@ impl ExecutableTool for SandboxedBashTool {
             tool_name: request.tool_name.clone(),
             outcome,
             is_error: false,
+            tool_id: request.tool_id,
         })
     }
 }

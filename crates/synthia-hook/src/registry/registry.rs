@@ -15,9 +15,11 @@ use indexmap::IndexMap;
 use ulid::Ulid;
 
 use super::{safety::get_hook_name, types::HookInfo};
+#[allow(deprecated)]
 use crate::{hook_trait::AgentHookAdapter, traits::AgentHook};
 
 pub struct HookRegistry {
+    #[allow(deprecated)]
     pub(super) hooks: RwLock<IndexMap<Ulid, Arc<dyn AgentHook>>>,
     pub(super) hook_info: RwLock<IndexMap<Ulid, HookInfo>>,
     pub(super) failed_hooks: RwLock<HashSet<Ulid>>,
@@ -34,6 +36,7 @@ impl HookRegistry {
         }
     }
 
+    #[allow(deprecated)]
     pub fn register_hook(
         &self,
         hook: Box<dyn AgentHook>,
@@ -102,6 +105,7 @@ impl HookRegistry {
     /// Snapshot all non-failed hooks, wrapping each in an
     /// [`AgentHookAdapter`] so they implement the new [`crate::Hook`]
     /// trait. Used by [`crate::UnifiedHookDispatcher::from_hook_registry`].
+    #[allow(deprecated)]
     pub fn snapshot_adapted_hooks(&self) -> Vec<Arc<dyn crate::Hook>> {
         let Ok(hooks) = self.hooks.read() else {
             return Vec::new();

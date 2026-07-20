@@ -33,7 +33,7 @@ use synthia_guardian::{
 };
 
 use crate::{
-    agent_instance::AgentStatus,
+    registry::instance::AgentStatus,
     subagent::{SubagentSessionError, SubagentSessionFactory},
 };
 
@@ -71,7 +71,7 @@ impl GuardianSubagentFactory for GuardianSubagentFactoryBridge {
         // subagents are review workers, not user-facing nested agents).
         // Pass 0 so the inner factory treats this as a root-context
         // spawn. The depth limit is enforced on the user-facing
-        // `AgentTool::call` path, not here.
+        // sub-agent call, not here.
         //
         // `maybe_id` is `None` because the guardian bridge does not
         // need to register the child session for subtree cancellation
@@ -108,7 +108,11 @@ mod tests {
     use std::sync::Mutex;
 
     use super::*;
-    use crate::agent_instance::{AgentResult, AgentStatus, AgentTokenUsage};
+    use crate::registry::instance::{
+        AgentResult,
+        AgentStatus,
+        AgentTokenUsage,
+    };
 
     /// Mock `SubagentSessionFactory` that returns a canned `AgentResult`.
     ///

@@ -10,6 +10,7 @@ pub mod config;
 #[cfg(test)]
 mod config_test;
 pub mod estimator;
+pub mod fragment_delegation;
 pub mod injector;
 pub mod prefix_tracker;
 pub mod prompt;

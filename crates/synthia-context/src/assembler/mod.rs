@@ -44,6 +44,7 @@ mod trim;
 mod types;
 
 #[cfg(test)]
+#[allow(deprecated)]
 mod tests;
 
 pub use types::{ContextAssembler, SectionPriorities};

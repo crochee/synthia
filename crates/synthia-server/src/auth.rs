@@ -1,7 +1,7 @@
-//! V2 API authentication middleware.
+//! API authentication middleware.
 //!
 //! Checks for a Bearer token in the Authorization header against a configured API key.
-//! Paths like /health and /api/v2/health bypass authentication.
+//! Health check and A2A discovery paths bypass authentication.
 
 use axum::{
     body::Body,
@@ -12,7 +12,7 @@ use axum::{
 use synthia_core::{ErrorCode, UserError};
 
 /// Paths that bypass authentication.
-const PUBLIC_PATHS: &[&str] = &["/health", "/api/v2/health"];
+const PUBLIC_PATHS: &[&str] = &["/health", "/.well-known/agent-card.json"];
 
 /// Extract the configured API key from environment.
 fn get_api_key() -> String {
@@ -26,7 +26,7 @@ fn is_public_path(path: &str) -> bool {
     })
 }
 
-/// Auth middleware for v2 API routes.
+/// Auth middleware for API routes.
 ///
 /// Validates `Bearer <token>` against the configured SYNTHIA_API_KEY.
 /// If no key is configured, all requests are allowed.
@@ -36,7 +36,7 @@ pub async fn auth_middleware(
 ) -> impl IntoResponse {
     let path = request.uri().path();
 
-    // Allow health check paths
+    // Allow public paths (health check, A2A discovery)
     if is_public_path(path) {
         return next.run(request).await;
     }
@@ -84,8 +84,8 @@ mod tests {
     fn test_public_path_matching() {
         assert!(is_public_path("/health"));
         assert!(is_public_path("/health/check"));
-        assert!(is_public_path("/api/v2/health"));
-        assert!(!is_public_path("/api/v2/providers"));
-        assert!(!is_public_path("/api/v1/chat"));
+        assert!(is_public_path("/.well-known/agent-card.json"));
+        assert!(!is_public_path("/api/providers"));
+        assert!(!is_public_path("/api/sessions"));
     }
 }

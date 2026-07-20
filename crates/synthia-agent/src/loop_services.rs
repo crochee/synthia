@@ -4,12 +4,11 @@
 //! Required services are resolved at bootstrap time; missing required
 //! services cause a hard failure. Optional services degrade to no-op
 //! fallbacks with a `tracing::warn` log.
-//!
-//! Feature-gated behind `unified-registry`.
 
 use std::sync::Arc;
 
 use synthia_context::assembler::ContextAssembler;
+use synthia_core::tool::rollout::RolloutTracker;
 use synthia_hook::{HookRegistry, LoopDetector, UnifiedHookDispatcher};
 use synthia_memory::types::MemoryEvent;
 use synthia_permission::ApprovalService;
@@ -61,6 +60,12 @@ pub struct LoopServices {
     /// Promoted from `BuilderSteps` to `LoopServices` so that the
     /// dispatcher is accessible to all parts of the loop.
     pub hook_dispatcher: Arc<synthia_hook::UnifiedHookDispatcher>,
+    /// Output bound configuration for tool result truncation.
+    /// When `None`, tool output passes through unchanged.
+    pub output_bound: Option<synthia_core::tool::OutputBound>,
+    /// Rollout tracker — tracks file changes and token usage during
+    /// the agent loop. `None` = no rollout tracking.
+    pub rollout: Option<Arc<RolloutTracker>>,
 }
 
 /// Bootstrap configuration for constructing [`LoopServices`].
@@ -86,6 +91,10 @@ pub struct LoopServicesConfig {
     pub goal_admission: Option<Arc<dyn synthia_goal_service::GoalService>>,
     pub goal_tracker: Option<Arc<dyn synthia_service::goal::GoalService>>,
     pub hook_dispatcher: Arc<synthia_hook::UnifiedHookDispatcher>,
+    /// Output bound configuration for tool result truncation.
+    pub output_bound: Option<synthia_core::tool::OutputBound>,
+    /// Rollout tracker — tracks file changes and token usage.
+    pub rollout: Option<Arc<RolloutTracker>>,
 }
 
 /// Bootstrap error — a required service was missing.
@@ -190,6 +199,13 @@ impl LoopServices {
         // ── Hook dispatcher: construct from hooks + LoopDetector ──
         let hook_dispatcher = config.hook_dispatcher;
 
+        let output_bound = config.output_bound;
+        if output_bound.is_none() {
+            tracing::debug!("output bound not provided");
+        }
+
+        let rollout = config.rollout;
+
         Ok(Self {
             session,
             permission,
@@ -207,6 +223,8 @@ impl LoopServices {
             goal_admission,
             goal_tracker,
             hook_dispatcher,
+            output_bound,
+            rollout,
         })
     }
 
@@ -240,6 +258,8 @@ impl LoopServices {
                 dispatcher.add_hook(Arc::new(LoopDetector::new()));
                 Arc::new(dispatcher)
             },
+            output_bound: Some(synthia_core::tool::OutputBound::default()),
+            rollout: run_config.rollout_tracker.clone(),
         }
     }
 }
@@ -283,6 +303,8 @@ mod tests {
             goal_admission: None,
             goal_tracker: None,
             hook_dispatcher: test_hook_dispatcher(),
+            output_bound: None,
+            rollout: None,
         };
         let services = LoopServices::bootstrap(config).unwrap();
         assert!(services.memory.is_none());
@@ -290,6 +312,8 @@ mod tests {
         assert!(services.steering.is_none());
         assert!(services.goal_admission.is_none());
         assert!(services.goal_tracker.is_none());
+        assert!(services.output_bound.is_none());
+        assert!(services.rollout.is_none());
     }
 
     #[test]
@@ -314,6 +338,8 @@ mod tests {
             goal_admission: None,
             goal_tracker: None,
             hook_dispatcher: test_hook_dispatcher(),
+            output_bound: None,
+            rollout: None,
         };
         let services = LoopServices::bootstrap(config).unwrap();
         assert!(services.memory.is_some());

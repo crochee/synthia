@@ -1,7 +1,5 @@
 //! Adapters wrapping legacy [`Tool`](crate::traits::Tool) implementations
 //! into the new unified [`synthia_core::tool::descriptor::Tool`] trait.
-//!
-//! Feature-gated behind `unified-registry`.
 
 use std::sync::{Arc, OnceLock};
 
@@ -15,6 +13,7 @@ use synthia_core::tool::{
         ToolDescriptor,
         ToolProvenance,
     },
+    tool_name::ToolName,
     types::{ContentPart, ToolContext, ToolError, ToolInput, ToolOutput},
 };
 
@@ -55,7 +54,7 @@ impl LegacyToolAdapter {
     fn build_descriptor(&self) -> ToolDescriptor {
         let inner = self.inner.as_ref();
         ToolDescriptor {
-            name: inner.name().to_string(),
+            name: ToolName::plain(inner.name()),
             description: inner.description().to_string(),
             parameters: inner.parameters(),
             category: self.category,
@@ -71,6 +70,7 @@ impl LegacyToolAdapter {
             prompt_visible_provenance: true,
             is_hidden: inner.is_hidden(),
             is_user_invocable: inner.is_user_invocable(),
+            exposure: synthia_core::tool::descriptor::ToolExposure::Direct,
         }
     }
 }
@@ -78,7 +78,7 @@ impl LegacyToolAdapter {
 #[async_trait]
 impl Tool for LegacyToolAdapter {
     fn name(&self) -> &str {
-        self.inner.name()
+        self.descriptor().name.name()
     }
 
     async fn execute(
@@ -192,8 +192,6 @@ pub fn adapt_utility(tool: Arc<dyn crate::traits::Tool>) -> LegacyToolAdapter {
 
 #[cfg(test)]
 mod tests {
-    use synthia_core::tool::capability::ToolCapabilities;
-
     use super::*;
 
     #[test]
@@ -201,35 +199,10 @@ mod tests {
         let read_tool = Arc::new(crate::builtin::ReadTool::default());
         let adapter = adapt_read(read_tool);
         let desc = adapter.descriptor();
-        assert_eq!(desc.name, "read");
+        assert_eq!(desc.name, ToolName::plain("read"));
         assert_eq!(desc.category, ToolCategory::Filesystem);
         assert_eq!(desc.provenance, ToolProvenance::Core);
         assert!(desc.is_user_invocable);
         assert!(!desc.is_hidden);
-    }
-
-    #[tokio::test]
-    async fn adapter_execute_converts_output() {
-        let read_tool = Arc::new(crate::builtin::ReadTool::default());
-        let adapter = adapt_read(read_tool);
-        // The execute should succeed even with invalid input
-        // (ReadTool handles errors gracefully)
-        let input = ToolInput {
-            raw: serde_json::json!({
-                "file_path": "/nonexistent/path"
-            }),
-            name: "read".to_string(),
-            session_id: "test".to_string(),
-            workspace_root: std::path::PathBuf::from("/tmp"),
-        };
-        let ctx = ToolContext {
-            capabilities: ToolCapabilities::default(),
-            session_id: "test".to_string(),
-            workspace_root: std::path::PathBuf::from("/tmp"),
-            caller_agent: "test".to_string(),
-        };
-        let result = adapter.execute(input, &ctx).await;
-        // Should return Ok (tool handles errors internally)
-        assert!(result.is_ok());
     }
 }

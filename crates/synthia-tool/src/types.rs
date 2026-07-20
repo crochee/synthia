@@ -144,3 +144,16 @@ impl From<String> for ToolOutput {
         Self::text(content)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn execution_context_new_defaults() {
+        let ctx = ToolExecutionContext::new("s1".into(), PathBuf::from("/tmp"));
+        assert_eq!(ctx.session_id, "s1");
+        assert_eq!(ctx.caller_agent, "default");
+        assert!(ctx.messages.is_empty());
+    }
+}

@@ -69,6 +69,7 @@ async fn read_file_and_write_file_round_trip_through_orchestrator() {
             "content": "Hello, Synthia!"
         }),
         permission: Permission::AutoApprove,
+        tool_id: None,
     };
     let write_result = orchestrator
         .execute(
@@ -87,6 +88,7 @@ async fn read_file_and_write_file_round_trip_through_orchestrator() {
             "file_path": workspace.join("hello.txt").to_str().unwrap()
         }),
         permission: Permission::AutoApprove,
+        tool_id: None,
     };
     let read_result = orchestrator
         .execute(
@@ -136,6 +138,7 @@ fn bash_test_request(call_id: &str, command: &str) -> ToolCallRequest {
         tool_name: "bash".to_string(),
         arguments: serde_json::json!({ "command": command }),
         permission: Permission::AutoApprove,
+        tool_id: None,
     }
 }
 

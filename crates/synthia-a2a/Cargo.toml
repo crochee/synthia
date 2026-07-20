@@ -1,0 +1,25 @@
+[package]
+name = "synthia-a2a"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+a2a-lf = "0.3"
+a2a-client-lf = "0.2"
+a2a-server-lf = "0.4"
+async-trait = "0.1"
+dashmap = "6"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "2"
+tokio = { version = "1", features = ["full"] }
+tokio-util = { version = "0.7", features = ["rt"] }
+tracing = "0.1"
+url = "2"
+uuid = { version = "1", features = ["v4"] }
+
+synthia-agent = { path = "../synthia-agent" }
+synthia-tool = { path = "../synthia-tool" }
+
+[dev-dependencies]
+tokio = { version = "1", features = ["test-util", "macros"] }

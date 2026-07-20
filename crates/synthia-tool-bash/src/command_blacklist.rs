@@ -222,10 +222,6 @@ impl CommandBlacklist {
     }
 }
 
-/// Backwards-compatible type alias. New code should use `CommandBlacklist`.
-#[deprecated(note = "Use CommandBlacklist instead")]
-pub type Sandbox = CommandBlacklist;
-
 #[cfg(test)]
 mod tests {
     use super::*;

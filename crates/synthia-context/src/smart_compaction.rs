@@ -133,7 +133,6 @@ impl CompactionMessage {
 /// Smart compaction agent that orchestrates LLM-driven context compression.
 pub struct SmartCompactionAgent<P: CompactionProvider> {
     provider: P,
-    #[allow(dead_code)]
     max_summary_tokens: usize,
 }
 
@@ -168,9 +167,9 @@ impl<P: CompactionProvider> SmartCompactionAgent<P> {
             .await
         {
             Ok(summary) if !summary.is_empty() => {
-                if summary.chars().count() > MAX_SUMMARY_TOKENS * 4 {
+                if summary.chars().count() > self.max_summary_tokens * 4 {
                     // Truncate to max_summary_tokens
-                    Ok(truncate_to_chars(&summary, MAX_SUMMARY_TOKENS))
+                    Ok(truncate_to_chars(&summary, self.max_summary_tokens))
                 } else {
                     Ok(summary)
                 }

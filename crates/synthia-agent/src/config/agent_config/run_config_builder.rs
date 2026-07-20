@@ -11,7 +11,10 @@ use synthia_context::{
     assembler::ContextAssembler,
     compaction::level1::CompactionProvider,
 };
-use synthia_core::Error;
+use synthia_core::{
+    Error,
+    tool::{extension_registry::ExtensionRegistry, rollout::RolloutTracker},
+};
 use synthia_hook::HookRegistry;
 use synthia_memory::types::MemoryEvent;
 use synthia_permission::ApprovalService;
@@ -27,6 +30,7 @@ use super::{agent_config::AgentConfig, run_config::AgentRunConfig};
 use crate::{
     control::{AgentControl, fork_policy::ForkPolicy},
     input::AgentInput,
+    interceptor::InterceptorChain,
     steering::SteeringChannel,
     subagent::SubagentSessionFactory,
 };
@@ -56,6 +60,9 @@ pub struct AgentRunConfigBuilder {
     tool_orchestrator: Option<Arc<dyn ToolOrchestrator>>,
     guardian_coordinator: Option<Arc<synthia_guardian::GuardianCoordinator>>,
     extension_manager: Option<crate::tools::dynamic_provider::ExtensionManager>,
+    extension_registry: Option<ExtensionRegistry>,
+    rollout_tracker: Option<Arc<RolloutTracker>>,
+    interceptor_chain: Option<Arc<InterceptorChain>>,
 }
 
 impl AgentRunConfigBuilder {
@@ -225,6 +232,31 @@ impl AgentRunConfigBuilder {
         self
     }
 
+    /// Inject the unified [`ExtensionRegistry`] for the Registry-First
+    /// architecture. When `Some`, this becomes the primary extension
+    /// interface; when `None` (the default), legacy per-field registries
+    /// are used.
+    pub fn extension_registry(mut self, registry: ExtensionRegistry) -> Self {
+        self.extension_registry = Some(registry);
+        self
+    }
+
+    /// Inject the [`RolloutTracker`] for tracking file changes and
+    /// token usage during the agent loop. `None` (the default) disables
+    /// rollout tracking.
+    pub fn rollout_tracker(mut self, tracker: Arc<RolloutTracker>) -> Self {
+        self.rollout_tracker = Some(tracker);
+        self
+    }
+
+    /// Inject the [`InterceptorChain`] for cross-cutting concerns
+    /// (permission, loop detection, approval, etc.). `None` (the default)
+    /// disables interceptor dispatch in the main loop.
+    pub fn interceptor_chain(mut self, chain: Arc<InterceptorChain>) -> Self {
+        self.interceptor_chain = Some(chain);
+        self
+    }
+
     pub fn build(self) -> Result<AgentRunConfig, Error> {
         let user_id = self.user_id.ok_or_else(|| {
             Error::Validation("missing required field: user_id".into())
@@ -282,7 +314,9 @@ impl AgentRunConfigBuilder {
             tool_orchestrator: self.tool_orchestrator,
             guardian_coordinator: self.guardian_coordinator,
             extension_manager: self.extension_manager,
-            #[cfg(feature = "unified-registry")]
+            extension_registry: self.extension_registry,
+            rollout_tracker: self.rollout_tracker,
+            interceptor_chain: self.interceptor_chain,
             loop_services: std::sync::OnceLock::new(),
         })
     }

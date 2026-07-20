@@ -1,7 +1,3 @@
-mod commands;
-mod handlers;
-mod mcp_handlers;
-mod providers;
 mod router;
 
 #[cfg(test)]

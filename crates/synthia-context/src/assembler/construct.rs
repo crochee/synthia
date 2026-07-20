@@ -16,6 +16,10 @@ use crate::{injector::ContextInjector, protector::ProtectionZone};
 impl ContextAssembler {
     /// Create a new assembler with the given `max_tokens`
     /// budget. All other buffers start empty.
+    #[deprecated(
+        since = "0.13.0",
+        note = "Use FragmentRegistry::render_active() instead. See ExtensionRegistry for the Registry-First architecture."
+    )]
     pub fn new(max_tokens: usize) -> Self {
         Self {
             system_prompt: None,
@@ -36,6 +40,10 @@ impl ContextAssembler {
     }
 
     /// Set the system prompt (highest-priority section).
+    #[deprecated(
+        since = "0.13.0",
+        note = "Use FragmentRegistry::render_active() instead. See ExtensionRegistry for the Registry-First architecture."
+    )]
     pub fn with_system_prompt(mut self, prompt: String) -> Self {
         self.system_prompt = Some(prompt);
         self
@@ -43,6 +51,10 @@ impl ContextAssembler {
 
     /// Override the protection zone (recent-message guard
     /// used by [`super::pipeline::ContextAssembler::prepare`]).
+    #[deprecated(
+        since = "0.13.0",
+        note = "Use FragmentRegistry::render_active() instead. See ExtensionRegistry for the Registry-First architecture."
+    )]
     pub fn with_protection_zone(mut self, zone: ProtectionZone) -> Self {
         self.protection_zone = zone;
         self
@@ -51,6 +63,10 @@ impl ContextAssembler {
     /// Set a custom [`TokenCounter`] (provider-specific). If
     /// unset, [`super::assemble::ContextAssembler::estimate_total_tokens`]
     /// falls back to the `estimate_message_tokens` heuristic.
+    #[deprecated(
+        since = "0.13.0",
+        note = "Use FragmentRegistry::render_active() instead. See ExtensionRegistry for the Registry-First architecture."
+    )]
     pub fn with_token_counter(
         mut self,
         counter: Box<dyn TokenCounter>,
@@ -60,12 +76,20 @@ impl ContextAssembler {
     }
 
     /// Add a context injector to the assembler.
+    #[deprecated(
+        since = "0.13.0",
+        note = "Use FragmentRegistry::render_active() instead. See ExtensionRegistry for the Registry-First architecture."
+    )]
     pub fn with_injector(mut self, injector: Box<dyn ContextInjector>) -> Self {
         self.injectors.push(injector);
         self
     }
 
     /// Add multiple context injectors at once.
+    #[deprecated(
+        since = "0.13.0",
+        note = "Use FragmentRegistry::render_active() instead. See ExtensionRegistry for the Registry-First architecture."
+    )]
     pub fn with_injectors(
         mut self,
         injectors: Vec<Box<dyn ContextInjector>>,
@@ -75,12 +99,20 @@ impl ContextAssembler {
     }
 
     /// Set workspace info content.
+    #[deprecated(
+        since = "0.13.0",
+        note = "Use FragmentRegistry::render_active() instead. See ExtensionRegistry for the Registry-First architecture."
+    )]
     pub fn with_workspace_info(mut self, info: String) -> Self {
         self.workspace_info = Some(info);
         self
     }
 
     /// Set priority configuration overrides.
+    #[deprecated(
+        since = "0.13.0",
+        note = "Use FragmentRegistry::render_active() instead. See ExtensionRegistry for the Registry-First architecture."
+    )]
     pub fn with_priorities(mut self, priorities: SectionPriorities) -> Self {
         self.priorities = priorities;
         self

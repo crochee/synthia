@@ -9,10 +9,12 @@ use std::{sync::Weak, time::Duration};
 use async_trait::async_trait;
 use synthia_agent::{
     AgentEvent,
+    AgentResult,
+    AgentStatus,
+    AgentTokenUsage,
     ChildSessionHandle,
     SubagentSessionError,
     SubagentSessionFactory,
-    agent_instance::{AgentResult, AgentStatus, AgentTokenUsage},
     events::SessionEndReason,
     truncate_summary,
 };
@@ -64,10 +66,9 @@ impl SubagentSessionFactory for AppStateSubagentFactory {
             })?;
 
         // Create the child controller with `parent_depth` so the
-        // child's `SubagentManager` is configured with depth
-        // `parent_depth + 1`. This closes the depth-propagation gap:
-        // `max_depth` enforcement in `AgentTool::call` now works for
-        // nested spawns in production (not just the parent side).
+        // child's sub-agent depth is configured as `parent_depth + 1`.
+        // This closes the depth-propagation gap for nested spawns
+        // in production (not just the parent side).
         let _controller = state
             .get_or_create_session_controller_with_parent(
                 &user_id,

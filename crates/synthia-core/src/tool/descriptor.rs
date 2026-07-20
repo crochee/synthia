@@ -3,7 +3,10 @@
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 
-use crate::tool::types::{ToolContext, ToolError, ToolInput, ToolOutput};
+use crate::tool::{
+    tool_name::ToolName,
+    types::{ToolContext, ToolError, ToolInput, ToolOutput},
+};
 
 /// Unified Tool trait — 3 methods only.
 ///
@@ -29,7 +32,7 @@ pub trait Tool: Send + Sync + 'static {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ToolDescriptor {
     /// Tool name (may be namespaced: `plugin:<id>:<name>`).
-    pub name: String,
+    pub name: ToolName,
     /// Human-readable description for LLM.
     pub description: String,
     /// JSON Schema for tool parameters.
@@ -57,6 +60,9 @@ pub struct ToolDescriptor {
     /// Whether the LLM can invoke this tool directly.
     #[serde(default = "default_true")]
     pub is_user_invocable: bool,
+    /// 工具曝光级别
+    #[serde(default)]
+    pub exposure: ToolExposure,
 }
 
 fn default_true() -> bool {
@@ -118,6 +124,20 @@ pub enum ExecutionMode {
     Parallel,
     /// Must run alone, after preceding tools complete.
     Sequential,
+}
+
+/// 工具曝光级别 — 控制工具何时对 LLM 可见。
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize,
+)]
+pub enum ToolExposure {
+    /// 始终可见，完整 schema 发送给 LLM
+    #[default]
+    Direct,
+    /// 首次调用时才加载完整定义；发送给 LLM 的只有 name + description
+    Deferred,
+    /// 不对 LLM 可见，只能通过 Skill 或程序调用
+    Hidden,
 }
 
 /// Cancellation behavior.
