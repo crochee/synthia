@@ -126,10 +126,9 @@ interface SessionMeta {
 }
 
 function SegmentView({ segment }: { segment: MessageSegment }) {
-  // thinking: default expanded (user should see reasoning)
-  // tool_call: default collapsed (input JSON is noisy)
-  const defaultExpanded = segment.type === 'thinking';
-  const [expanded, setExpanded] = useState(segment.expanded ?? defaultExpanded);
+  // Both thinking and tool_call default to collapsed so they
+  // don't dominate the viewport — user clicks to reveal.
+  const [expanded, setExpanded] = useState(segment.expanded ?? false);
 
   const isCollapsible = segment.type === 'thinking' || segment.type === 'tool_call';
 
