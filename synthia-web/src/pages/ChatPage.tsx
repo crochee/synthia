@@ -5,7 +5,6 @@ import { Card } from '../components/ui/Card';
 import { taskStateToJSON } from '@a2a-js/sdk';
 import {
   sendMessageStream,
-  extractPartText,
   extractFromMessage,
   extractPartWithMetadata,
   type A2AStreamEvent,
