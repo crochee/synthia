@@ -63,6 +63,17 @@ fn default_model() -> String {
     "gpt-4o".to_string()
 }
 
+/// Read an environment variable, returning the fallback if it is unset
+/// or empty. Used so that empty `OPENAI_MODEL=""` does not silently
+/// override the built-in default.
+fn env_or(key: &str, fallback: &str) -> String {
+    std::env::var(key)
+        .ok()
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+        .unwrap_or_else(|| fallback.to_string())
+}
+
 impl Default for WorkspaceConfig {
     fn default() -> Self {
         Self {
@@ -74,6 +85,13 @@ impl Default for WorkspaceConfig {
 }
 
 impl WorkspaceConfig {
+    /// Load configuration from `<workspace_root>/.agents/config.toml`,
+    /// falling back to environment variables when the file is missing.
+    ///
+    /// Panics if neither a config file nor any provider environment
+    /// variables are present — running without a model provider is a
+    /// hard configuration error and silently degrading to the
+    /// built-in defaults would mask operator mistakes.
     pub fn load_from_dir(workspace_root: &Path) -> Result<Self, Error> {
         let config_path = workspace_root.join(".agents").join("config.toml");
         if config_path.exists() {
@@ -83,7 +101,15 @@ impl WorkspaceConfig {
                 .map_err(|e| Error::Parse(e.to_string()))?;
             Ok(config)
         } else {
-            Ok(Self::from_env())
+            let config = Self::from_env();
+            if config.providers.is_empty() {
+                panic!(
+                    "Synthia provider configuration missing: no .agents/config.toml found and no \
+                     OPENAI_API_KEY/OPENAI_BASE_URL/ANTHROPIC_API_KEY environment variables \
+                     are set. Provide one of these to start the server."
+                );
+            }
+            Ok(config)
         }
     }
 
@@ -93,13 +119,14 @@ impl WorkspaceConfig {
         if std::env::var("OPENAI_API_KEY").is_ok()
             || std::env::var("OPENAI_BASE_URL").is_ok()
         {
+            let default_model = env_or("OPENAI_MODEL", "gpt-4o");
             providers.insert(
                 "openai".to_string(),
                 ProviderEntry {
                     r#type: "openai".to_string(),
                     base_url: std::env::var("OPENAI_BASE_URL").ok(),
                     api_key_env: "OPENAI_API_KEY".to_string(),
-                    default_model: Some("gpt-4o".to_string()),
+                    default_model: Some(default_model),
                     context_window: Some(128_000),
                     max_output_tokens: Some(4096),
                     supports_tools: Some(true),
@@ -110,13 +137,15 @@ impl WorkspaceConfig {
         }
 
         if std::env::var("ANTHROPIC_API_KEY").is_ok() {
+            let default_model =
+                env_or("ANTHROPIC_MODEL", "claude-sonnet-4-20250514");
             providers.insert(
                 "anthropic".to_string(),
                 ProviderEntry {
                     r#type: "anthropic".to_string(),
                     base_url: std::env::var("ANTHROPIC_BASE_URL").ok(),
                     api_key_env: "ANTHROPIC_API_KEY".to_string(),
-                    default_model: Some("claude-sonnet-4-20250514".to_string()),
+                    default_model: Some(default_model),
                     context_window: Some(200_000),
                     max_output_tokens: Some(8192),
                     supports_tools: Some(true),
@@ -327,5 +356,174 @@ default_model = "claude-sonnet-4-20250514"
         );
         let providers = config.available_providers();
         assert!(providers.contains(&"openai".to_string()));
+    }
+
+    #[test]
+    fn test_env_or_returns_fallback_when_unset() {
+        #[allow(unsafe_code)]
+        unsafe {
+            std::env::remove_var("SYNTHIA_TEST_ENV_OR_MISSING")
+        };
+        assert_eq!(
+            env_or("SYNTHIA_TEST_ENV_OR_MISSING", "fallback"),
+            "fallback"
+        );
+    }
+
+    #[test]
+    fn test_env_or_returns_value_when_set() {
+        #[allow(unsafe_code)]
+        unsafe {
+            std::env::set_var("SYNTHIA_TEST_ENV_OR_PRESENT", "gpt-test")
+        };
+        assert_eq!(
+            env_or("SYNTHIA_TEST_ENV_OR_PRESENT", "fallback"),
+            "gpt-test"
+        );
+        #[allow(unsafe_code)]
+        unsafe {
+            std::env::remove_var("SYNTHIA_TEST_ENV_OR_PRESENT")
+        };
+    }
+
+    #[test]
+    fn test_env_or_ignores_empty_value() {
+        #[allow(unsafe_code)]
+        unsafe {
+            std::env::set_var("SYNTHIA_TEST_ENV_OR_EMPTY", "   ")
+        };
+        assert_eq!(env_or("SYNTHIA_TEST_ENV_OR_EMPTY", "fallback"), "fallback");
+        #[allow(unsafe_code)]
+        unsafe {
+            std::env::remove_var("SYNTHIA_TEST_ENV_OR_EMPTY")
+        };
+    }
+
+    #[test]
+    fn test_from_env_uses_openai_model_override() {
+        #[allow(unsafe_code)]
+        unsafe {
+            std::env::set_var("OPENAI_API_KEY", "test-key")
+        };
+        #[allow(unsafe_code)]
+        unsafe {
+            std::env::set_var("OPENAI_MODEL", "custom-model")
+        };
+        let config = WorkspaceConfig::from_env();
+        let openai = config.providers.get("openai").unwrap();
+        assert_eq!(openai.default_model.as_deref(), Some("custom-model"));
+        assert_eq!(config.default_model, "custom-model");
+        #[allow(unsafe_code)]
+        unsafe {
+            std::env::remove_var("OPENAI_MODEL")
+        };
+        #[allow(unsafe_code)]
+        unsafe {
+            std::env::remove_var("OPENAI_API_KEY")
+        };
+    }
+
+    #[test]
+    fn test_from_env_uses_anthropic_model_override() {
+        #[allow(unsafe_code)]
+        unsafe {
+            std::env::set_var("ANTHROPIC_API_KEY", "test-key")
+        };
+        #[allow(unsafe_code)]
+        unsafe {
+            std::env::set_var("ANTHROPIC_MODEL", "custom-claude")
+        };
+        let config = WorkspaceConfig::from_env();
+        let anthropic = config.providers.get("anthropic").unwrap();
+        assert_eq!(anthropic.default_model.as_deref(), Some("custom-claude"));
+        #[allow(unsafe_code)]
+        unsafe {
+            std::env::remove_var("ANTHROPIC_MODEL")
+        };
+        #[allow(unsafe_code)]
+        unsafe {
+            std::env::remove_var("ANTHROPIC_API_KEY")
+        };
+    }
+
+    #[test]
+    fn test_from_env_returns_empty_providers_when_unset() {
+        // Save and clear every provider env var so the test is hermetic.
+        let saved: Vec<(&'static str, Option<String>)> = [
+            "OPENAI_API_KEY",
+            "OPENAI_BASE_URL",
+            "OPENAI_MODEL",
+            "ANTHROPIC_API_KEY",
+            "ANTHROPIC_BASE_URL",
+            "ANTHROPIC_MODEL",
+        ]
+        .iter()
+        .map(|k| (*k, std::env::var(k).ok()))
+        .collect();
+        for (k, _) in &saved {
+            #[allow(unsafe_code)]
+            unsafe {
+                std::env::remove_var(k)
+            };
+        }
+        let config = WorkspaceConfig::from_env();
+        assert!(
+            config.providers.is_empty(),
+            "expected no providers when no env vars are set"
+        );
+        for (k, v) in saved {
+            #[allow(unsafe_code)]
+            match v {
+                Some(value) => unsafe { std::env::set_var(k, value) },
+                None => unsafe { std::env::remove_var(k) },
+            }
+        }
+    }
+
+    #[test]
+    fn test_load_from_dir_panics_without_config_or_env() {
+        use std::panic;
+
+        let saved: Vec<(&'static str, Option<String>)> = [
+            "OPENAI_API_KEY",
+            "OPENAI_BASE_URL",
+            "OPENAI_MODEL",
+            "ANTHROPIC_API_KEY",
+            "ANTHROPIC_BASE_URL",
+            "ANTHROPIC_MODEL",
+        ]
+        .iter()
+        .map(|k| (*k, std::env::var(k).ok()))
+        .collect();
+        for (k, _) in &saved {
+            #[allow(unsafe_code)]
+            unsafe {
+                std::env::remove_var(k)
+            };
+        }
+
+        // Use a workspace root that definitely has no .agents/config.toml.
+        let dir = tempfile_env_root();
+        let result = panic::catch_unwind(|| {
+            let _ = WorkspaceConfig::load_from_dir(&dir);
+        });
+        assert!(result.is_err(), "expected panic on missing config");
+
+        for (k, v) in saved {
+            #[allow(unsafe_code)]
+            match v {
+                Some(value) => unsafe { std::env::set_var(k, value) },
+                None => unsafe { std::env::remove_var(k) },
+            }
+        }
+    }
+
+    fn tempfile_env_root() -> std::path::PathBuf {
+        // Cargo's target dir is always present and never contains a
+        // .agents/config.toml, so we can use it as a "no config here" workspace.
+        std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("..")
+            .join("..")
+            .join("target")
     }
 }

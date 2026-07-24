@@ -44,7 +44,7 @@ use super::{
 };
 use crate::{
     approval::{ApprovalState, HttpApprovalService},
-    config::AuthConfig,
+    config::{AuthConfig, CorsConfig},
     event_stream::EventBroadcaster,
     mcp::McpService,
     scheduler::JobScheduler,
@@ -72,6 +72,11 @@ pub struct AppState {
     /// `AuthLayer` reads `api_keys` / `key_to_user` from this and
     /// surfaces a `RequestUserId` extension on every request.
     pub auth_config: Arc<AuthConfig>,
+    /// CORS configuration shared with the router.
+    /// Read by `build_cors_layer` to attach a `CorsLayer` to the
+    /// `Router` so browser clients (e.g. synthia-web on
+    /// http://localhost:5173) can call the API and A2A endpoints.
+    pub cors_config: Arc<CorsConfig>,
     /// Per-session event broadcasters for SSE/WebSocket streaming,
     /// keyed by `(user_id, session_id)`.
     event_broadcasters:
@@ -101,6 +106,9 @@ pub struct AppState {
     pub rollout_tracker: Arc<RolloutTracker>,
     /// A2A protocol service (lazy-initialized).
     a2a_service: Arc<tokio::sync::OnceCell<crate::a2a::A2aService>>,
+    /// User-facing settings (provider, model, api key) with
+    /// optional JSON-file persistence so values survive reloads.
+    pub settings: Arc<crate::routes::settings::SettingsStore>,
 }
 
 impl AppState {
@@ -143,6 +151,7 @@ impl AppState {
         let job_scheduler = Arc::new(JobScheduler::new(job_registry));
 
         let auth_config = Arc::new(load_auth_config(&workspace_root));
+        let cors_config = Arc::new(load_cors_config(&workspace_root));
 
         let approval_state = Arc::new(ApprovalState::new());
         let approval_service: Arc<dyn ApprovalService> =
@@ -210,6 +219,11 @@ impl AppState {
         // Build RolloutTracker
         let rollout_tracker = Arc::new(RolloutTracker::new());
 
+        let settings =
+            Arc::new(crate::routes::settings::SettingsStore::from_path(
+                workspace_root.join(".synthia").join("settings.json"),
+            ));
+
         Arc::new_cyclic(|weak| Self {
             tool_registry,
             hook_registry,
@@ -225,6 +239,7 @@ impl AppState {
             workspace_config,
             default_provider,
             auth_config,
+            cors_config,
             event_broadcasters: Arc::new(RwLock::new(HashMap::new())),
             active_sessions: Arc::new(DashMap::new()),
             agent_registry: Arc::new(AgentRegistry::new()),
@@ -240,6 +255,7 @@ impl AppState {
             interceptor_chain,
             rollout_tracker,
             a2a_service: Arc::new(tokio::sync::OnceCell::new()),
+            settings,
         })
     }
 
@@ -278,6 +294,7 @@ impl AppState {
         let job_scheduler = Arc::new(JobScheduler::new(job_registry));
 
         let auth_config = Arc::new(load_auth_config(&workspace_root));
+        let cors_config = Arc::new(load_cors_config(&workspace_root));
 
         let approval_state = Arc::new(ApprovalState::new());
         let approval_service: Arc<dyn ApprovalService> =
@@ -360,6 +377,7 @@ impl AppState {
             workspace_config,
             default_provider,
             auth_config,
+            cors_config,
             event_broadcasters: Arc::new(RwLock::new(HashMap::new())),
             active_sessions: Arc::new(DashMap::new()),
             agent_registry: Arc::new(AgentRegistry::new()),
@@ -378,6 +396,7 @@ impl AppState {
             interceptor_chain,
             rollout_tracker,
             a2a_service: Arc::new(tokio::sync::OnceCell::new()),
+            settings: Arc::new(crate::routes::settings::SettingsStore::new()),
         }
     }
 
@@ -465,14 +484,25 @@ impl AppState {
         }
 
         if self.session_manager.get(session_id).await.is_none() {
-            self.session_manager
-                .restore(user_id, session_id)
+            // A2A flow: client may supply a fresh task_id without a
+            // pre-existing session. Create one eagerly so we never
+            // have to round-trip through the metadata restore path.
+            if let Err(create_err) = self
+                .session_manager
+                .create_with_user(session_id.to_string(), user_id.to_string())
                 .await
-                .map_err(|e| {
-                    crate::error::ServerError::SessionError(format!(
-                        "session '{session_id}' not found: {e}"
-                    ))
-                })?;
+            {
+                // Fall back to restore in case the store exposes a
+                // different surface; surface whichever error wins.
+                self.session_manager
+                    .restore(user_id, session_id)
+                    .await
+                    .map_err(|e| {
+                        crate::error::ServerError::SessionError(format!(
+                            "session '{session_id}' not found: create={create_err}; restore={e}"
+                        ))
+                    })?;
+            }
         }
 
         let child_depth = parent_depth.map(|d| d + 1).unwrap_or(0);
@@ -546,4 +576,33 @@ fn load_auth_config(workspace_root: &std::path::Path) -> AuthConfig {
         }
     }
     AuthConfig::default()
+}
+
+/// Load CORS configuration from workspace `config.toml` files.
+///
+/// Lookup order:
+/// 1. `{workspace_root}/config.toml` (primary).
+/// 2. `{workspace_root}/.synthia/config.toml` (alternate location).
+/// 3. `CorsConfig::default()` (which allows `http://localhost:5173`).
+fn load_cors_config(workspace_root: &std::path::Path) -> CorsConfig {
+    use crate::config::ServerConfig;
+
+    for candidate in [
+        workspace_root.join("config.toml"),
+        workspace_root.join(".synthia").join("config.toml"),
+    ] {
+        if candidate.exists() {
+            match ServerConfig::load(&candidate) {
+                Ok(cfg) => return cfg.cors,
+                Err(e) => {
+                    tracing::warn!(
+                        path = %candidate.display(),
+                        error = %e,
+                        "failed to load server config; using default CORS"
+                    );
+                }
+            }
+        }
+    }
+    CorsConfig::default()
 }

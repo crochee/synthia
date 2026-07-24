@@ -1,0 +1,121 @@
+.nt-chat {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  font-family: var(--font-mono);
+}
+
+.nt-chat__messages {
+  flex: 1;
+  overflow-y: auto;
+  padding: var(--spacing-md) 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-md);
+}
+
+.nt-chat__message {
+  padding: var(--spacing-md);
+  border-radius: var(--radius-md);
+  background: var(--bg-secondary);
+  border-left: 3px solid;
+  word-wrap: break-word;
+}
+
+.nt-chat__message--user {
+  border-left-color: var(--accent-green);
+  background: rgba(0, 255, 136, 0.03);
+}
+
+.nt-chat__message--assistant {
+  border-left-color: var(--accent-cyan);
+  background: rgba(0, 221, 255, 0.03);
+}
+
+.nt-chat__message-meta {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  margin-bottom: var(--spacing-sm);
+  font-size: var(--fs-xs);
+}
+
+.nt-chat__message-role {
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.nt-chat__message--user .nt-chat__message-role {
+  color: var(--accent-green);
+  text-shadow: var(--glow-green);
+}
+
+.nt-chat__message--assistant .nt-chat__message-role {
+  color: var(--accent-cyan);
+  text-shadow: var(--glow-cyan);
+}
+
+.nt-chat__message-status {
+  font-size: var(--fs-xs);
+  padding: 2px 6px;
+  border-radius: var(--radius-sm);
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.status-submitted,
+.status-working {
+  color: var(--accent-yellow);
+}
+
+.status-completed {
+  color: var(--accent-green);
+}
+
+.status-failed {
+  color: var(--accent-red);
+}
+
+.status-canceled,
+.status-input-required {
+  color: var(--accent-purple);
+}
+
+.nt-chat__message-content {
+  color: var(--text-primary);
+  font-size: var(--fs-base);
+  line-height: var(--lh-normal);
+  white-space: pre-wrap;
+}
+
+.nt-chat__form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-sm);
+  padding-top: var(--spacing-md);
+  border-top: 1px solid var(--border-subtle);
+}
+
+.nt-chat__input {
+  width: 100%;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-primary);
+  border-radius: var(--radius-sm);
+  color: var(--text-primary);
+  font-family: var(--font-mono);
+  font-size: var(--fs-base);
+  padding: var(--spacing-sm);
+  resize: vertical;
+  min-height: 60px;
+}
+
+.nt-chat__input:focus {
+  outline: none;
+  border-color: var(--accent-cyan);
+  box-shadow: var(--glow-cyan);
+}
+
+.nt-chat__input:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}

@@ -6,7 +6,7 @@
 
 use std::sync::Arc;
 
-use a2a::{A2AError, Message, StreamResponse, TaskState};
+use a2a::{A2AError, Message, StreamResponse, Task, TaskState};
 use a2a_server::{AgentExecutor, ExecutorContext};
 use futures::{
     StreamExt,
@@ -63,17 +63,37 @@ impl AgentExecutor for SynthiaExecutor {
             .boxed();
         }
 
-        // 使用 task_id 作为 session_id
+        // 使用 task_id 作为 Synthia session_id。A2A 客户端通常先发
+        // SendMessage 让 server 生成 task_id,再带同一 task_id 继续回合。
         let session_id = task_id.clone();
 
+        // 协议契约 (A2A v1.0.0 + a2a-server-lf 0.4.1):
+        // stream 的第 1 项必须是 `StreamResponse::Task(initial_task)`。
+        // 否则 DefaultRequestHandler::send_message 在 last_event=None 时
+        // 仅返回 task_store 里的当前快照,客户端永远看不到
+        // Submitted → Working → Completed 的状态过渡。
+        // 优先复用 a2a-server-lf 已经在 prepare_task_for_execution 中
+        // 创建并持久化的 stored_task(状态 Submitted)。
+        let initial_task: Task = ctx.stored_task.clone().unwrap_or_else(|| {
+            task_with_state(
+                task_id.clone(),
+                context_id.clone(),
+                TaskState::Submitted,
+                None,
+            )
+        });
+
         Box::pin(async_stream::try_stream! {
-            // 获取或创建 SessionController
+            // ─── 1. yield initial Task(Submitted) ─────────────────────────
+            yield StreamResponse::Task(initial_task);
+
+            // ─── 2. 获取或创建 SessionController ────────────────────────
             let controller = state
                 .get_or_create_session_controller(A2A_USER_ID, &session_id)
                 .await
                 .map_err(|e| A2AError::internal(format!("failed to create session: {e:?}")))?;
 
-            // 提交 prompt
+            // ─── 3. 提交 prompt ──────────────────────────────────────────
             controller
                 .submit(crate::session::controller::SessionOp::Prompt {
                     content: prompt_text,
@@ -82,21 +102,15 @@ impl AgentExecutor for SynthiaExecutor {
                 .await
                 .map_err(|e| A2AError::internal(format!("failed to submit prompt: {e:?}")))?;
 
-            // 订阅事件流
+            // ─── 4. 订阅事件流,映射为 A2A StreamResponse ───────────────
             let mut rx = controller.subscribe();
 
-            // 将 AgentEvent 流映射为 StreamResponse
             while let Ok(event) = rx.recv().await {
-                let responses = agent_event_to_stream_responses(
-                    &event,
-                    &task_id,
-                    &context_id,
-                );
-                for resp in responses {
+                for resp in agent_event_to_stream_responses(&event, &task_id, &context_id) {
                     yield resp?;
                 }
 
-                // 终端状态时结束流
+                // 终端状态时结束流;handler 基于最后一个事件保存终态 task。
                 if is_terminal_event(&event) {
                     break;
                 }

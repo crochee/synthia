@@ -33,6 +33,7 @@ anyhow.workspace = true
 base64 = "0.22"
 thiserror.workspace = true
 tracing.workspace = true
+tracing-subscriber = { workspace = true, features = ["env-filter"] }
 futures.workspace = true
 tokio-stream.workspace = true
 tokio-util.workspace = true

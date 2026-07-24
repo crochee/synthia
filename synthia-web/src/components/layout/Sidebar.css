@@ -1,0 +1,68 @@
+.nt-sidebar {
+  width: 200px;
+  background: var(--bg-secondary);
+  border-right: 1px solid var(--border-subtle);
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  flex-shrink: 0;
+  font-family: var(--font-mono);
+}
+
+.nt-sidebar__nav {
+  display: flex;
+  flex-direction: column;
+  padding: var(--spacing-md) 0;
+  gap: 2px;
+}
+
+.nt-sidebar__item {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  padding: var(--spacing-sm) var(--spacing-lg);
+  color: var(--text-secondary);
+  text-decoration: none;
+  font-size: var(--fs-sm);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  border-left: 2px solid transparent;
+  transition: all var(--transition-fast);
+}
+
+.nt-sidebar__item:hover {
+  color: var(--text-primary);
+  background: rgba(0, 255, 136, 0.05);
+}
+
+.nt-sidebar__item.is-active {
+  color: var(--accent-green);
+  border-left-color: var(--accent-green);
+  background: rgba(0, 255, 136, 0.08);
+  text-shadow: var(--glow-green);
+}
+
+.nt-sidebar__shortcut {
+  color: var(--text-muted);
+  font-size: var(--fs-xs);
+  min-width: 28px;
+}
+
+.nt-sidebar__item.is-active .nt-sidebar__shortcut {
+  color: var(--accent-green);
+}
+
+.nt-sidebar__label {
+  font-weight: var(--fw-medium);
+}
+
+.nt-sidebar__footer {
+  padding: var(--spacing-md) var(--spacing-lg);
+  border-top: 1px solid var(--border-subtle);
+  color: var(--text-muted);
+  font-size: var(--fs-xs);
+}
+
+.nt-sidebar__version {
+  font-style: italic;
+}

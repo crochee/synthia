@@ -37,30 +37,45 @@ The framework is organized as a Rust workspace with 17 crates:
 | Crate | Description |
 |-------|-------------|
 | [test-support](test-support/) | Mock implementations for testing |
+| [synthia-web](synthia-web/) | React/Vite frontend using the A2A protocol |
 
 ## Quick Start
 
 ### Prerequisites
 
-- Rust 1.75+ (2021 edition)
+- Rust 1.95+
 - cargo
+- Node.js 20+ (for `synthia-web`)
+- Docker (optional, for containerized runs)
+
+### Develop
+
+```bash
+make dev   # boots synthia-server (:8080) + synthia-web (:5173)
+```
+
+Open `http://localhost:5173`.
 
 ### Build
 
 ```bash
-cargo build --release
+make build           # both server and web (debug)
+make build-release   # release binaries
 ```
 
 ### Test
 
 ```bash
-cargo test --workspace
+make test            # all Rust tests + frontend type-check
+make test-rust       # cargo test --workspace
+make test-e2e        # Playwright end-to-end
 ```
 
-### Lint
+### Lint & Format
 
 ```bash
-cargo clippy --workspace -- -D warnings
+make lint            # clippy + tsc
+make fmt             # cargo +nightly fmt + prettier
 ```
 
 ## Running
@@ -68,67 +83,43 @@ cargo clippy --workspace -- -D warnings
 ### CLI Mode
 
 ```bash
-cargo run --bin synthia
+make dev-server   # or: cargo run --bin synthia
 ```
 
-### Server Mode
+### Server + Web
 
 ```bash
-cargo run --bin synthia-server
+make dev   # boots both with hot reload
 ```
+
+See [DEPLOYMENT.md](./DEPLOYMENT.md) for production deployment,
+Docker Compose, Nginx configuration, and environment variables.
+
+## Makefile
+
+The root `Makefile` is the single entry point for development,
+build, test, format, lint, deploy, and Docker operations.
+Run `make help` for the full list of targets.
 
 ## Project Structure
 
 ```
-synthia/
-├── Cargo.toml              # Workspace root
-├── crates/
-│   ├── synthia-core/        # Common utilities
-│   ├── synthia-provider/   # LLM providers
-│   ├── synthia-model-router/
-│   ├── synthia-tool/       # Tool execution
-│   ├── synthia-agent/      # Core agent
-│   ├── synthia-session/    # Session management
-│   ├── synthia-memory/     # Memory system
-│   ├── synthia-context/    # Context management
-│   ├── synthia-guardian/   # Security
-│   ├── synthia-hook/       # Hook system
-│   ├── synthia-telemetry/  # Observability
-│   ├── synthia-mcp/        # MCP integration
-│   ├── synthia-command/    # Slash commands
-│   ├── synthia-task/       # Task system
-│   ├── synthia-cli/        # CLI interface
-│   └── synthia-server/     # HTTP server
-└── test-support/           # Test utilities
+.
+├── Cargo.toml                  # Rust workspace root
+├── Makefile                    # unified dev/build/test/deploy entry point
+├── Dockerfile.server           # synthia-server production image
+├── Dockerfile.web              # synthia-web production image
+├── docker-compose.yml          # development compose
+├── docker-compose.prod.yml     # production compose (split deploy)
+├── nginx.conf                  # reverse-proxy config (used by web image)
+├── DEPLOYMENT.md               # deployment guide
+├── crates/                     # synthia Rust crates
+└── synthia-web/                # React frontend
+    ├── src/
+    │   ├── api/                # A2A client modules
+    │   ├── components/         # UI components (ui/, layout/)
+    │   ├── pages/              # Top-level pages
+    │   ├── styles/             # Design tokens
+    │   └── hooks/              # React hooks (useServerHealth, ...)
+    └── tests/e2e/              # Playwright tests (3 layers)
 ```
-
-## Testing
-
-All crates follow TDD methodology with comprehensive test coverage:
-
-```bash
-# Run all tests
-cargo test --workspace
-
-# Run specific crate tests
-cargo test -p synthia-agent
-
-# Run integration tests
-cargo test -p synthia-agent --test react_loop_test
-
-# Run end-to-end tests
-cargo test -p synthia-agent --test e2e_llm_test
-cargo test -p synthia-agent --test e2e_event_sequence_test
-cargo test -p synthia-agent --test e2e_memory_correctness_test
-```
-
-## Development
-
-- **TDD**: Write tests first, then implementation
-- **Surgical Changes**: Touch only what's required
-- **Simplicity**: Minimum code that solves the problem
-- **Security**: Permission-based tool execution, sandbox isolation
-
-## License
-
-MIT

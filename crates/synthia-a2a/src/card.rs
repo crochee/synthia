@@ -5,13 +5,16 @@
 
 use a2a::{AgentCapabilities, AgentCard, AgentInterface, AgentSkill};
 
-/// 从 Synthia 元数据构建 A2A `AgentCard`。
+/// 从 Synthia 元数据构建 A2A `AgentCard` (v1.0)。
+///
+/// 输出兼容 A2A Protocol v1.0 wire format (protojson)，
+/// 即被 `@a2a-js/sdk@1.0` 通过 `JsonRpcTransportFactory` 消费。
 ///
 /// # Arguments
 /// * `name` — Agent 名称
 /// * `description` — Agent 描述
 /// * `version` — Agent 版本
-/// * `url` — A2A endpoint URL（如 `http://localhost:3000/a2a`）
+/// * `url` — A2A endpoint URL（如 `http://localhost:3000/a2a` 或 `/a2a` 相对路径）
 /// * `skills` — Agent 提供的技能列表
 pub fn build_agent_card(
     name: String,
@@ -25,8 +28,18 @@ pub fn build_agent_card(
         description,
         version,
         supported_interfaces: vec![
-            AgentInterface::new(&url, "JSONRPC"),
-            AgentInterface::new(&url, "HTTP+JSON"),
+            AgentInterface {
+                url: url.clone(),
+                protocol_binding: "JSONRPC".to_string(),
+                protocol_version: a2a::VERSION.to_string(),
+                tenant: Some(String::new()),
+            },
+            AgentInterface {
+                url: url.clone(),
+                protocol_binding: "HTTP+JSON".to_string(),
+                protocol_version: a2a::VERSION.to_string(),
+                tenant: Some(String::new()),
+            },
         ],
         capabilities: AgentCapabilities {
             streaming: Some(true),

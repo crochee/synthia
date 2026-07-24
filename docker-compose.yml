@@ -1,0 +1,52 @@
+# Docker Compose for synthia development.
+#
+# Spins up:
+#   - server: synthia-server (Rust) on :8080
+#   - web: synthia-web (React/Vite dev server with HMR) on :5173
+#
+# The web service proxies /api and /a2a to the server (see
+# synthia-web/vite.config.ts), so the browser can call the
+# backend on the same origin.
+
+services:
+  server:
+    build:
+      context: .
+      dockerfile: Dockerfile.server
+    image: synthia-server:dev
+    container_name: synthia-server-dev
+    ports:
+      - "8080:8080"
+    environment:
+      - RUST_LOG=info
+      - SYNTHIA_HOST=0.0.0.0
+      - SYNTHIA_PORT=8080
+    volumes:
+      # Mount source for live cargo rebuild
+      - ./crates:/app/crates:ro
+      - ./config.yaml:/app/config.yaml:ro
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+  web:
+    build:
+      context: .
+      dockerfile: Dockerfile.web
+      target: builder
+    image: synthia-web:dev
+    container_name: synthia-web-dev
+    ports:
+      - "5173:5173"
+    environment:
+      - VITE_API_URL=http://server:8080
+      - VITE_A2A_URL=/a2a
+    volumes:
+      - ./synthia-web:/app:ro
+      - /app/node_modules
+    command: ["npm", "run", "dev", "--", "--host", "0.0.0.0", "--port", "5173"]
+    depends_on:
+      server:
+        condition: service_healthy

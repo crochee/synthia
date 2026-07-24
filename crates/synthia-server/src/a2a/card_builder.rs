@@ -24,6 +24,10 @@ pub async fn build_card_from_state(state: &AppState, url: String) -> AgentCard {
 }
 
 /// 从 tool_registry 收集所有工具并转换为 A2A AgentSkill。
+pub async fn collect_skills(state: &AppState) -> Vec<a2a::AgentSkill> {
+    collect_skills_from_registry(state).await
+}
+
 async fn collect_skills_from_registry(
     state: &AppState,
 ) -> Vec<a2a::AgentSkill> {

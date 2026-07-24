@@ -9,6 +9,7 @@ pub mod mcp;
 pub mod mcp_servers;
 pub mod memory;
 pub mod providers;
+pub mod settings;
 pub mod skills;
 pub mod tool;
 

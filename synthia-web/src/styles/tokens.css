@@ -1,0 +1,162 @@
+/**
+ * Neon Terminal design tokens.
+ *
+ * Defines the canonical CSS custom properties (variables) used
+ * across the synthia-web UI. These tokens are imported once in
+ * `main.tsx` and made available globally.
+ *
+ * Visual identity:
+ *   - Deep dark blue-black background (#0a0a1a) gives the
+ *     "terminal" feel
+ *   - Neon green (#00ff88) is the primary accent
+ *   - Neon cyan (#00ddff) is the secondary accent
+ *   - Monospace fonts reinforce the developer-tool aesthetic
+ *   - Glow effects (box-shadow + text-shadow) create depth
+ */
+
+:root {
+  /* ---- Backgrounds ---- */
+  --bg-primary: #0a0a1a;
+  --bg-secondary: #0f0f2a;
+  --bg-tertiary: #1a1a3a;
+  --bg-elevated: #15152a;
+
+  /* ---- Accents ---- */
+  --accent-green: #00ff88;
+  --accent-cyan: #00ddff;
+  --accent-purple: #aa55ff;
+  --accent-magenta: #ff00aa;
+  --accent-yellow: #ffdd00;
+  --accent-red: #ff0055;
+
+  /* ---- Text ---- */
+  --text-primary: #e0e0e0;
+  --text-secondary: #888888;
+  --text-muted: #555555;
+  --text-inverse: #0a0a1a;
+
+  /* ---- Borders ---- */
+  --border-primary: rgba(0, 255, 136, 0.3);
+  --border-secondary: rgba(0, 221, 255, 0.3);
+  --border-subtle: rgba(255, 255, 255, 0.1);
+
+  /* ---- Glow effects (use as box-shadow / text-shadow values) ---- */
+  --glow-green: 0 0 10px rgba(0, 255, 136, 0.4);
+  --glow-green-strong: 0 0 20px rgba(0, 255, 136, 0.6);
+  --glow-cyan: 0 0 10px rgba(0, 221, 255, 0.4);
+  --glow-cyan-strong: 0 0 20px rgba(0, 221, 255, 0.6);
+  --glow-red: 0 0 10px rgba(255, 0, 85, 0.4);
+
+  /* ---- Typography ---- */
+  --font-mono: 'JetBrains Mono', 'Fira Code', 'Courier New', 'Menlo', monospace;
+  --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+
+  --fs-xs: 11px;
+  --fs-sm: 12px;
+  --fs-base: 14px;
+  --fs-md: 16px;
+  --fs-lg: 18px;
+  --fs-xl: 24px;
+  --fs-2xl: 32px;
+  --fs-3xl: 48px;
+
+  --fw-normal: 400;
+  --fw-medium: 500;
+  --fw-bold: 700;
+
+  --lh-tight: 1.2;
+  --lh-normal: 1.5;
+  --lh-loose: 1.8;
+
+  /* ---- Spacing ---- */
+  --spacing-xs: 4px;
+  --spacing-sm: 8px;
+  --spacing-md: 16px;
+  --spacing-lg: 24px;
+  --spacing-xl: 32px;
+  --spacing-2xl: 48px;
+  --spacing-3xl: 64px;
+
+  /* ---- Border radius ---- */
+  --radius-sm: 4px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --radius-pill: 999px;
+
+  /* ---- Transitions ---- */
+  --transition-fast: 100ms ease;
+  --transition-base: 200ms ease;
+  --transition-slow: 400ms ease;
+
+  /* ---- Z-index scale ---- */
+  --z-base: 1;
+  --z-dropdown: 100;
+  --z-modal: 1000;
+  --z-toast: 10000;
+}
+
+/* ---- Global resets that lean on the tokens ---- */
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  font-family: var(--font-sans);
+  font-size: var(--fs-base);
+  color: var(--text-primary);
+  background: var(--bg-primary);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+a {
+  color: var(--accent-cyan);
+  text-decoration: none;
+}
+
+a:hover {
+  text-shadow: var(--glow-cyan);
+}
+
+code,
+pre,
+kbd {
+  font-family: var(--font-mono);
+}
+
+/* ---- Scrollbar (terminal-style) ---- */
+
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--bg-secondary);
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--accent-green);
+  border-radius: var(--radius-sm);
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--accent-cyan);
+  box-shadow: var(--glow-cyan);
+}
+
+/* ---- Selection ---- */
+
+::selection {
+  background: var(--accent-green);
+  color: var(--text-inverse);
+}

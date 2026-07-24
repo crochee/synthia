@@ -1,7 +1,7 @@
 interface ToolCallDisplayProps {
-  toolName: string
-  status: 'pending' | 'running' | 'completed' | 'error'
-  output?: string
+  toolName: string;
+  status: 'pending' | 'running' | 'completed' | 'error';
+  output?: string;
 }
 
 export function ToolCallDisplay({ toolName, status, output }: ToolCallDisplayProps) {
@@ -10,7 +10,7 @@ export function ToolCallDisplay({ toolName, status, output }: ToolCallDisplayPro
     running: '🔄',
     completed: '✅',
     error: '❌',
-  }[status]
+  }[status];
 
   return (
     <div className={`tool-call ${status}`}>
@@ -21,5 +21,5 @@ export function ToolCallDisplay({ toolName, status, output }: ToolCallDisplayPro
       </div>
       {output && <div className="tool-call-output">{output}</div>}
     </div>
-  )
+  );
 }

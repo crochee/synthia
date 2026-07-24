@@ -2,16 +2,49 @@ use std::{path::PathBuf, sync::Arc};
 
 use axum::{
     Router,
+    http::HeaderValue,
     routing::{delete, get, post},
 };
+use tower_http::cors::CorsLayer;
 
 use crate::{
     approval::{list_approvals, resolve_approval, ws_approvals_handler},
     auth::auth_middleware,
+    config::server::CorsConfig,
     middleware::{auth::AuthLayer, tracing::RequestTracingLayer},
     routes,
     state::AppState,
 };
+
+/// Build a CORS layer from server configuration.
+fn build_cors_layer(config: &CorsConfig) -> CorsLayer {
+    if !config.enabled {
+        return CorsLayer::new();
+    }
+
+    let origins: Vec<HeaderValue> = config
+        .allowed_origins
+        .iter()
+        .filter_map(|o| o.parse().ok())
+        .collect();
+
+    let methods: Vec<axum::http::Method> = config
+        .allowed_methods
+        .iter()
+        .filter_map(|m| m.parse().ok())
+        .collect();
+
+    CorsLayer::new()
+        .allow_origin(origins)
+        .allow_methods(methods)
+        .allow_headers(
+            config
+                .allowed_headers
+                .iter()
+                .filter_map(|h| h.parse().ok())
+                .collect::<Vec<_>>(),
+        )
+}
 
 pub async fn create_server(workspace_root: PathBuf) -> Router {
     let state = AppState::new(workspace_root).await;
@@ -94,6 +127,11 @@ pub async fn create_router(state: Arc<AppState>) -> Router {
             "/commands/{name}",
             delete(routes::commands::delete_command),
         )
+        // Settings (per-user overrides)
+        .route(
+            "/settings",
+            get(routes::settings::get_settings).put(routes::settings::put_settings),
+        )
         .layer(axum::middleware::from_fn(auth_middleware));
 
     // Approval routes
@@ -104,8 +142,9 @@ pub async fn create_router(state: Arc<AppState>) -> Router {
 
     // A2A protocol: initialize the service eagerly so we can
     // extract the merged JSON-RPC + REST router for nest_service.
-    let a2a_service =
-        state.a2a_service("http://localhost:3000".to_string()).await;
+    // Use empty string as base URL to generate relative URLs in Agent Card.
+    // This ensures the SDK uses the same origin as the frontend (through Vite proxy).
+    let a2a_service = state.a2a_service("".to_string()).await;
 
     Router::new()
         // --- Infrastructure management (flat /api/) ---
@@ -119,6 +158,7 @@ pub async fn create_router(state: Arc<AppState>) -> Router {
             get(routes::a2a::get_agent_card),
         )
         .nest_service("/a2a", a2a_service.a2a_app())
+        .layer(build_cors_layer(&state.cors_config))
         .layer(RequestTracingLayer)
         .layer(AuthLayer::new(state.auth_config.clone()))
         .with_state(state)

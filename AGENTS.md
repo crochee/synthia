@@ -36,3 +36,6 @@ Key constraint: Do not proactively ask questions; explore the best path independ
   默认 `ParentBased(AlwaysOn)`。设置后包裹 `ParentBased` 以兼容父 trace 采样决策。
 
 详见 [crates/synthia-telemetry/README.md](crates/synthia-telemetry/README.md)。
+
+# 代码同步规范
+- 不主动push代码到远程仓库

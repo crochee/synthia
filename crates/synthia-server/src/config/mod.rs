@@ -17,6 +17,7 @@ pub use mcp::{
 pub use provider::{ModelConfig, ProviderConfig};
 pub use server::{
     AuthConfig,
+    CorsConfig,
     DEFAULT_HOST,
     DEFAULT_MAX_AGENTS,
     DEFAULT_PORT,

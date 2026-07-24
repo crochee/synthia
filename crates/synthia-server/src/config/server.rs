@@ -55,6 +55,8 @@ pub struct ServerConfig {
     pub rate_limit: RateLimitConfig,
     #[serde(default)]
     pub agent_implementation: AgentImplementation,
+    #[serde(default)]
+    pub cors: CorsConfig,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, Default)]
@@ -103,6 +105,51 @@ impl Default for RateLimitConfig {
             enabled: false,
             requests_per_minute: default_rate_limit_requests(),
             burst: default_rate_limit_burst(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct CorsConfig {
+    #[serde(default = "default_cors_enabled")]
+    pub enabled: bool,
+    #[serde(default = "default_allowed_origins")]
+    pub allowed_origins: Vec<String>,
+    #[serde(default = "default_allowed_methods")]
+    pub allowed_methods: Vec<String>,
+    #[serde(default = "default_allowed_headers")]
+    pub allowed_headers: Vec<String>,
+}
+
+fn default_cors_enabled() -> bool {
+    true
+}
+
+fn default_allowed_origins() -> Vec<String> {
+    vec!["http://localhost:5173".to_string()]
+}
+
+fn default_allowed_methods() -> Vec<String> {
+    vec![
+        "GET".to_string(),
+        "POST".to_string(),
+        "PUT".to_string(),
+        "DELETE".to_string(),
+        "OPTIONS".to_string(),
+    ]
+}
+
+fn default_allowed_headers() -> Vec<String> {
+    vec!["Content-Type".to_string(), "Authorization".to_string()]
+}
+
+impl Default for CorsConfig {
+    fn default() -> Self {
+        Self {
+            enabled: default_cors_enabled(),
+            allowed_origins: default_allowed_origins(),
+            allowed_methods: default_allowed_methods(),
+            allowed_headers: default_allowed_headers(),
         }
     }
 }
@@ -164,6 +211,7 @@ impl Default for ServerConfig {
             auth: AuthConfig::default(),
             rate_limit: RateLimitConfig::default(),
             agent_implementation: AgentImplementation::default(),
+            cors: CorsConfig::default(),
         }
     }
 }

@@ -1,0 +1,110 @@
+name: e2e
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+    branches: [master]
+  workflow_dispatch:
+
+concurrency:
+  group: e2e-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  e2e:
+    name: Playwright E2E
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    env:
+      CARGO_TERM_COLOR: always
+      RUST_BACKTRACE: full
+      SYNTHIA_SERVER_URL: http://localhost:8080
+      SYNTHIA_WEB_URL: http://localhost:5173
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@nightly
+        with:
+          components: rustfmt, clippy
+
+      - name: Cache Cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-
+
+      - name: Install Playwright system deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libnss3 libnspr4 libatk1.0-0 libatk-bridge2.0-0 \
+            libcups2 libdrm2 libdbus-1-3 libxkbcommon0 libxcomposite1 \
+            libxdamage1 libxfixes3 libxrandr2 libgbm1 libxcb1 \
+            libpango-1.0-0 libcairo2 libasound2t64
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: synthia-web/package-lock.json
+
+      - name: Install Rust dependencies cache (warmup)
+        run: cargo fetch
+
+      - name: Install frontend dependencies
+        working-directory: synthia-web
+        run: npm ci
+
+      - name: Install Playwright browsers
+        working-directory: synthia-web
+        run: npx playwright install --with-deps chromium
+
+      - name: Create .env from secrets
+        if: github.event_name == 'push' || github.event_name == 'pull_request'
+        run: |
+          : "${SYNTHIA_OPENAI_API_KEY:?Need SYNTHIA_OPENAI_API_KEY}"
+          : "${SYNTHIA_ANTHROPIC_API_KEY:?Need SYNTHIA_ANTHROPIC_API_KEY}"
+          cat > .env <<EOF
+          OPENAI_API_KEY=${SYNTHIA_OPENAI_API_KEY}
+          OPENAI_BASE_URL=${SYNTHIA_OPENAI_BASE_URL:-https://api.openai.com/v1}
+          OPENAI_MODEL=${SYNTHIA_OPENAI_MODEL:-gpt-4o-mini}
+          ANTHROPIC_API_KEY=${SYNTHIA_ANTHROPIC_API_KEY}
+          ANTHROPIC_BASE_URL=${SYNTHIA_ANTHROPIC_BASE_URL:-https://api.anthropic.com}
+          ANTHROPIC_MODEL=${SYNTHIA_ANTHROPIC_MODEL:-claude-3-5-sonnet-latest}
+          EOF
+
+      - name: Build backend
+        run: cargo build -p synthia-server
+
+      - name: Run Playwright E2E tests
+        working-directory: synthia-web
+        run: npx playwright test --reporter=github,html
+        env:
+          CI: 1
+
+      - name: Upload Playwright report on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: synthia-web/playwright-report
+          retention-days: 7
+
+      - name: Upload Playwright trace on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-traces
+          path: synthia-web/test-results
+          retention-days: 7

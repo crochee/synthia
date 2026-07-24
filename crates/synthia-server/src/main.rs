@@ -33,6 +33,14 @@ struct Args {
 async fn main() -> Result<()> {
     dotenv::dotenv().ok();
 
+    // Initialize tracing with RUST_LOG env filter
+    tracing_subscriber::fmt()
+        .with_env_filter(
+            tracing_subscriber::EnvFilter::try_from_default_env()
+                .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info")),
+        )
+        .init();
+
     let args = Args::parse();
 
     info!("Starting Synthia server on {}:{}", args.host, args.port);

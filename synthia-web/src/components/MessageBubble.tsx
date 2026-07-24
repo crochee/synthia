@@ -1,7 +1,7 @@
 interface MessageBubbleProps {
-  role: 'user' | 'assistant' | 'system' | 'tool'
-  content: string
-  events?: Array<Record<string, unknown>>
+  role: 'user' | 'assistant' | 'system' | 'tool';
+  content: string;
+  events?: Array<Record<string, unknown>>;
 }
 
 export function MessageBubble({ role, content, events }: MessageBubbleProps) {
@@ -11,10 +11,12 @@ export function MessageBubble({ role, content, events }: MessageBubbleProps) {
       {events && events.length > 0 && (
         <div className="message-events">
           {events.map((ev, i) => (
-            <div key={i} className="event-tag">{String(ev.type || 'event')}</div>
+            <div key={i} className="event-tag">
+              {String(ev.type || 'event')}
+            </div>
           ))}
         </div>
       )}
     </div>
-  )
+  );
 }

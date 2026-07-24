@@ -1,18 +1,18 @@
 interface ChatAreaProps {
   messages: Array<{
-    id: string
-    role: 'user' | 'assistant' | 'system' | 'tool'
-    content: string
-    events?: Array<Record<string, unknown>>
-  }>
-  isLoading: boolean
+    id: string;
+    role: 'user' | 'assistant' | 'system' | 'tool';
+    content: string;
+    events?: Array<Record<string, unknown>>;
+  }>;
+  isLoading: boolean;
 }
 
 export function ChatArea({ messages, isLoading }: ChatAreaProps) {
   return (
     <div className="chat-area">
       <div className="messages">
-        {messages.map(msg => (
+        {messages.map((msg) => (
           <div key={msg.id} className={`message ${msg.role}`}>
             <div className="message-avatar">
               {msg.role === 'user' ? '👤' : msg.role === 'assistant' ? '🤖' : '⚙️'}
@@ -22,7 +22,9 @@ export function ChatArea({ messages, isLoading }: ChatAreaProps) {
               {msg.events && msg.events.length > 0 && (
                 <div className="message-events">
                   {msg.events.map((ev, i) => (
-                    <div key={i} className="event-tag">{String(ev.type || 'event')}</div>
+                    <div key={i} className="event-tag">
+                      {String(ev.type || 'event')}
+                    </div>
                   ))}
                 </div>
               )}
@@ -34,12 +36,14 @@ export function ChatArea({ messages, isLoading }: ChatAreaProps) {
             <div className="message-avatar">🤖</div>
             <div className="message-body">
               <div className="typing-indicator">
-                <span></span><span></span><span></span>
+                <span></span>
+                <span></span>
+                <span></span>
               </div>
             </div>
           </div>
         )}
       </div>
     </div>
-  )
+  );
 }

@@ -10,7 +10,7 @@
 
 use std::sync::Arc;
 
-use a2a_server::AgentCardProducer;
+use a2a::AgentCard;
 use axum::{
     Json,
     extract::State,
@@ -20,17 +20,51 @@ use axum::{
 
 use crate::state::AppState;
 
+/// Build an absolute base URL from the incoming request's Host + scheme.
+///
+/// Falls back to "http" if the scheme cannot be determined (e.g. raw HTTP
+/// from curl during local testing). This ensures the `AgentCard.url` field
+/// is always absolute, which is required by the v1.0 A2A SDK.
+fn absolute_base_url(headers: &HeaderMap) -> String {
+    let host = headers
+        .get(header::HOST)
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("localhost:8080");
+    let scheme = if headers
+        .get("X-Forwarded-Proto")
+        .and_then(|v| v.to_str().ok())
+        .map(|s| s.eq_ignore_ascii_case("https"))
+        .unwrap_or(false)
+    {
+        "https"
+    } else {
+        "http"
+    };
+    format!("{scheme}://{host}")
+}
+
 /// `GET /.well-known/agent-card.json` — 返回 A2A AgentCard。
 ///
 /// A2A 协议发现端点，返回此 agent 的能力描述。
 /// 包含 CORS 头以支持跨域发现。
+///
+/// `supportedInterfaces[].url` 字段使用请求的 Host 头构造绝对 URL，
+/// 这样 v1.0 SDK 的 `JsonRpcTransport` 可以直接 fetch。
 pub async fn get_agent_card(
     State(state): State<Arc<AppState>>,
     headers: HeaderMap,
 ) -> impl IntoResponse {
-    let a2a_service =
-        state.a2a_service("http://localhost:3000".to_string()).await;
-    let card = a2a_service.card_producer().card();
+    // Build absolute URL from the incoming Host header so the SDK
+    // can fetch directly (Node `fetch` does not accept relative URLs).
+    let base_url = absolute_base_url(&headers);
+    let _ = state.a2a_service(base_url.clone()).await;
+    let card: AgentCard = synthia_a2a::card::build_agent_card(
+        "Synthia".to_string(),
+        "AI coding assistant powered by Synthia".to_string(),
+        env!("CARGO_PKG_VERSION").to_string(),
+        format!("{}/a2a", base_url.trim_end_matches('/')),
+        crate::a2a::card_builder::collect_skills(&state).await,
+    );
 
     let mut resp_headers = HeaderMap::new();
 
@@ -55,5 +89,5 @@ pub async fn get_agent_card(
             .insert(header::ACCESS_CONTROL_ALLOW_ORIGIN, "*".parse().unwrap());
     }
 
-    (StatusCode::OK, resp_headers, Json(card.clone()))
+    (StatusCode::OK, resp_headers, Json(card))
 }
