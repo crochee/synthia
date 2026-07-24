@@ -613,6 +613,7 @@ export function ChatPage() {
             className={`nt-chat__message nt-chat__message--${msg.role}`}
             data-role={msg.role}
             data-testid={`message-${msg.role}`}
+            data-streaming={isStreaming && msg.role === 'assistant' && msg.status === 'working'}
           >
             <div className="nt-chat__message-meta">
               <span className="nt-chat__message-role">

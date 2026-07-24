@@ -11,11 +11,11 @@
   padding: var(--spacing-md) 0;
   display: flex;
   flex-direction: column;
-  gap: var(--spacing-md);
+  gap: var(--spacing-sm);
 }
 
 .nt-chat__message {
-  padding: var(--spacing-md);
+  padding: var(--spacing-sm) var(--spacing-md);
   border-radius: var(--radius-md);
   background: var(--bg-secondary);
   border-left: 3px solid;
@@ -36,7 +36,7 @@
   display: flex;
   align-items: center;
   gap: var(--spacing-sm);
-  margin-bottom: var(--spacing-sm);
+  margin-bottom: 0.25rem;
   font-size: var(--fs-xs);
 }
 
@@ -120,9 +120,9 @@
   cursor: not-allowed;
 }
 
-/* 分段容器 */
+/* 分段容器 - 紧凑 */
 .nt-chat__segment {
-  margin: 0.5rem 0;
+  margin: 0;
 }
 
 /* 普通文本 - 不加装饰，让内容是主体 */
@@ -133,7 +133,7 @@
 
 /* 思考 - 默认折叠（点击展开）；展开后用浅灰显示 */
 .nt-chat__segment--thinking {
-  margin: 0.25rem 0;
+  margin: 0;
 }
 
 .nt-chat__segment--thinking .nt-chat__segment-content {
@@ -142,13 +142,14 @@
   font-style: italic;
   max-height: 16em;
   overflow-y: auto;
+  margin-top: 0.15rem;
 }
 
 /* 工具调用 - 极简：左边细线 + 等宽输入 */
 .nt-chat__segment--tool_call {
   border-left: 2px solid rgba(120, 120, 120, 0.4);
-  padding: 0.25rem 0 0.25rem 0.75rem;
-  margin: 0.4rem 0;
+  padding: 0.2rem 0 0.2rem 0.6rem;
+  margin: 0.15rem 0;
 }
 
 .nt-chat__segment--tool_call .nt-chat__segment-content {
@@ -157,13 +158,14 @@
   color: #c8c8c8;
   white-space: pre-wrap;
   word-break: break-word;
+  margin-top: 0.15rem;
 }
 
 /* 工具结果 - 同样极简 */
 .nt-chat__segment--tool_result {
   border-left: 2px solid rgba(120, 120, 120, 0.4);
-  padding: 0.25rem 0 0.25rem 0.75rem;
-  margin: 0.4rem 0;
+  padding: 0.2rem 0 0.2rem 0.6rem;
+  margin: 0.15rem 0;
 }
 
 .nt-chat__segment--tool_result .nt-chat__segment-content {
@@ -173,13 +175,14 @@
   word-break: break-word;
   max-height: 20em;
   overflow-y: auto;
+  margin-top: 0.15rem;
 }
 
 /* 进度 - 极简，仅左侧细线 */
 .nt-chat__segment--progress {
   border-left: 2px solid rgba(120, 120, 120, 0.4);
-  padding: 0.25rem 0 0.25rem 0.75rem;
-  margin: 0.4rem 0;
+  padding: 0.2rem 0 0.2rem 0.6rem;
+  margin: 0.15rem 0;
   color: #8a8a8a;
   font-size: 0.9em;
 }
@@ -188,14 +191,16 @@
 .nt-chat__segment-header {
   display: inline-flex;
   align-items: center;
-  gap: 0.35rem;
+  gap: 0.25rem;
   background: none;
   border: none;
   cursor: pointer;
-  padding: 0.15rem 0;
-  font-size: 0.8em;
+  padding: 0;
+  margin: 0;
+  font-size: 0.75em;
   color: #888;
   font-family: inherit;
+  line-height: 1.4;
 }
 
 .nt-chat__segment-header:hover {
@@ -205,7 +210,7 @@
 .nt-chat__segment-icon {
   transition: transform 0.15s;
   display: inline-block;
-  font-size: 0.7em;
+  font-size: 0.85em;
 }
 
 .nt-chat__segment-icon.expanded {
@@ -220,4 +225,32 @@
 .nt-chat__segment-content {
   white-space: pre-wrap;
   word-break: break-word;
+}
+
+/* 流式光标 - 在 working 状态下显示 */
+.nt-chat__message--assistant .nt-chat__message-content::after {
+  content: '';
+  display: inline-block;
+  width: 0.5em;
+  height: 1em;
+  background: var(--accent-cyan);
+  margin-left: 0.15em;
+  vertical-align: text-bottom;
+  animation: nt-chat-cursor-blink 1s steps(2) infinite;
+  opacity: 0;
+}
+
+.nt-chat__message--assistant[data-streaming='true'] .nt-chat__message-content::after {
+  opacity: 1;
+}
+
+@keyframes nt-chat-cursor-blink {
+  0%,
+  50% {
+    opacity: 1;
+  }
+  51%,
+  100% {
+    opacity: 0;
+  }
 }
