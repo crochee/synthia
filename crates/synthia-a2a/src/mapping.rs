@@ -174,6 +174,83 @@ pub fn agent_event_to_stream_responses(
             ]
         }
 
+        AgentEvent::Thinking { text, iteration } => {
+            let msg = Message {
+                message_id: new_message_id(),
+                context_id: Some(context_id.to_string()),
+                task_id: Some(task_id.clone()),
+                role: Role::Agent,
+                parts: vec![Part::text(text.clone())],
+                metadata: Some(std::collections::HashMap::from([
+                    ("segment_type".to_string(), serde_json::json!("thinking")),
+                    ("iteration".to_string(), serde_json::json!(iteration)),
+                ])),
+                extensions: None,
+                reference_task_ids: None,
+            };
+            vec![Ok(StreamResponse::Message(msg))]
+        }
+
+        AgentEvent::ToolCallStarted { tool_name, input } => {
+            let input_json = serde_json::to_string(input).unwrap_or_default();
+            let msg = Message {
+                message_id: new_message_id(),
+                context_id: Some(context_id.to_string()),
+                task_id: Some(task_id.clone()),
+                role: Role::Agent,
+                parts: vec![Part::text(input_json)],
+                metadata: Some(std::collections::HashMap::from([
+                    (
+                        "segment_type".to_string(),
+                        serde_json::json!("tool_call"),
+                    ),
+                    ("tool_name".to_string(), serde_json::json!(tool_name)),
+                ])),
+                extensions: None,
+                reference_task_ids: None,
+            };
+            vec![Ok(StreamResponse::Message(msg))]
+        }
+
+        AgentEvent::LlmStreamDelta { content } => {
+            let msg = Message {
+                message_id: new_message_id(),
+                context_id: Some(context_id.to_string()),
+                task_id: Some(task_id.clone()),
+                role: Role::Agent,
+                parts: vec![Part::text(content.clone())],
+                metadata: Some(std::collections::HashMap::from([(
+                    "segment_type".to_string(),
+                    serde_json::json!("text_delta"),
+                )])),
+                extensions: None,
+                reference_task_ids: None,
+            };
+            vec![Ok(StreamResponse::Message(msg))]
+        }
+
+        AgentEvent::Progress {
+            message,
+            step,
+            total,
+        } => {
+            let msg = Message {
+                message_id: new_message_id(),
+                context_id: Some(context_id.to_string()),
+                task_id: Some(task_id.clone()),
+                role: Role::Agent,
+                parts: vec![Part::text(message.clone())],
+                metadata: Some(std::collections::HashMap::from([
+                    ("segment_type".to_string(), serde_json::json!("progress")),
+                    ("step".to_string(), serde_json::json!(step)),
+                    ("total".to_string(), serde_json::json!(total)),
+                ])),
+                extensions: None,
+                reference_task_ids: None,
+            };
+            vec![Ok(StreamResponse::Message(msg))]
+        }
+
         // 所有其他事件：忽略（不影响 A2A 流）
         _ => Vec::new(),
     }
@@ -391,27 +468,115 @@ mod tests {
     #[test]
     fn ignored_events_produce_empty() {
         let (tid, cid) = test_ids();
-        let events = vec![
-            AgentEvent::LlmStreamDelta {
-                content: "hi".to_string(),
-            },
-            AgentEvent::ToolCallStarted {
-                tool_name: "t".to_string(),
-                input: serde_json::Value::Null,
-            },
-            AgentEvent::Thinking {
-                text: "hmm".to_string(),
-                iteration: 1,
-            },
-            AgentEvent::Progress {
-                message: "working".to_string(),
-                step: 1,
-                total: 10,
-            },
-        ];
+        // 只有尚未实现映射的事件才会产生空数组
+        let events = vec![AgentEvent::LlmReasoningDelta {
+            delta: "thinking...".to_string(),
+        }];
         for event in events {
             let results = agent_event_to_stream_responses(&event, &tid, &cid);
             assert!(results.is_empty(), "expected empty for {event:?}");
+        }
+    }
+
+    #[test]
+    fn thinking_event_maps_to_message() {
+        let (tid, cid) = test_ids();
+        let event = AgentEvent::Thinking {
+            text: "hmm".to_string(),
+            iteration: 1,
+        };
+        let results = agent_event_to_stream_responses(&event, &tid, &cid);
+        assert_eq!(results.len(), 1);
+        match results[0].as_ref().unwrap() {
+            StreamResponse::Message(msg) => {
+                assert_eq!(msg.text(), Some("hmm"));
+                assert_eq!(
+                    msg.metadata.as_ref().unwrap().get("segment_type").unwrap(),
+                    "thinking"
+                );
+                assert_eq!(
+                    msg.metadata.as_ref().unwrap().get("iteration").unwrap(),
+                    1
+                );
+            }
+            _ => panic!("expected Message"),
+        }
+    }
+
+    #[test]
+    fn tool_call_started_event_maps_to_message() {
+        let (tid, cid) = test_ids();
+        let event = AgentEvent::ToolCallStarted {
+            tool_name: "read_file".to_string(),
+            input: serde_json::json!({"path": "/tmp/test"}),
+        };
+        let results = agent_event_to_stream_responses(&event, &tid, &cid);
+        assert_eq!(results.len(), 1);
+        match results[0].as_ref().unwrap() {
+            StreamResponse::Message(msg) => {
+                let text = msg.text().unwrap();
+                assert!(text.contains("path"));
+                assert!(text.contains("/tmp/test"));
+                assert_eq!(
+                    msg.metadata.as_ref().unwrap().get("segment_type").unwrap(),
+                    "tool_call"
+                );
+                assert_eq!(
+                    msg.metadata.as_ref().unwrap().get("tool_name").unwrap(),
+                    "read_file"
+                );
+            }
+            _ => panic!("expected Message"),
+        }
+    }
+
+    #[test]
+    fn llm_stream_delta_event_maps_to_message() {
+        let (tid, cid) = test_ids();
+        let event = AgentEvent::LlmStreamDelta {
+            content: "hi".to_string(),
+        };
+        let results = agent_event_to_stream_responses(&event, &tid, &cid);
+        assert_eq!(results.len(), 1);
+        match results[0].as_ref().unwrap() {
+            StreamResponse::Message(msg) => {
+                assert_eq!(msg.text(), Some("hi"));
+                assert_eq!(
+                    msg.metadata.as_ref().unwrap().get("segment_type").unwrap(),
+                    "text_delta"
+                );
+            }
+            _ => panic!("expected Message"),
+        }
+    }
+
+    #[test]
+    fn progress_event_maps_to_message() {
+        let (tid, cid) = test_ids();
+        let event = AgentEvent::Progress {
+            message: "working".to_string(),
+            step: 1,
+            total: 10,
+        };
+        let results = agent_event_to_stream_responses(&event, &tid, &cid);
+        assert_eq!(results.len(), 1);
+        match results[0].as_ref().unwrap() {
+            StreamResponse::Message(msg) => {
+                assert_eq!(msg.text(), Some("working"));
+                assert_eq!(
+                    msg.metadata.as_ref().unwrap().get("segment_type").unwrap(),
+                    "progress"
+                );
+                assert_eq!(
+                    msg.metadata.as_ref().unwrap().get("step").unwrap(),
+                    1
+                );
+                assert_eq!(
+                    msg.metadata.as_ref().unwrap().get("total").unwrap(),
+                    10
+                );
+            }
+            _ => panic!("expected Message"),
         }
     }
 
