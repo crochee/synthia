@@ -125,64 +125,87 @@
   margin: 0.5rem 0;
 }
 
+/* 普通文本 - 不加装饰，让内容是主体 */
 .nt-chat__segment--text,
 .nt-chat__segment--text_delta {
   /* 默认文本样式 - 无特殊样式 */
 }
 
+/* 思考 - 默认可见，浅灰文字，与正文轻微区分 */
 .nt-chat__segment--thinking {
-  background: #f5f5f5;
-  border-left: 3px solid #9e9e9e;
-  padding: 0.5rem;
-  border-radius: 4px;
+  color: #8a8a8a;
+  font-size: 0.92em;
+  margin: 0.4rem 0;
+}
+
+.nt-chat__segment--thinking::before {
+  content: '› ';
+  color: #b0b0b0;
   font-style: italic;
 }
 
+/* 工具调用 - 极简：左边细线 + 等宽输入 */
 .nt-chat__segment--tool_call {
-  background: #e3f2fd;
-  border-left: 3px solid #2196f3;
-  padding: 0.5rem;
-  border-radius: 4px;
+  border-left: 2px solid rgba(120, 120, 120, 0.4);
+  padding: 0.25rem 0 0.25rem 0.75rem;
+  margin: 0.4rem 0;
 }
 
+.nt-chat__segment--tool_call .nt-chat__segment-content {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 0.85em;
+  color: #c8c8c8;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+/* 工具结果 - 同样极简 */
 .nt-chat__segment--tool_result {
-  background: #e8f5e9;
-  border-left: 3px solid #4caf50;
-  padding: 0.5rem;
-  border-radius: 4px;
-  font-family: monospace;
+  border-left: 2px solid rgba(120, 120, 120, 0.4);
+  padding: 0.25rem 0 0.25rem 0.75rem;
+  margin: 0.4rem 0;
+}
+
+.nt-chat__segment--tool_result .nt-chat__segment-content {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 0.85em;
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 20em;
+  overflow-y: auto;
+}
+
+/* 进度 - 极简，仅左侧细线 */
+.nt-chat__segment--progress {
+  border-left: 2px solid rgba(120, 120, 120, 0.4);
+  padding: 0.25rem 0 0.25rem 0.75rem;
+  margin: 0.4rem 0;
+  color: #8a8a8a;
   font-size: 0.9em;
 }
 
-.nt-chat__segment--progress {
-  background: #fff8e1;
-  border-left: 3px solid #ffc107;
-  padding: 0.5rem;
-  border-radius: 4px;
-}
-
-/* 可折叠分段头部 */
+/* 可折叠分段头部 - 紧凑、不抢眼 */
 .nt-chat__segment-header {
-  display: flex;
+  display: inline-flex;
   align-items: center;
-  gap: 0.5rem;
+  gap: 0.35rem;
   background: none;
   border: none;
   cursor: pointer;
-  padding: 0.25rem 0;
-  font-size: 0.85rem;
-  color: #666;
-  width: 100%;
-  text-align: left;
+  padding: 0.15rem 0;
+  font-size: 0.8em;
+  color: #888;
+  font-family: inherit;
 }
 
 .nt-chat__segment-header:hover {
-  color: #333;
+  color: #555;
 }
 
 .nt-chat__segment-icon {
-  transition: transform 0.2s;
+  transition: transform 0.15s;
   display: inline-block;
+  font-size: 0.7em;
 }
 
 .nt-chat__segment-icon.expanded {
@@ -190,12 +213,11 @@
 }
 
 .nt-chat__segment-label {
-  font-weight: 500;
+  font-weight: 400;
 }
 
-/* 分段内容 */
+/* 分段内容 - 紧凑、内联 */
 .nt-chat__segment-content {
-  padding: 0.5rem 0 0.5rem 1.5rem;
   white-space: pre-wrap;
   word-break: break-word;
 }

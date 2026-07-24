@@ -34,9 +34,7 @@ const THINK_CLOSE = '</think>';
  * Returns: { output: segments to flush, carry: leftover to prepend
  * to next delta (incomplete marker across chunks). }
  */
-function splitThinking(
-  buffer: string,
-): { output: MessageSegment[]; carry: string } {
+function splitThinking(buffer: string): { output: MessageSegment[]; carry: string } {
   const output: MessageSegment[] = [];
   let rest = buffer;
 
@@ -128,7 +126,10 @@ interface SessionMeta {
 }
 
 function SegmentView({ segment }: { segment: MessageSegment }) {
-  const [expanded, setExpanded] = useState(segment.expanded ?? false);
+  // thinking: default expanded (user should see reasoning)
+  // tool_call: default collapsed (input JSON is noisy)
+  const defaultExpanded = segment.type === 'thinking';
+  const [expanded, setExpanded] = useState(segment.expanded ?? defaultExpanded);
 
   const isCollapsible = segment.type === 'thinking' || segment.type === 'tool_call';
 
@@ -138,19 +139,21 @@ function SegmentView({ segment }: { segment: MessageSegment }) {
     );
   }
 
+  const label =
+    segment.type === 'thinking'
+      ? `思考${segment.iteration ? ` · 迭代 ${segment.iteration}` : ''}`
+      : `工具${segment.toolName ? ` · ${segment.toolName}` : ''}`;
+
   return (
     <div className={`nt-chat__segment nt-chat__segment--${segment.type}`}>
       <button
         className="nt-chat__segment-header"
         onClick={() => setExpanded(!expanded)}
         type="button"
+        aria-expanded={expanded}
       >
-        <span className={`nt-chat__segment-icon ${expanded ? 'expanded' : ''}`}>▶</span>
-        <span className="nt-chat__segment-label">
-          {segment.type === 'thinking'
-            ? `思考 (迭代 ${segment.iteration || 1})`
-            : `工具: ${segment.toolName || segment.content.slice(0, 30)}`}
-        </span>
+        <span className={`nt-chat__segment-icon ${expanded ? 'expanded' : ''}`}>▸</span>
+        <span className="nt-chat__segment-label">{label}</span>
       </button>
       {expanded && <div className="nt-chat__segment-content">{segment.content}</div>}
     </div>
