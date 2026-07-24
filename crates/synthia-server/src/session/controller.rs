@@ -14,6 +14,8 @@ use std::{
 
 use anyhow::{Context as _, Result};
 use futures::StreamExt;
+#[cfg(test)]
+use synthia_agent::events::SystemEvent;
 use synthia_agent::{
     Agent,
     AgentConfig,
@@ -23,6 +25,7 @@ use synthia_agent::{
     AgentRunConfig,
     SubagentSessionFactory,
     control::AgentControl,
+    events::AgentMeta,
     interceptor::InterceptorChain,
 };
 use synthia_context::{ProtectionZone, assembler::ContextAssembler};
@@ -421,10 +424,9 @@ impl ControllerInner {
         // This is best-effort: a closed parent channel must not break
         // the child session.
         if let Some(ref parent_tx) = self.parent_event_sender {
-            let wrapped = AgentEvent::SubagentEvent {
-                child_session_id: self.session_id.clone(),
-                event: Box::new(event.clone()),
-            };
+            let meta =
+                AgentMeta::new(String::new(), self.session_id.clone(), 1);
+            let wrapped = AgentEvent::Agent(meta, Box::new(event.clone()));
             if let Err(e) = parent_tx.send(wrapped).await {
                 tracing::warn!(
                     session_id = %self.session_id,
@@ -622,6 +624,7 @@ mod tests {
         types::SessionEndReason,
     };
     use synthia_permission::HeadlessApprovalService;
+    use synthia_provider::types::{ContentPart, ToolUse};
     use synthia_sandbox::NoopSandboxManager;
     use synthia_session::store::EventStore;
     use tokio::sync::mpsc;
@@ -810,9 +813,9 @@ mod tests {
                     count.fetch_add(1, Ordering::SeqCst);
                     yield AgentEvent::progress("working", count.load(Ordering::SeqCst), 0);
                 }
-                yield AgentEvent::SessionEnded {
+                yield AgentEvent::System(SystemEvent::SessionEnded {
                     reason: SessionEndReason::Cancelled,
-                };
+                });
             })
         }
     }
@@ -956,13 +959,23 @@ mod tests {
 
     #[tokio::test]
     async fn test_events_are_persisted_and_broadcast() {
+        // Per the event-durability-classification spec, only
+        // Model(Text | ToolUse | ToolResult | Resource) is durable;
+        // System(_), ModelDone, and Model(Reasoning | Image | Audio)
+        // are ephemeral and never reach the event store.
+        // Include a Model(Text) delta so the persistence assertion is
+        // exercising a real durable path.
         let events = vec![
-            AgentEvent::SessionStarted {
+            AgentEvent::Model(ContentPart::Text(synthia_provider::TextContent {
+                text: "hi".to_string(),
+                cache_control: None,
+            })),
+            AgentEvent::System(SystemEvent::SessionStarted {
                 session_id: "s1".to_string(),
-            },
-            AgentEvent::Finish {
-                output: "done".to_string(),
-            },
+            }),
+            AgentEvent::System(SystemEvent::SessionEnded {
+                reason: SessionEndReason::Completed,
+            }),
         ];
         let calls = Arc::new(Mutex::new(Vec::new()));
         let factory: Arc<dyn RunStreamFactory> =
@@ -1004,15 +1017,32 @@ mod tests {
         let session_path = manager.store().session_dir("alice", "s1");
         let persisted =
             EventStore::new().read_from(&session_path, 0, 100).unwrap();
+        // Only the Model(Text) delta is durable; the two System events
+        // are ephemeral and must not be persisted.
         assert!(!persisted.is_empty());
-        assert!(persisted.iter().any(|e| e.event_type == "SessionStarted"));
+        assert!(persisted
+            .iter()
+            .any(|e| e.event_type == "Model" || e.event_type == "model_text"));
+        assert!(persisted
+            .iter()
+            .all(|e| e.event_type != "SessionStarted"));
+        assert!(persisted
+            .iter()
+            .all(|e| e.event_type != "SessionEnded"));
 
         let received =
             tokio::time::timeout(Duration::from_millis(200), rx.recv())
                 .await
                 .unwrap()
                 .unwrap();
-        assert!(matches!(received, AgentEvent::SessionStarted { .. }));
+        // The first broadcast event is the Model(Text) delta (durable,
+        // and emitted first by the factory); both System events still
+        // arrive via the broadcast channel even though they are not
+        // persisted.
+        assert!(matches!(
+            received,
+            AgentEvent::Model(ContentPart::Text(_))
+        ));
     }
 
     #[tokio::test]
@@ -1044,10 +1074,11 @@ mod tests {
         let mut parent_rx = parent.subscribe();
         let mut child_rx = child.subscribe();
 
-        let raw_event = AgentEvent::ToolCallStarted {
-            tool_name: "read_file".to_string(),
+        let raw_event = AgentEvent::Model(ContentPart::ToolUse(ToolUse {
+            id: "tu-1".to_string(),
+            name: "read_file".to_string(),
             input: serde_json::json!({ "path": "/tmp/test" }),
-        };
+        }));
         child.event_sender().send(raw_event.clone()).await.unwrap();
 
         let received_child =
@@ -1055,7 +1086,10 @@ mod tests {
                 .await
                 .unwrap()
                 .unwrap();
-        assert!(matches!(received_child, AgentEvent::ToolCallStarted { .. }));
+        assert!(matches!(
+            received_child,
+            AgentEvent::Model(ContentPart::ToolUse(_))
+        ));
 
         let received_parent =
             tokio::time::timeout(Duration::from_millis(200), parent_rx.recv())
@@ -1063,23 +1097,25 @@ mod tests {
                 .unwrap()
                 .unwrap();
         match received_parent {
-            AgentEvent::SubagentEvent {
-                child_session_id,
-                event,
-            } => {
-                assert_eq!(child_session_id, "s1-child");
+            AgentEvent::Agent(meta, inner) => {
+                assert_eq!(meta.child_session_id, "s1-child");
                 assert!(matches!(
-                    event.as_ref(),
-                    AgentEvent::ToolCallStarted { .. }
+                    inner.as_ref(),
+                    AgentEvent::Model(ContentPart::ToolUse(_))
                 ));
             }
-            other => panic!("expected SubagentEvent, got {other:?}"),
+            other => panic!("expected AgentEvent::Agent, got {other:?}"),
         }
 
         let parent_path = manager.store().session_dir("alice", "s1");
         let persisted =
             EventStore::new().read_from(&parent_path, 0, 100).unwrap();
-        assert!(persisted.iter().any(|e| e.event_type == "subagent_event"));
+        // The forwarded Agent(meta, inner) wraps a durable
+        // Model(ToolUse) inner, so is_durable() returns true; the
+        // serialized wire type tag is "Agent" (from the variant
+        // discriminant) — the legacy "subagent_event" tag no longer
+        // exists in the restructured 5-variant AgentEvent.
+        assert!(persisted.iter().any(|e| e.event_type == "Agent"));
     }
 
     #[tokio::test]
@@ -1120,10 +1156,11 @@ mod tests {
         .await;
 
         let mut child_rx = child.subscribe();
-        let raw_event = AgentEvent::ToolCallStarted {
-            tool_name: "read_file".to_string(),
+        let raw_event = AgentEvent::Model(ContentPart::ToolUse(ToolUse {
+            id: "tu-1".to_string(),
+            name: "read_file".to_string(),
             input: serde_json::json!({ "path": "/tmp/test" }),
-        };
+        }));
         child.event_sender().send(raw_event.clone()).await.unwrap();
 
         // The child must continue operating even though forwarding to
@@ -1133,7 +1170,10 @@ mod tests {
                 .await
                 .unwrap()
                 .unwrap();
-        assert!(matches!(received_child, AgentEvent::ToolCallStarted { .. }));
+        assert!(matches!(
+            received_child,
+            AgentEvent::Model(ContentPart::ToolUse(_))
+        ));
     }
 
     /// `RunDependencies` must carry the configured `subagent_depth` so

@@ -1,10 +1,11 @@
 import { Card } from '../components/ui/Card';
 import { useEffect, useState } from 'react';
+import { api } from '../api/client';
+import type { Tool } from '../api/types';
 
-interface Tool {
-  name: string;
-  description?: string;
-  status?: string;
+interface ToolListResponse {
+  tools: Tool[];
+  count: number;
 }
 
 export function ToolsPage() {
@@ -12,10 +13,20 @@ export function ToolsPage() {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    fetch('/api/tools')
-      .then((r) => (r.ok ? r.json() : []))
-      .then((data) => setTools(Array.isArray(data) ? data : (data.tools ?? [])))
-      .catch((e) => setError(e.message));
+    let cancelled = false;
+    api
+      .get<ToolListResponse>('/api/tools')
+      .then((data) => {
+        if (cancelled) return;
+        setTools(data.tools ?? []);
+      })
+      .catch((e: Error) => {
+        if (cancelled) return;
+        setError(e.message);
+      });
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   return (

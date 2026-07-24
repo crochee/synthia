@@ -31,13 +31,16 @@ use crate::{
     control::CompletedTask,
     events::{
         AgentEvent,
+        HookEvent,
         SAMPLE_COMPLETED,
         SESSION_ENDED,
+        SystemEvent,
         TOOL_CALL_ISSUED,
         TOOL_RESULT_RECEIVED,
         TURN_COMPLETED,
         TURN_FAILED,
         TURN_STARTED,
+        WarningKind,
     },
     loop_context::LoopContext,
     turn::{TurnStatus, TurnTask},
@@ -135,9 +138,9 @@ impl StreamBuilder {
         let session_id_clone = session_id.clone();
 
         Box::pin(stream! {
-            yield AgentEvent::SessionStarted {
+            yield AgentEvent::System(SystemEvent::SessionStarted {
                 session_id: session_id_clone.clone(),
-            };
+            });
 
             // Dispatch SessionStart hook event via UnifiedHookDispatcher
             let session_start_event = synthia_hook::HookEvent::SessionStart(
@@ -334,11 +337,13 @@ impl StreamBuilder {
                             _ => "error",
                         };
                         ctx.messages.push(synthetic_msg);
-                        yield AgentEvent::SteeringReceived {
-                            session_id: session_id_clone.clone(),
-                            message: format!("Background task {} {}", task.agent_id, state),
-                            priority: None,
-                        };
+                        yield AgentEvent::Hook(HookEvent::Message {
+                            priority: 0,
+                            message: format!(
+                                "Background task {} {}",
+                                task.agent_id, state
+                            ),
+                        });
                     }
                 }
 
@@ -397,11 +402,19 @@ impl StreamBuilder {
                     // Never Lose) and P5 (Recency Anchoring).
                     let interrupted = steps.tool_execute.fail_interrupted_tools();
                     for (tool_name, call_id) in interrupted {
-                        yield AgentEvent::ToolCallCompleted {
-                            tool_name: tool_name.clone(),
-                            output: "Tool execution interrupted".to_string(),
-                            is_error: true,
-                        };
+                        yield AgentEvent::Model(synthia_provider::ContentPart::ToolResult(
+                            synthia_provider::ToolResult {
+                                tool_use_id: call_id.clone(),
+                                content: vec![synthia_provider::ContentPart::Text(
+                                    synthia_provider::TextContent {
+                                        text: "Tool execution interrupted".to_string(),
+                                        cache_control: None,
+                                    },
+                                )],
+                                structured_content: None,
+                                is_error: Some(true),
+                            },
+                        ));
                         ctx.add_tool_result(
                             tool_name.clone(),
                             call_id.clone(),
@@ -451,11 +464,15 @@ impl StreamBuilder {
                         serde_json::json!({"reason": "Cancelled"}),
                     )
                     .await;
-                    yield AgentEvent::SessionEnded { reason: crate::events::SessionEndReason::Cancelled };
+                    yield AgentEvent::System(SystemEvent::SessionEnded {
+                        reason: crate::events::SessionEndReason::Cancelled,
+                    });
                     return;
                 }
 
-                yield AgentEvent::IterationStarted { iteration: ctx.iteration };
+                // IterationStarted is no longer emitted on the wire
+                // (Phase 2 of simplify-agent-event-stream); internal
+                // iteration tracking is preserved via ctx.iteration.
 
                 // Dispatch PreCompact hook event before checking compact
                 // step. The hook can observe (but not veto) the pending
@@ -481,11 +498,14 @@ impl StreamBuilder {
                             .as_ref()
                             .map(|b| b.hard_limit)
                             .unwrap_or(0);
-                        yield AgentEvent::TokenBudgetWarning {
-                            status: "warning".to_string(),
-                            current_tokens: ctx.cumulative_tokens,
-                            threshold_tokens: threshold,
-                        };
+                        yield AgentEvent::System(SystemEvent::Warning {
+                            kind: WarningKind::TokenBudget,
+                            message: format!(
+                                "Token budget warning: {}/{}",
+                                ctx.cumulative_tokens, threshold
+                            ),
+                            iteration: Some(ctx.iteration),
+                        });
                     }
                     super::super::iteration::CompactOutcome::MustCompact { old_tokens, new_tokens } => {
                         // Dispatch PostCompact hook event after compaction.
@@ -497,17 +517,27 @@ impl StreamBuilder {
                         );
                         steps.hook_dispatcher.dispatch(&post_compact_event).await;
 
-                        yield AgentEvent::ContextCompacted { old_tokens, new_tokens };
+                        yield AgentEvent::System(SystemEvent::Warning {
+                            kind: WarningKind::ContextCompaction,
+                            message: format!(
+                                "Compacted {} -> {} tokens",
+                                old_tokens, new_tokens
+                            ),
+                            iteration: Some(ctx.iteration),
+                        });
                         let threshold = config
                             .context_token_budget
                             .as_ref()
                             .map(|b| b.hard_limit)
                             .unwrap_or(0);
-                        yield AgentEvent::TokenBudgetWarning {
-                            status: "must_compact".to_string(),
-                            current_tokens: ctx.cumulative_tokens,
-                            threshold_tokens: threshold,
-                        };
+                        yield AgentEvent::System(SystemEvent::Warning {
+                            kind: WarningKind::TokenBudget,
+                            message: format!(
+                                "must_compact: {}/{}",
+                                ctx.cumulative_tokens, threshold
+                            ),
+                            iteration: Some(ctx.iteration),
+                        });
                         current_turn.fail_with("must_compact");
                         #[cfg(feature = "otel")]
                         turn_span_guard.record_error("TurnError", "must_compact");
@@ -532,7 +562,9 @@ impl StreamBuilder {
                 )
                 .await;
 
-                yield AgentEvent::LlmRequestStarted { iteration: ctx.iteration };
+                // LlmRequestStarted is no longer emitted on the wire
+                // (Phase 2 of simplify-agent-event-stream); the LLM call
+                // itself is observed via its ModelDone/SamplingResult.
 
                 let agent_ctx = super::super::iteration::prepare_agent_ctx(&ctx);
                 let before_llm_event = synthia_hook::HookEvent::UserPromptSubmit(
@@ -741,19 +773,15 @@ impl StreamBuilder {
 
                         if sampling.tool_calls.is_empty() {
                             ctx.set_end_reason(crate::events::SessionEndReason::Completed);
-                            yield AgentEvent::LlmResponseComplete {
-                                content: sampling.text.clone(),
-                                usage: crate::events::TokenUsage {
-                                    prompt_tokens: sampling.usage.prompt_tokens,
-                                    completion_tokens: sampling.usage.completion_tokens,
-                                    total_tokens: sampling.usage.total_tokens,
-                                    cached_prompt_tokens: sampling
-                                        .usage
-                                        .cached_prompt_tokens,
-                                    cache_read_tokens: sampling.usage.cache_read_tokens,
-                                    cache_write_tokens: sampling.usage.cache_write_tokens,
-                                },
-                            };
+                            // Persist the assistant's text reply into the
+                            // conversation log so any continuation of the
+                            // session (e.g. auto-triggered self_reflect
+                            // or compaction re-prompting) sees the
+                            // coherent user/assistant pair. Without this,
+                            // a subsequent LLM call would see the user's
+                            // question but no assistant reply.
+                            ctx.add_assistant_message_from_sampling(&sampling);
+                            yield AgentEvent::ModelDone(sampling.clone());
                             current_turn.transition_to(TurnStatus::Completed);
                             emit_turn_event(
                                 session_store.event_store(),
@@ -802,10 +830,11 @@ impl StreamBuilder {
                             &sampling,
                             &mut ctx,
                         ) {
-                            yield AgentEvent::LoopWarning {
-                                reason: loop_reason.clone(),
-                                iteration: ctx.iteration,
-                            };
+                            yield AgentEvent::System(SystemEvent::Warning {
+                                kind: WarningKind::Loop,
+                                message: loop_reason.clone(),
+                                iteration: Some(ctx.iteration),
+                            });
                             current_turn.fail_with("doom_loop_detected");
                             #[cfg(feature = "otel")]
                             turn_span_guard.record_error("TurnError", "doom_loop_detected");
@@ -831,23 +860,24 @@ impl StreamBuilder {
                                 serde_json::json!({"reason": "LoopDetected"}),
                             )
                             .await;
-                            yield AgentEvent::SessionEnded { reason: crate::events::SessionEndReason::LoopDetected };
+                            yield AgentEvent::System(SystemEvent::SessionEnded {
+                                reason: crate::events::SessionEndReason::LoopDetected,
+                            });
                             return;
                         }
 
-                        yield AgentEvent::LlmResponseComplete {
-                            content: sampling.text.clone(),
-                            usage: crate::events::TokenUsage {
-                                prompt_tokens: sampling.usage.prompt_tokens,
-                                completion_tokens: sampling.usage.completion_tokens,
-                                total_tokens: sampling.usage.total_tokens,
-                                cached_prompt_tokens: sampling
-                                    .usage
-                                    .cached_prompt_tokens,
-                                cache_read_tokens: sampling.usage.cache_read_tokens,
-                                cache_write_tokens: sampling.usage.cache_write_tokens,
-                            },
-                        };
+                        yield AgentEvent::ModelDone(sampling.clone());
+
+                        // Persist the assistant's tool-use declaration
+                        // into the conversation log BEFORE running any
+                        // tool. The OpenAI / Anthropic contract requires
+                        // every `Role::Tool` message to be preceded by
+                        // an assistant message declaring the matching
+                        // `tool_call_id`; without this the next request
+                        // is rejected with
+                        // `tool result's tool id not found`. See the
+                        // 2026-07-25 server log at 10:58:30.080120.
+                        ctx.add_assistant_message_from_sampling(&sampling);
 
                         current_turn.transition_to(TurnStatus::Executing);
                         emit_turn_event(
@@ -959,13 +989,21 @@ impl StreamBuilder {
                                             "InterceptorChain short-circuited tool call"
                                         );
                                         skipped_tools.push(tool_call.name.clone());
-                                        yield AgentEvent::ToolCallCompleted {
-                                            tool_name: tool_call.name.clone(),
-                                            output: format!(
-                                                "Tool call blocked by interceptor: {name}"
-                                            ),
-                                            is_error: true,
-                                        };
+                                        yield AgentEvent::Model(synthia_provider::ContentPart::ToolResult(
+                                            synthia_provider::ToolResult {
+                                                tool_use_id: tool_call.id.clone(),
+                                                content: vec![synthia_provider::ContentPart::Text(
+                                                    synthia_provider::TextContent {
+                                                        text: format!(
+                                                            "Tool call blocked by interceptor: {name}"
+                                                        ),
+                                                        cache_control: None,
+                                                    },
+                                                )],
+                                                structured_content: None,
+                                                is_error: Some(true),
+                                            },
+                                        ));
                                         ctx.add_tool_result(
                                             tool_call.name.clone(),
                                             tool_call.id.clone(),
@@ -1104,10 +1142,14 @@ impl StreamBuilder {
                                         result.phase.clone(),
                                     )
                                     .emit();
-                                    yield AgentEvent::ContextCompacted {
-                                        old_tokens: result.old_tokens,
-                                        new_tokens: result.new_tokens,
-                                    };
+                                    yield AgentEvent::System(SystemEvent::Warning {
+                                        kind: WarningKind::ContextCompaction,
+                                        message: format!(
+                                            "Compacted {} -> {} tokens",
+                                            result.old_tokens, result.new_tokens
+                                        ),
+                                        iteration: Some(ctx.iteration),
+                                    });
 
                                     let post_compact = synthia_hook::HookEvent::PostCompact(
                                         synthia_hook::outcome::PostCompactPayload {
@@ -1173,7 +1215,10 @@ impl StreamBuilder {
                         )
                         .await;
 
-                        yield AgentEvent::IterationCompleted { iteration: ctx.iteration };
+                        // IterationCompleted is no longer emitted on the
+                        // wire (Phase 2 of simplify-agent-event-stream);
+                        // internal iteration tracking is preserved via
+                        // ctx.iteration.
 
                         // ── Goal tracking ──
                         // Update the goal tracker with iteration progress.
@@ -1267,7 +1312,7 @@ impl StreamBuilder {
             )
             .await;
 
-            yield AgentEvent::SessionEnded { reason: end_reason };
+            yield AgentEvent::System(SystemEvent::SessionEnded { reason: end_reason });
         })
     }
 }

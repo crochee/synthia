@@ -315,6 +315,7 @@ impl ModelProvider for FakeProvider {
                 text,
                 tool_calls,
                 reasoning: String::new(),
+                reasoning_signature: None,
                 usage: TokenUsage::default(),
             }),
         });

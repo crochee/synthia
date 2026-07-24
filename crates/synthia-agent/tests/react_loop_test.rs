@@ -13,9 +13,20 @@ mod test_support;
 use std::sync::Arc;
 
 use futures::StreamExt;
-use synthia_agent::{agent::Agent, config::AgentConfig, types::*};
+use synthia_agent::{
+    agent::Agent,
+    config::AgentConfig,
+    events::SystemEvent,
+    types::*,
+};
 use synthia_hook::HookRegistry;
-use synthia_provider::types::{ContentPart, StreamChunk, TextContent, ToolUse};
+use synthia_provider::types::{
+    ContentPart,
+    StreamChunk,
+    TextContent,
+    ToolResult,
+    ToolUse,
+};
 use synthia_tool::registry::{ToolEntry, ToolRegistry};
 use test_support::{FakeProvider, FakeTool, make_run_config};
 use tokio_util::sync::CancellationToken;
@@ -104,19 +115,22 @@ async fn test_react_loop_text_only_emits_session_events() {
     let events: Vec<AgentEvent> = Agent::run_stream(run_config).collect().await;
 
     // Must start with SessionStarted
-    assert!(
-        matches!(&events[0], AgentEvent::SessionStarted { session_id } if session_id == "sess-1")
-    );
+    assert!(matches!(
+        &events[0],
+        AgentEvent::System(SystemEvent::SessionStarted {
+            session_id
+        }) if session_id == "sess-1"
+    ));
     // Must end with SessionEnded
     assert!(matches!(
         &events[events.len() - 1],
-        AgentEvent::SessionEnded { .. }
+        AgentEvent::System(SystemEvent::SessionEnded { .. })
     ));
     // No tool call events
     assert!(
         !events
             .iter()
-            .any(|e| matches!(e, AgentEvent::ToolCallStarted { .. }))
+            .any(|e| matches!(e, AgentEvent::Model(ContentPart::ToolUse(_))))
     );
 }
 
@@ -143,23 +157,33 @@ async fn test_react_loop_executes_single_tool_call() {
 
     let events: Vec<AgentEvent> = Agent::run_stream(run_config).collect().await;
 
-    // Should have ToolCallStarted for weather
-    let tool_start = events.iter().find(
-        |e| matches!(e, AgentEvent::ToolCallStarted { tool_name, .. } if tool_name == "weather"),
-    );
+    // Should have ToolUse for weather
+    let tool_start = events.iter().find(|e| {
+        matches!(
+            e,
+            AgentEvent::Model(ContentPart::ToolUse(ToolUse { name, .. }))
+                if name == "weather"
+        )
+    });
     assert!(
         tool_start.is_some(),
-        "Expected ToolCallStarted for weather, got events: {:?}",
+        "Expected ToolUse for weather, got events: {:?}",
         events
     );
 
-    // Should have ToolCallCompleted for weather
-    let tool_done = events.iter().find(
-        |e| matches!(e, AgentEvent::ToolCallCompleted { tool_name, .. } if tool_name == "weather"),
-    );
+    // Should have ToolResult for weather
+    let tool_done = events.iter().find(|e| {
+        matches!(
+            e,
+            AgentEvent::Model(ContentPart::ToolResult(ToolResult {
+                tool_use_id,
+                ..
+            })) if tool_use_id == "call_1"
+        )
+    });
     assert!(
         tool_done.is_some(),
-        "Expected ToolCallCompleted for weather, got events: {:?}",
+        "Expected ToolResult for weather, got events: {:?}",
         events
     );
 }
@@ -187,21 +211,18 @@ async fn test_react_loop_emits_iteration_events() {
 
     let events: Vec<AgentEvent> = Agent::run_stream(run_config).collect().await;
 
-    // At least two iterations (tool call round + final text)
-    let iteration_starts: Vec<_> = events
+    // IterationStarted event was removed in Phase 2, so the
+    // iteration count is no longer observable on the wire. We
+    // therefore verify multi-turn behaviour through the presence
+    // of multiple ModelDone (sampling-result) events instead.
+    let model_done_count = events
         .iter()
-        .filter_map(|e| {
-            if let AgentEvent::IterationStarted { iteration } = e {
-                Some(*iteration)
-            } else {
-                None
-            }
-        })
-        .collect();
+        .filter(|e| matches!(e, AgentEvent::ModelDone(_)))
+        .count();
     assert!(
-        iteration_starts.len() >= 2,
-        "Expected >= 2 iterations, got: {:?}",
-        iteration_starts
+        model_done_count >= 2,
+        "Expected >= 2 ModelDone events (tool-call round + final text), got {}",
+        model_done_count
     );
 }
 
@@ -258,9 +279,13 @@ async fn test_react_loop_respects_max_iterations() {
     let events: Vec<AgentEvent> = Agent::run_stream(run_config).collect().await;
 
     // Should end with MaxIterationsReached
-    let ended = events
-        .iter()
-        .find(|e| matches!(e, AgentEvent::SessionEnded { reason } if matches!(reason, SessionEndReason::MaxIterationsReached)));
+    let ended = events.iter().find(|e| {
+        matches!(
+            e,
+            AgentEvent::System(SystemEvent::SessionEnded { reason })
+                if matches!(reason, SessionEndReason::MaxIterationsReached)
+        )
+    });
     assert!(
         ended.is_some(),
         "Expected SessionEnded with MaxIterationsReached, got events: {:?}",
@@ -294,7 +319,15 @@ async fn test_react_loop_cancellation() {
     let events: Vec<AgentEvent> = Agent::run_stream(run_config).collect().await;
 
     let ended = events.iter().find(|e| {
-        matches!(e, AgentEvent::SessionEnded { reason } if matches!(reason, SessionEndReason::Cancelled | SessionEndReason::MaxIterationsReached))
+        matches!(
+            e,
+            AgentEvent::System(SystemEvent::SessionEnded { reason })
+                if matches!(
+                    reason,
+                    SessionEndReason::Cancelled
+                        | SessionEndReason::MaxIterationsReached
+                )
+        )
     });
     assert!(
         ended.is_some(),
@@ -329,8 +362,12 @@ async fn test_react_loop_emits_llm_deltas() {
     let deltas: Vec<_> = events
         .iter()
         .filter_map(|e| {
-            if let AgentEvent::LlmStreamDelta { content } = e {
-                Some(content.clone())
+            if let AgentEvent::Model(ContentPart::Text(TextContent {
+                text,
+                ..
+            })) = e
+            {
+                Some(text.clone())
             } else {
                 None
             }
@@ -338,7 +375,7 @@ async fn test_react_loop_emits_llm_deltas() {
         .collect();
     assert!(
         !deltas.is_empty(),
-        "Expected at least one LlmStreamDelta, got events: {:?}",
+        "Expected at least one Model Text delta, got events: {:?}",
         events
     );
 }

@@ -8,7 +8,13 @@ use std::collections::HashMap;
 use tracing::warn;
 
 use super::events::AnthropicStreamEvent;
-use crate::types::{ContentPart, StreamChunk, TextContent, ToolUse};
+use crate::types::{
+    ContentPart,
+    ReasoningContent,
+    StreamChunk,
+    TextContent,
+    ToolUse,
+};
 
 /// Per-content-block tool-use buffer (private to this module).
 struct ToolUseBuffer {
@@ -71,18 +77,18 @@ impl StreamProcessor {
                     "thinking" => {
                         if let Some(thinking) = &block.thinking {
                             chunks.push(StreamChunk::Content(
-                                ContentPart::Reasoning(TextContent {
+                                ContentPart::Reasoning(ReasoningContent {
                                     text: thinking.clone(),
-                                    cache_control: None,
+                                    signature: None,
                                 }),
                             ));
                         }
                     }
                     "redacted_thinking" => {
                         chunks.push(StreamChunk::Content(
-                            ContentPart::Reasoning(TextContent {
+                            ContentPart::Reasoning(ReasoningContent {
                                 text: "[Redacted by safety filter]".to_string(),
-                                cache_control: None,
+                                signature: None,
                             }),
                         ));
                     }
@@ -112,9 +118,9 @@ impl StreamProcessor {
                     "thinking_delta" => {
                         if let Some(thinking) = &delta.thinking {
                             chunks.push(StreamChunk::Content(
-                                ContentPart::Reasoning(TextContent {
+                                ContentPart::Reasoning(ReasoningContent {
                                     text: thinking.clone(),
-                                    cache_control: None,
+                                    signature: None,
                                 }),
                             ));
                         }

@@ -50,7 +50,13 @@ use synthia_context::truncate::{
 use synthia_guardian::{ApprovalRequest, GuardianDecision, LoopDetectorSet};
 use synthia_hook::{AgentContext, ToolAction};
 use synthia_memory::types::MemoryEvent;
-use synthia_provider::types::{SamplingResult, ToolUse};
+use synthia_provider::types::{
+    ContentPart,
+    SamplingResult,
+    TextContent,
+    ToolResult as ProviderToolResult,
+    ToolUse,
+};
 use tokio::sync::mpsc::Sender;
 use tokio_util::sync::CancellationToken;
 
@@ -58,7 +64,13 @@ use super::types::ToolExecuteOutcome;
 use crate::{
     config::AgentConfig,
     error_recovery::recovery_cascade::{RecoveryAction, run_recovery_cascade},
-    events::{AgentEvent, SessionEndReason},
+    events::{
+        AgentEvent,
+        HookEvent,
+        SessionEndReason,
+        SystemEvent,
+        WarningKind,
+    },
     loop_context::LoopContext,
     stream_builder::builder::types::BuilderSteps,
     types::ToolResult,
@@ -145,10 +157,11 @@ pub async fn execute_and_emit(
             // completes because the coordinator does not have access
             // to the event channel during the review.
             if outcome.escalated {
-                events.push(AgentEvent::GuardianConfirmationRequest {
+                events.push(AgentEvent::Hook(HookEvent::ConfirmRequest {
+                    tool_use_id: tool_call.id.clone(),
                     tool_name: tool_call.name.clone(),
                     reason: "Guardian subagent review initiated".to_string(),
-                });
+                }));
             }
             match outcome.decision {
                 GuardianDecision::Allow => approved_calls.push(tool_call),
@@ -159,13 +172,14 @@ pub async fn execute_and_emit(
                         escalated = outcome.escalated,
                         "Guardian denied tool call"
                     );
-                    events.push(AgentEvent::GuardianWarning {
-                        reason: format!(
+                    events.push(AgentEvent::System(SystemEvent::Warning {
+                        kind: WarningKind::Guardian,
+                        message: format!(
                             "Guardian denied '{}': {}",
                             tool_call.name, reason
                         ),
-                        iteration: ctx.iteration,
-                    });
+                        iteration: Some(ctx.iteration),
+                    }));
                     guardian_denied_results.push(ToolResult {
                         tool_name: tool_call.name.clone(),
                         tool_call_id: tool_call.id.clone(),
@@ -189,14 +203,15 @@ pub async fn execute_and_emit(
                         subagent_error = ?outcome.subagent_error,
                         "Guardian requests user confirmation"
                     );
-                    events.push(AgentEvent::GuardianWarning {
-                        reason: format!(
+                    events.push(AgentEvent::System(SystemEvent::Warning {
+                        kind: WarningKind::Guardian,
+                        message: format!(
                             "Guardian requires user confirmation for '{}': \
                              {reason}",
                             tool_call.name
                         ),
-                        iteration: ctx.iteration,
-                    });
+                        iteration: Some(ctx.iteration),
+                    }));
                     if steps.tool_execute.has_orchestrator() {
                         // Forward to the orchestrator so it can run its
                         // own approval flow (ApprovalService). The
@@ -222,14 +237,15 @@ pub async fn execute_and_emit(
                             "NeedUserConfirm downgraded to Deny \
                              (no orchestrator)"
                         );
-                        events.push(AgentEvent::GuardianWarning {
-                            reason: format!(
+                        events.push(AgentEvent::System(SystemEvent::Warning {
+                            kind: WarningKind::Guardian,
+                            message: format!(
                                 "Guardian denied '{}' (no approval \
                                  service): {deny_reason}",
                                 tool_call.name
                             ),
-                            iteration: ctx.iteration,
-                        });
+                            iteration: Some(ctx.iteration),
+                        }));
                         guardian_denied_results.push(ToolResult {
                             tool_name: tool_call.name.clone(),
                             tool_call_id: tool_call.id.clone(),
@@ -250,153 +266,162 @@ pub async fn execute_and_emit(
     // `tool_calls_to_execute` is empty and `execute` returns an empty
     // vec; the denied results are prepended below so they still flow
     // through the L1 truncation + event emission pipeline.
-    let mut tool_results =
-        match steps.tool_execute.execute(ctx, tool_calls_to_execute).await {
-            Ok(results) => results,
-            Err(e) => {
-                // Handle edit conflicts specially — emit event and
-                // treat as a non-recoverable tool error (no cascade).
-                if let synthia_core::Error::EditConflict {
-                    path,
-                    original_hash,
-                    current_hash,
-                } = &e
-                {
-                    let tool_name = sampling
-                        .tool_calls
-                        .first()
-                        .map(|c| c.name.clone())
-                        .unwrap_or_else(|| "unknown".to_string());
-                    let call_id = sampling
-                        .tool_calls
-                        .first()
-                        .map(|c| c.id.clone())
-                        .unwrap_or_else(|| "unknown".to_string());
-                    let path_display = path.display().to_string();
-                    events.push(AgentEvent::EditConflict {
-                        tool_name: tool_name.clone(),
-                        call_id: call_id.clone(),
-                        path: path_display.clone(),
-                        original_content_hash: *original_hash,
-                        current_content_hash: *current_hash,
-                    });
-                    events.push(AgentEvent::ToolCallCompleted {
-                        tool_name,
-                        output: format!(
-                            "Edit conflict detected on {}. \
-                             File was modified since read. \
-                             Original hash: {}, Current hash: {}",
-                            path_display, original_hash, current_hash
-                        ),
-                        is_error: true,
-                    });
-                    return ToolExecuteOutcome::Continue { events };
-                }
-
-                // Capture the iteration BEFORE the cascade —
-                // the L5 Reset arm clears `ctx.iteration = 0`
-                // (a fresh conversation starts at 0) which
-                // would otherwise report `iteration: 0` on
-                // the RecoveryApplied event. We want the
-                // iteration that *triggered* the recovery.
-                let recovery_iteration = ctx.iteration;
-                let tool_name_on_error = sampling
+    let mut tool_results = match steps
+        .tool_execute
+        .execute(ctx, tool_calls_to_execute)
+        .await
+    {
+        Ok(results) => results,
+        Err(e) => {
+            // Handle edit conflicts specially — emit event and
+            // treat as a non-recoverable tool error (no cascade).
+            if let synthia_core::Error::EditConflict {
+                path,
+                original_hash,
+                current_hash,
+            } = &e
+            {
+                let tool_name = sampling
                     .tool_calls
                     .first()
                     .map(|c| c.name.clone())
                     .unwrap_or_else(|| "unknown".to_string());
-                let tool_call_id_on_error = sampling
+                let call_id = sampling
                     .tool_calls
                     .first()
                     .map(|c| c.id.clone())
                     .unwrap_or_else(|| "unknown".to_string());
+                let path_display = path.display().to_string();
+                events.push(AgentEvent::System(SystemEvent::Warning {
+                        kind: WarningKind::EditConflict,
+                        message: format!(
+                            "{}: {} modified since read (original_hash={}, current_hash={})",
+                            tool_name, path_display, original_hash, current_hash
+                        ),
+                        iteration: Some(ctx.iteration),
+                    }));
+                events.push(AgentEvent::Model(ContentPart::ToolResult(
+                    ProviderToolResult {
+                        tool_use_id: call_id.clone(),
+                        content: vec![ContentPart::Text(TextContent {
+                            text: format!(
+                                "Edit conflict detected on {}. \
+                                     File was modified since read. \
+                                     Original hash: {}, Current hash: {}",
+                                path_display, original_hash, current_hash
+                            ),
+                            cache_control: None,
+                        })],
+                        structured_content: None,
+                        is_error: Some(true),
+                    },
+                )));
+                return ToolExecuteOutcome::Continue { events };
+            }
 
-                let steering_ref: Option<
-                    &dyn crate::steering::SteeringChannel,
-                > = steps.steering_channel.as_deref();
-                let action = run_recovery_cascade(
-                    &e.to_string(),
-                    &tool_name_on_error,
-                    ctx,
-                    &mut steps.failure_tracker,
-                    &steps.recovery,
-                    config.context_token_budget.as_ref(),
-                    compaction_provider,
-                    loop_detectors,
-                    steering_ref,
-                    &steps.reset,
-                )
-                .await;
-                match action {
-                    RecoveryAction::Recovered { message, level } => {
-                        events.push(AgentEvent::RecoveryApplied {
-                            level_number: level,
-                            tool_name: Some(tool_name_on_error.clone()),
-                            message: message.clone(),
-                            iteration: recovery_iteration,
+            // Capture the iteration BEFORE the cascade —
+            // the L5 Reset arm clears `ctx.iteration = 0`
+            // (a fresh conversation starts at 0) which
+            // would otherwise report `iteration: 0` on
+            // the RecoveryApplied event. We want the
+            // iteration that *triggered* the recovery.
+            let recovery_iteration = ctx.iteration;
+            let tool_name_on_error = sampling
+                .tool_calls
+                .first()
+                .map(|c| c.name.clone())
+                .unwrap_or_else(|| "unknown".to_string());
+            let tool_call_id_on_error = sampling
+                .tool_calls
+                .first()
+                .map(|c| c.id.clone())
+                .unwrap_or_else(|| "unknown".to_string());
+
+            let steering_ref: Option<&dyn crate::steering::SteeringChannel> =
+                steps.steering_channel.as_deref();
+            let action = run_recovery_cascade(
+                &e.to_string(),
+                &tool_name_on_error,
+                ctx,
+                &mut steps.failure_tracker,
+                &steps.recovery,
+                config.context_token_budget.as_ref(),
+                compaction_provider,
+                loop_detectors,
+                steering_ref,
+                &steps.reset,
+            )
+            .await;
+            match action {
+                RecoveryAction::Recovered { message, level } => {
+                    events.push(AgentEvent::recovery(
+                        level,
+                        Some(tool_name_on_error.clone()),
+                        message.clone(),
+                        Some(recovery_iteration),
+                    ));
+                    tracing::info!(
+                        level,
+                        tool = %tool_name_on_error,
+                        "Recovery cascade recovered from tool error; \
+                         injecting fallback guidance as tool result"
+                    );
+                    // Inject the fallback message as a tool
+                    // result with `is_error: true` so the LLM
+                    // sees the cascade's guidance on the next
+                    // iteration. The ToolResult carries the
+                    // same `tool_name` as the failing call so
+                    // the LLM can correlate the guidance with
+                    // the prior request.
+                    vec![ToolResult {
+                        tool_name: tool_name_on_error,
+                        tool_call_id: tool_call_id_on_error,
+                        output: message,
+                        is_error: true,
+                    }]
+                }
+                RecoveryAction::FailFast(reason) => {
+                    tracing::error!(
+                        tool = %tool_name_on_error,
+                        reason = %reason,
+                        "Recovery cascade exhausted; entering fail-fast"
+                    );
+                    ctx.set_end_reason(SessionEndReason::Error(reason));
+                    let end_reason =
+                        ctx.end_reason.clone().unwrap_or_else(|| {
+                            SessionEndReason::Error("Unknown".to_string())
                         });
-                        tracing::info!(
-                            level,
-                            tool = %tool_name_on_error,
-                            "Recovery cascade recovered from tool error; \
-                             injecting fallback guidance as tool result"
-                        );
-                        // Inject the fallback message as a tool
-                        // result with `is_error: true` so the LLM
-                        // sees the cascade's guidance on the next
-                        // iteration. The ToolResult carries the
-                        // same `tool_name` as the failing call so
-                        // the LLM can correlate the guidance with
-                        // the prior request.
-                        vec![ToolResult {
-                            tool_name: tool_name_on_error,
-                            tool_call_id: tool_call_id_on_error,
-                            output: message,
-                            is_error: true,
-                        }]
-                    }
-                    RecoveryAction::FailFast(reason) => {
-                        tracing::error!(
-                            tool = %tool_name_on_error,
-                            reason = %reason,
-                            "Recovery cascade exhausted; entering fail-fast"
-                        );
-                        ctx.set_end_reason(SessionEndReason::Error(reason));
-                        let end_reason =
-                            ctx.end_reason.clone().unwrap_or_else(|| {
-                                SessionEndReason::Error("Unknown".to_string())
-                            });
-                        return ToolExecuteOutcome::Terminate {
-                            events: vec![AgentEvent::SessionEnded {
-                                reason: end_reason,
-                            }],
-                        };
-                    }
-                    RecoveryAction::Escalate => {
-                        // Cascade no longer produces Escalate
-                        // (L5 is wired in), but keep the arm
-                        // explicit for forward compatibility.
-                        tracing::error!(
-                            tool = %tool_name_on_error,
-                            "Recovery cascade escalated (unexpected); \
-                             entering fail-fast"
-                        );
-                        ctx.set_end_reason(SessionEndReason::Error(
-                            "Recovery cascade escalated".to_string(),
-                        ));
-                        let end_reason =
-                            ctx.end_reason.clone().unwrap_or_else(|| {
-                                SessionEndReason::Error("Unknown".to_string())
-                            });
-                        return ToolExecuteOutcome::Terminate {
-                            events: vec![AgentEvent::SessionEnded {
-                                reason: end_reason,
-                            }],
-                        };
-                    }
+                    return ToolExecuteOutcome::Terminate {
+                        events: vec![AgentEvent::System(
+                            SystemEvent::SessionEnded { reason: end_reason },
+                        )],
+                    };
+                }
+                RecoveryAction::Escalate => {
+                    // Cascade no longer produces Escalate
+                    // (L5 is wired in), but keep the arm
+                    // explicit for forward compatibility.
+                    tracing::error!(
+                        tool = %tool_name_on_error,
+                        "Recovery cascade escalated (unexpected); \
+                         entering fail-fast"
+                    );
+                    ctx.set_end_reason(SessionEndReason::Error(
+                        "Recovery cascade escalated".to_string(),
+                    ));
+                    let end_reason =
+                        ctx.end_reason.clone().unwrap_or_else(|| {
+                            SessionEndReason::Error("Unknown".to_string())
+                        });
+                    return ToolExecuteOutcome::Terminate {
+                        events: vec![AgentEvent::System(
+                            SystemEvent::SessionEnded { reason: end_reason },
+                        )],
+                    };
                 }
             }
-        };
+        }
+    };
 
     // Prepend Guardian-denied results so they flow through the same
     // L1 truncation + event emission pipeline as executed results.
@@ -420,26 +445,32 @@ pub async fn execute_and_emit(
             && br.truncated
         {
             any_truncated = true;
-            events.push(AgentEvent::RecoveryApplied {
-                level_number: 1,
-                tool_name: Some(result.tool_name.clone()),
-                message: format!(
+            events.push(AgentEvent::recovery(
+                1,
+                Some(result.tool_name.clone()),
+                format!(
                     "Truncated tool output ({} -> {} bytes)",
                     br.original_bytes, br.output_bytes
                 ),
-                iteration: ctx.iteration,
-            });
+                Some(ctx.iteration),
+            ));
             bound.unwrap().output
         } else if let Some(br) = bound {
             br.output
         } else {
             result.output.clone()
         };
-        events.push(AgentEvent::ToolCallCompleted {
-            tool_name: result.tool_name.clone(),
-            output: effective_output.clone(),
-            is_error: result.is_error,
-        });
+        events.push(AgentEvent::Model(ContentPart::ToolResult(
+            ProviderToolResult {
+                tool_use_id: result.tool_call_id.clone(),
+                content: vec![ContentPart::Text(TextContent {
+                    text: effective_output.clone(),
+                    cache_control: None,
+                })],
+                structured_content: None,
+                is_error: Some(result.is_error),
+            },
+        )));
         ctx.add_tool_result(
             result.tool_name.clone(),
             result.tool_call_id.clone(),
@@ -521,10 +552,11 @@ async fn collect_tool_calls(
 ) -> Vec<ToolUse> {
     let mut tool_calls_to_execute: Vec<ToolUse> = Vec::new();
     for tool_call in tool_calls {
-        events_out.push(AgentEvent::ToolCallStarted {
-            tool_name: tool_call.name.clone(),
+        events_out.push(AgentEvent::Model(ContentPart::ToolUse(ToolUse {
+            id: tool_call.id.clone(),
+            name: tool_call.name.clone(),
             input: tool_call.input.clone(),
-        });
+        })));
 
         // Phase 1a: dispatch PreToolUse via UnifiedHookDispatcher.
         // Deny → skip the tool; ForwardToMainAgent → inject into

@@ -149,9 +149,11 @@ impl AgentExecutor for SynthiaExecutor {
 fn is_terminal_event(event: &synthia_agent::AgentEvent) -> bool {
     matches!(
         event,
-        synthia_agent::AgentEvent::SessionEnded { .. }
-            | synthia_agent::AgentEvent::SessionInterrupted { .. }
-            | synthia_agent::AgentEvent::Finish { .. }
+        synthia_agent::AgentEvent::System(
+            synthia_agent::events::SystemEvent::SessionEnded { .. }
+        ) | synthia_agent::AgentEvent::System(
+            synthia_agent::events::SystemEvent::SessionInterrupted { .. }
+        ) | synthia_agent::AgentEvent::ModelDone(_)
     )
 }
 
@@ -165,37 +167,52 @@ fn empty_error_message(reason: &str) -> Message {
 
 #[cfg(test)]
 mod tests {
+    use synthia_agent::events::{SessionEndReason, SystemEvent};
+    use synthia_provider::ContentPart;
+
     use super::*;
 
     #[test]
     fn is_terminal_event_detects_session_ended() {
-        let event = synthia_agent::AgentEvent::SessionEnded {
-            reason: synthia_agent::events::SessionEndReason::Completed,
-        };
+        let event =
+            synthia_agent::AgentEvent::System(SystemEvent::SessionEnded {
+                reason: SessionEndReason::Completed,
+            });
         assert!(is_terminal_event(&event));
     }
 
     #[test]
     fn is_terminal_event_detects_session_interrupted() {
-        let event = synthia_agent::AgentEvent::SessionInterrupted {
-            reason: "test".to_string(),
-        };
+        let event = synthia_agent::AgentEvent::System(
+            SystemEvent::SessionInterrupted {
+                reason: "test".to_string(),
+            },
+        );
         assert!(is_terminal_event(&event));
     }
 
     #[test]
-    fn is_terminal_event_detects_finish() {
-        let event = synthia_agent::AgentEvent::Finish {
-            output: "done".to_string(),
-        };
+    fn is_terminal_event_detects_model_done() {
+        let event = synthia_agent::AgentEvent::ModelDone(
+            synthia_provider::SamplingResult {
+                text: "done".to_string(),
+                tool_calls: vec![],
+                reasoning: String::new(),
+                reasoning_signature: None,
+                usage: synthia_provider::types::TokenUsage::default(),
+            },
+        );
         assert!(is_terminal_event(&event));
     }
 
     #[test]
     fn is_terminal_event_rejects_non_terminal() {
-        let event = synthia_agent::AgentEvent::LlmStreamDelta {
-            content: "hi".to_string(),
-        };
+        let event = synthia_agent::AgentEvent::Model(ContentPart::Text(
+            synthia_provider::TextContent {
+                text: "hi".to_string(),
+                cache_control: None,
+            },
+        ));
         assert!(!is_terminal_event(&event));
     }
 }

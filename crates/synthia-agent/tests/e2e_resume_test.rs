@@ -12,6 +12,7 @@ use async_trait::async_trait;
 use futures::StreamExt;
 use synthia_agent::{
     config::AgentConfig,
+    events::SystemEvent,
     stream_builder::StreamBuilder,
     types::{AgentEvent, AgentInput},
 };
@@ -139,35 +140,24 @@ async fn test_resume_preserves_initial_messages_and_iteration() {
 
     // The session should have started and ended
     assert!(
-        events
-            .iter()
-            .any(|e| matches!(e, AgentEvent::SessionStarted { .. })),
+        events.iter().any(|e| matches!(
+            e,
+            AgentEvent::System(SystemEvent::SessionStarted { .. })
+        )),
         "SessionStarted event missing"
     );
     assert!(
-        events
-            .iter()
-            .any(|e| matches!(e, AgentEvent::SessionEnded { .. })),
+        events.iter().any(|e| matches!(
+            e,
+            AgentEvent::System(SystemEvent::SessionEnded { .. })
+        )),
         "SessionEnded event missing"
     );
 
-    // The first IterationStarted must reflect start_iteration + 1
-    // (StreamBuilder increments before yielding the event)
-    let first_iter = events
-        .iter()
-        .find_map(|e| {
-            if let AgentEvent::IterationStarted { iteration } = e {
-                Some(*iteration)
-            } else {
-                None
-            }
-        })
-        .expect("No IterationStarted event found");
-    assert_eq!(
-        first_iter,
-        start_iteration + 1,
-        "First iteration should be start_iteration + 1 (increment happens before emit)"
-    );
+    // IterationStarted event was removed in Phase 2, so the
+    // start_iteration counter is no longer observable on the wire.
+    // The original assertion on `first_iter` is replaced by the
+    // session lifecycle assertions above.
 
     // The provider should have received all initial messages in its first request
     let requests = captured_requests.lock().unwrap();
@@ -236,24 +226,16 @@ async fn test_resume_with_empty_state_falls_back_to_input() {
     let events: Vec<AgentEvent> = stream.collect().await;
 
     assert!(
-        events
-            .iter()
-            .any(|e| matches!(e, AgentEvent::SessionEnded { .. })),
+        events.iter().any(|e| matches!(
+            e,
+            AgentEvent::System(SystemEvent::SessionEnded { .. })
+        )),
         "Session should complete normally"
     );
 
-    // The first IterationStarted should be 1 (fresh session)
-    let first_iter = events
-        .iter()
-        .find_map(|e| {
-            if let AgentEvent::IterationStarted { iteration } = e {
-                Some(*iteration)
-            } else {
-                None
-            }
-        })
-        .expect("No IterationStarted event found");
-    assert_eq!(first_iter, 1, "Fresh session should start at iteration 1");
+    // IterationStarted event was removed in Phase 2, so the
+    // fresh-session iteration counter is no longer observable via
+    // this event.
 
     // The input should have been seeded as the first message
     let requests = captured_requests.lock().unwrap();

@@ -14,7 +14,13 @@ use synthia_agent::{
 };
 use synthia_core::{Registry, RegistryItem};
 use synthia_hook::HookRegistry;
-use synthia_provider::types::{ContentPart, StreamChunk, TextContent, ToolUse};
+use synthia_provider::types::{
+    ContentPart,
+    StreamChunk,
+    TextContent,
+    ToolResult,
+    ToolUse,
+};
 use synthia_tool::registry::{ToolEntry, ToolRegistry};
 use test_support::{FakeProvider, FakeTool, make_run_config};
 use tokio_util::sync::CancellationToken;
@@ -124,21 +130,43 @@ async fn self_reflect_llm_call_dispatches_through_tool_path() {
     let events: Vec<AgentEvent> = Agent::run_stream(run_config).collect().await;
 
     let started = events.iter().any(|e| {
-        matches!(e, AgentEvent::ToolCallStarted { tool_name, .. } if tool_name == "self_reflect")
+        matches!(
+            e,
+            AgentEvent::Model(ContentPart::ToolUse(ToolUse { name, .. }))
+                if name == "self_reflect"
+        )
     });
-    assert!(started, "expected ToolCallStarted for self_reflect");
+    assert!(started, "expected ToolUse for self_reflect");
 
     let completed = events.iter().find(|e| {
-        matches!(e, AgentEvent::ToolCallCompleted { tool_name, .. } if tool_name == "self_reflect")
+        matches!(
+            e,
+            AgentEvent::Model(ContentPart::ToolResult(ToolResult {
+                tool_use_id,
+                ..
+            })) if tool_use_id.starts_with("call-self_reflect")
+                || tool_use_id.starts_with("self_reflect-auto-")
+        )
     });
-    assert!(
-        completed.is_some(),
-        "expected ToolCallCompleted for self_reflect"
-    );
-    if let AgentEvent::ToolCallCompleted { output, .. } = completed.unwrap() {
-        assert!(output.contains("review summary"));
-        assert!(output.contains("issue1"));
-        assert!(output.contains("suggestion1"));
+    assert!(completed.is_some(), "expected ToolResult for self_reflect");
+    if let AgentEvent::Model(ContentPart::ToolResult(ToolResult {
+        content,
+        ..
+    })) = completed.unwrap()
+    {
+        let combined: String = content
+            .iter()
+            .filter_map(|p| {
+                if let ContentPart::Text(TextContent { text, .. }) = p {
+                    Some(text.clone())
+                } else {
+                    None
+                }
+            })
+            .collect();
+        assert!(combined.contains("review summary"));
+        assert!(combined.contains("issue1"));
+        assert!(combined.contains("suggestion1"));
     }
 }
 
@@ -178,12 +206,23 @@ async fn self_reflect_auto_triggers_at_iteration_five() {
     let events: Vec<AgentEvent> = Agent::run_stream(run_config).collect().await;
 
     let started = events.iter().any(|e| {
-        matches!(e, AgentEvent::ToolCallStarted { tool_name, .. } if tool_name == "self_reflect")
+        matches!(
+            e,
+            AgentEvent::Model(ContentPart::ToolUse(ToolUse { name, .. }))
+                if name == "self_reflect"
+        )
     });
     assert!(started, "expected auto-triggered self_reflect");
 
     let completed = events.iter().find(|e| {
-        matches!(e, AgentEvent::ToolCallCompleted { tool_name, .. } if tool_name == "self_reflect")
+        matches!(
+            e,
+            AgentEvent::Model(ContentPart::ToolResult(ToolResult {
+                tool_use_id,
+                ..
+            })) if tool_use_id.starts_with("call-self_reflect")
+                || tool_use_id.starts_with("self_reflect-auto-")
+        )
     });
     assert!(completed.is_some());
 }
@@ -228,13 +267,12 @@ async fn self_reflect_counter_resets_after_llm_call() {
 
     let self_reflect_starts: Vec<_> = events
         .iter()
-        .filter_map(|e| {
-            if let AgentEvent::ToolCallStarted { tool_name, .. } = e
-                && tool_name == "self_reflect"
-            {
-                return Some(());
-            }
-            None
+        .filter(|e| {
+            matches!(
+                e,
+                AgentEvent::Model(ContentPart::ToolUse(ToolUse { name, .. }))
+                    if name == "self_reflect"
+            )
         })
         .collect();
     assert_eq!(
@@ -285,7 +323,11 @@ async fn self_reflect_same_iteration_dedup() {
     let self_reflect_starts: Vec<_> = events
         .iter()
         .filter(|e| {
-            matches!(e, AgentEvent::ToolCallStarted { tool_name, .. } if tool_name == "self_reflect")
+            matches!(
+                e,
+                AgentEvent::Model(ContentPart::ToolUse(ToolUse { name, .. }))
+                    if name == "self_reflect"
+            )
         })
         .collect();
     assert_eq!(
@@ -333,15 +375,28 @@ async fn self_reflect_llm_and_auto_paths_are_consistent() {
 
     let events: Vec<AgentEvent> = Agent::run_stream(run_config).collect().await;
 
-    let outputs: Vec<&String> = events
+    let outputs: Vec<String> = events
         .iter()
         .filter_map(|e| {
-            if let AgentEvent::ToolCallCompleted {
-                tool_name, output, ..
-            } = e
-                && tool_name == "self_reflect"
+            if let AgentEvent::Model(ContentPart::ToolResult(ToolResult {
+                tool_use_id,
+                content,
+                ..
+            })) = e
+                && (tool_use_id.starts_with("call-self_reflect")
+                    || tool_use_id.starts_with("self_reflect-auto-"))
             {
-                return Some(output);
+                let combined: String = content
+                    .iter()
+                    .filter_map(|p| {
+                        if let ContentPart::Text(TextContent { text, .. }) = p {
+                            Some(text.clone())
+                        } else {
+                            None
+                        }
+                    })
+                    .collect();
+                return Some(combined);
             }
             None
         })

@@ -11,6 +11,7 @@ use futures::StreamExt;
 use synthia_agent::{
     agent::Agent,
     config::AgentConfig,
+    events::SystemEvent,
     types::{AgentEvent, AgentInput, SessionEndReason},
 };
 use synthia_context::ContextAssembler;
@@ -111,7 +112,7 @@ async fn test_memory_session_starts_correctly() {
 
     assert!(!events.is_empty(), "should emit at least one event");
     match &events[0] {
-        AgentEvent::SessionStarted { session_id } => {
+        AgentEvent::System(SystemEvent::SessionStarted { session_id }) => {
             assert_eq!(session_id, "mem-test-1");
         }
         other => {
@@ -151,16 +152,16 @@ async fn test_memory_emits_llm_response_and_end() {
 
     let llm_complete = events
         .iter()
-        .find(|e| matches!(e, AgentEvent::LlmResponseComplete { .. }));
+        .find(|e| matches!(e, AgentEvent::ModelDone(_)));
     assert!(llm_complete.is_some(), "should emit LlmResponseComplete");
 
     let last = events.last().unwrap();
     assert!(
-        matches!(last, AgentEvent::SessionEnded { .. }),
+        matches!(last, AgentEvent::System(SystemEvent::SessionEnded { .. })),
         "last event should be SessionEnded"
     );
 
-    if let AgentEvent::SessionEnded { reason } = last {
+    if let AgentEvent::System(SystemEvent::SessionEnded { reason }) = last {
         assert!(
             matches!(reason, SessionEndReason::Completed),
             "session should end as completed, got: {:?}",
@@ -216,14 +217,13 @@ async fn test_hot_memory_injection() {
 
     let events = collect_events(Agent::run_stream(run_config)).await;
 
-    let has_session_end = events
-        .iter()
-        .any(|e| matches!(e, AgentEvent::SessionEnded { .. }));
+    let has_session_end = events.iter().any(|e| {
+        matches!(e, AgentEvent::System(SystemEvent::SessionEnded { .. }))
+    });
     assert!(has_session_end, "session should complete");
 
-    let has_llm_response = events
-        .iter()
-        .any(|e| matches!(e, AgentEvent::LlmResponseComplete { .. }));
+    let has_llm_response =
+        events.iter().any(|e| matches!(e, AgentEvent::ModelDone(_)));
     assert!(has_llm_response, "should have LLM response");
 
     // Keep memory objects alive until end of test
@@ -343,12 +343,12 @@ async fn test_single_turn_tracking_provider_records_one_call() {
 
     let events = collect_events(Agent::run_stream(run_config)).await;
 
-    let has_start = events
-        .iter()
-        .any(|e| matches!(e, AgentEvent::SessionStarted { .. }));
-    let has_end = events
-        .iter()
-        .any(|e| matches!(e, AgentEvent::SessionEnded { .. }));
+    let has_start = events.iter().any(|e| {
+        matches!(e, AgentEvent::System(SystemEvent::SessionStarted { .. }))
+    });
+    let has_end = events.iter().any(|e| {
+        matches!(e, AgentEvent::System(SystemEvent::SessionEnded { .. }))
+    });
     assert!(has_start, "should start session");
     assert!(has_end, "should end session");
 
@@ -434,22 +434,25 @@ async fn test_multi_turn_with_tool_calls_and_tracking_provider() {
 
     let events = collect_events(Agent::run_stream(run_config)).await;
 
-    let has_start = events
-        .iter()
-        .any(|e| matches!(e, AgentEvent::SessionStarted { .. }));
-    let has_end = events
-        .iter()
-        .any(|e| matches!(e, AgentEvent::SessionEnded { .. }));
+    let has_start = events.iter().any(|e| {
+        matches!(e, AgentEvent::System(SystemEvent::SessionStarted { .. }))
+    });
+    let has_end = events.iter().any(|e| {
+        matches!(e, AgentEvent::System(SystemEvent::SessionEnded { .. }))
+    });
     let has_tool_start = events.iter().any(|e| {
         matches!(
             e,
-            AgentEvent::ToolCallStarted { tool_name, .. } if tool_name == "echo"
+            AgentEvent::Model(ContentPart::ToolUse(tu)) if tu.name == "echo"
         )
     });
-    let has_tool_done = events.iter().any(|e| matches!(
-        e,
-        AgentEvent::ToolCallCompleted { tool_name, .. } if tool_name == "echo"
-    ));
+    let has_tool_done = events.iter().any(|e| {
+        matches!(
+            e,
+            AgentEvent::Model(ContentPart::ToolResult(tr))
+                if tr.tool_use_id == "call_1"
+        )
+    });
 
     assert!(has_start, "should start session");
     assert!(has_end, "should end session");
@@ -532,9 +535,9 @@ async fn test_memory_handles_combined() {
 
     let events = collect_events(Agent::run_stream(run_config)).await;
 
-    let has_session_end = events
-        .iter()
-        .any(|e| matches!(e, AgentEvent::SessionEnded { .. }));
+    let has_session_end = events.iter().any(|e| {
+        matches!(e, AgentEvent::System(SystemEvent::SessionEnded { .. }))
+    });
     assert!(
         has_session_end,
         "session with combined memory should complete"

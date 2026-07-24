@@ -11,17 +11,24 @@ export class McpPage extends BasePage {
     return this.page.getByTestId('mcp-name');
   }
 
-  get urlInput(): Locator {
-    return this.page.getByTestId('mcp-url');
+  get commandInput(): Locator {
+    return this.page.getByTestId('mcp-command');
+  }
+
+  get argsInput(): Locator {
+    return this.page.getByTestId('mcp-args');
   }
 
   get addButton(): Locator {
     return this.page.getByTestId('mcp-add');
   }
 
-  async addServer(name: string, url: string): Promise<void> {
+  async addServer(name: string, command: string, args?: string): Promise<void> {
     await this.nameInput.fill(name);
-    await this.urlInput.fill(url);
+    await this.commandInput.fill(command);
+    if (args) {
+      await this.argsInput.fill(args);
+    }
     await this.addButton.click();
   }
 }

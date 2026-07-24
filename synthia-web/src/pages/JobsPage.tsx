@@ -1,35 +1,41 @@
 import { Card } from '../components/ui/Card';
 import { Button } from '../components/ui/Button';
 import { useEffect, useState } from 'react';
-
-interface Job {
-  id: string;
-  name: string;
-  schedule?: string;
-  enabled: boolean;
-}
+import { api } from '../api/client';
+import type { Job, JobsListResponse } from '../api/types';
 
 export function JobsPage() {
   const [jobs, setJobs] = useState<Job[]>([]);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    fetch('/api/jobs')
-      .then((r) => (r.ok ? r.json() : []))
-      .then((data) => setJobs(Array.isArray(data) ? data : (data.jobs ?? [])))
-      .catch((e) => setError(e.message));
+    let cancelled = false;
+    api
+      .get<JobsListResponse>('/api/jobs')
+      .then((data) => {
+        if (cancelled) return;
+        const pausedKeys = new Set(data.paused ?? []);
+        const merged = (data.jobs ?? []).map((j) => ({
+          ...j,
+          paused: pausedKeys.has(j.key),
+        }));
+        setJobs(merged);
+      })
+      .catch((e: Error) => {
+        if (cancelled) return;
+        setError(e.message);
+      });
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   const toggle = async (job: Job) => {
-    setJobs((prev) => prev.map((j) => (j.id === job.id ? { ...j, enabled: !j.enabled } : j)));
+    setJobs((prev) => prev.map((j) => (j.key === job.key ? { ...j, paused: !j.paused } : j)));
     try {
-      await fetch(`/api/jobs/${encodeURIComponent(job.id)}`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ enabled: !job.enabled }),
-      });
+      await api.post(`/api/jobs/${encodeURIComponent(job.key)}/pause`);
     } catch (e) {
-      setJobs((prev) => prev.map((j) => (j.id === job.id ? { ...j, enabled: job.enabled } : j)));
+      setJobs((prev) => prev.map((j) => (j.key === job.key ? { ...j, paused: job.paused } : j)));
       setError((e as Error).message);
     }
   };
@@ -44,15 +50,16 @@ export function JobsPage() {
       )}
       {jobs.length === 0 && !error && <Card title="No jobs">No scheduled jobs configured.</Card>}
       {jobs.map((job) => (
-        <Card key={job.id} title={job.name} glow={job.enabled ? 'green' : 'none'}>
-          {job.schedule && <code>schedule: {job.schedule}</code>}
+        <Card key={job.key} title={job.key} glow={!job.paused ? 'green' : 'none'}>
+          <p>{job.description}</p>
+          <code>trigger: {job.trigger_desc}</code>
           <div>
             <Button
-              variant={job.enabled ? 'primary' : 'secondary'}
+              variant={!job.paused ? 'primary' : 'secondary'}
               onClick={() => toggle(job)}
-              data-testid={`job-toggle-${job.id}`}
+              data-testid={`job-toggle-${job.key}`}
             >
-              {job.enabled ? 'Enabled' : 'Disabled'}
+              {!job.paused ? 'Enabled' : 'Disabled'}
             </Button>
           </div>
         </Card>

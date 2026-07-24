@@ -2,9 +2,20 @@
 use std::sync::Arc;
 
 use futures::StreamExt;
-use synthia_agent::{agent::Agent, config::AgentConfig, types::AgentEvent};
+use synthia_agent::{
+    agent::Agent,
+    config::AgentConfig,
+    events::SystemEvent,
+    types::AgentEvent,
+};
 use synthia_hook::HookRegistry;
-use synthia_provider::types::{ContentPart, StreamChunk, TextContent, ToolUse};
+use synthia_provider::types::{
+    ContentPart,
+    StreamChunk,
+    TextContent,
+    ToolResult,
+    ToolUse,
+};
 use synthia_tool::registry::{ToolEntry, ToolRegistry};
 use tokio_util::sync::CancellationToken;
 
@@ -72,13 +83,19 @@ async fn test_pause_and_resume_continues_from_state() {
 
     let tool_call_started = events
         .iter()
-        .any(|e| matches!(e, AgentEvent::ToolCallStarted { .. }));
-    let tool_call_completed = events
-        .iter()
-        .any(|e| matches!(e, AgentEvent::ToolCallCompleted { .. }));
-    let session_ended = events
-        .iter()
-        .any(|e| matches!(e, AgentEvent::SessionEnded { .. }));
+        .any(|e| matches!(e, AgentEvent::Model(ContentPart::ToolUse(_))));
+    let tool_call_completed = events.iter().any(|e| {
+        matches!(
+            e,
+            AgentEvent::Model(ContentPart::ToolResult(ToolResult {
+                tool_use_id,
+                ..
+            })) if tool_use_id == "call_1"
+        )
+    });
+    let session_ended = events.iter().any(|e| {
+        matches!(e, AgentEvent::System(SystemEvent::SessionEnded { .. }))
+    });
 
     assert!(tool_call_started, "Should start a tool call");
     assert!(tool_call_completed, "Should complete the tool call");
@@ -132,15 +149,17 @@ async fn test_session_pause_mid_turn() {
     let events: Vec<AgentEvent> = Agent::run_stream(run_config).collect().await;
 
     assert!(
-        events
-            .iter()
-            .any(|e| matches!(e, AgentEvent::SessionStarted { .. })),
+        events.iter().any(|e| matches!(
+            e,
+            AgentEvent::System(SystemEvent::SessionStarted { .. })
+        )),
         "Session should start"
     );
     assert!(
-        events
-            .iter()
-            .any(|e| matches!(e, AgentEvent::SessionEnded { .. })),
+        events.iter().any(|e| matches!(
+            e,
+            AgentEvent::System(SystemEvent::SessionEnded { .. })
+        )),
         "Session should end after pause and resume"
     );
 }

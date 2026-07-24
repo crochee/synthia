@@ -15,6 +15,7 @@ use synthia_provider::{
         ImageDetail,
         Message,
         ModelConfig,
+        ReasoningContent,
         Role,
         StreamChunk,
         TextContent,
@@ -717,9 +718,9 @@ async fn test_message_content_transforms() {
     });
     assert!(matches!(tool_result_part, ContentPart::ToolResult(..)));
 
-    let reasoning_part = ContentPart::Reasoning(TextContent {
+    let reasoning_part = ContentPart::Reasoning(ReasoningContent {
         text: "Let me think...".to_string(),
-        cache_control: None,
+        signature: None,
     });
     assert!(matches!(reasoning_part, ContentPart::Reasoning(..)));
 }
@@ -779,9 +780,9 @@ async fn test_stream_chunk_variants() {
     ));
 
     let reasoning_chunk =
-        StreamChunk::Content(ContentPart::Reasoning(TextContent {
+        StreamChunk::Content(ContentPart::Reasoning(ReasoningContent {
             text: "thinking...".to_string(),
-            cache_control: None,
+            signature: None,
         }));
     assert!(matches!(
         reasoning_chunk,
@@ -907,7 +908,7 @@ data: [DONE]
                         text_output.lock().unwrap().push_str(&text);
                     }
                     StreamChunk::Content(ContentPart::Reasoning(
-                        TextContent { text, .. },
+                        ReasoningContent { text, .. },
                     )) => reasoning_output.lock().unwrap().push_str(&text),
                     _ => {}
                 }
@@ -1525,7 +1526,7 @@ async fn test_openai_complete_with_stream_reasoning_passthrough() {
         .filter(|c| {
             matches!(
                 c,
-                StreamChunk::Content(ContentPart::Reasoning(TextContent { text, .. }))
+                StreamChunk::Content(ContentPart::Reasoning(ReasoningContent { text, .. }))
                     if text.contains("<think>")
             )
         })

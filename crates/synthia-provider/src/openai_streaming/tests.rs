@@ -1,7 +1,7 @@
 use serde_json::json;
 
 use super::*;
-use crate::types::{ContentPart, StreamChunk};
+use crate::types::{ContentPart, ReasoningContent, StreamChunk};
 
 #[test]
 fn content_delta_emits_text_chunk() {
@@ -104,6 +104,50 @@ fn done_token_emits_is_done() {
     assert_eq!(cs.len(), 1);
     match &cs[0] {
         StreamChunk::IsDone { result } => assert_eq!(result.text, "hi"),
+        other => panic!("expected IsDone, got {other:?}"),
+    }
+}
+
+/// Task 1.7: OpenAI streaming produces reasoning chunks without a
+/// signature (OpenAI doesn't emit one). The reasoning part and the
+/// final `SamplingResult` must both leave `signature` / `reasoning_signature`
+/// as `None`.
+#[test]
+fn openai_reasoning_chunks_leave_signature_none() {
+    let mut p = OpenAIStreamProcessorV2::new();
+    let line = r#"{"id":"x","choices":[{"delta":{"reasoning_content":"thinking through this"}}]}"#;
+    let cs = p.process_line(line);
+    assert_eq!(cs.len(), 1);
+    match &cs[0] {
+        StreamChunk::Content(ContentPart::Reasoning(ReasoningContent {
+            text,
+            signature,
+        })) => {
+            assert_eq!(text, "thinking through this");
+            assert!(
+                signature.is_none(),
+                "OpenAI must leave the part's signature as None"
+            );
+        }
+        other => panic!("expected Content(Reasoning), got {other:?}"),
+    }
+
+    // Drive the processor to IsDone so we can also assert the
+    // aggregated SamplingResult leaves reasoning_signature as None.
+    let end_line = r#"{"id":"x","choices":[{"finish_reason":"stop"}]}"#;
+    let cs = p.process_line(end_line);
+    let is_done = cs
+        .iter()
+        .find(|c| matches!(c, StreamChunk::IsDone { .. }))
+        .expect("IsDone present");
+    match is_done {
+        StreamChunk::IsDone { result } => {
+            assert_eq!(result.reasoning, "thinking through this");
+            assert!(
+                result.reasoning_signature.is_none(),
+                "OpenAI stream must aggregate reasoning_signature as None"
+            );
+        }
         other => panic!("expected IsDone, got {other:?}"),
     }
 }

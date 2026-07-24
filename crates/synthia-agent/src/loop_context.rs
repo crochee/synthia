@@ -154,6 +154,71 @@ impl LoopContext {
         }
     }
 
+    /// Append an assistant `Role::Assistant` message reconstructed
+    /// from a [`SamplingResult`](synthia_provider::types::SamplingResult).
+    ///
+    /// The upstream provider contract (OpenAI, Anthropic) requires that
+    /// every `Role::Tool` message in the conversation log be preceded
+    /// by an assistant message whose `tool_calls[]` (or
+    /// `ContentPart::ToolUse`) declares the matching `id`. Without
+    /// this message, the API rejects the next request with
+    /// `tool result's tool id not found`. This is the regression
+    /// surfaced in the 2026-07-25 server log at 10:58:30.080120.
+    ///
+    /// Text-only sampling results also produce an assistant message
+    /// so the conversation log remains coherent for any subsequent
+    /// iteration (e.g. auto-triggered self_reflect or compaction
+    /// re-prompting that continues the loop). When the sampling
+    /// result has neither text nor tool calls (an empty response),
+    /// nothing is appended — there is nothing useful to record.
+    pub fn add_assistant_message_from_sampling(
+        &mut self,
+        sampling: &synthia_provider::types::SamplingResult,
+    ) {
+        use synthia_provider::types::{Content, ContentPart, TextContent};
+
+        let mut parts: Vec<ContentPart> = Vec::new();
+        if !sampling.text.is_empty() {
+            parts.push(ContentPart::Text(TextContent {
+                text: sampling.text.clone(),
+                cache_control: None,
+            }));
+        }
+        for tool_use in &sampling.tool_calls {
+            parts.push(ContentPart::ToolUse(tool_use.clone()));
+        }
+
+        if parts.is_empty() {
+            return;
+        }
+
+        let content = if parts.len() == 1 {
+            Content::Single(parts.remove(0))
+        } else {
+            Content::Multi(parts)
+        };
+        self.messages
+            .push(Message::new(synthia_provider::Role::Assistant, content));
+    }
+
+    /// Append a synthetic assistant message that declares a single
+    /// tool use. Used by code paths that dispatch a tool without an
+    /// LLM-sampled assistant message (e.g. the auto-triggered
+    /// `self_reflect` path). Without this declaration the subsequent
+    /// `Role::Tool` result message would have no preceding
+    /// `tool_call_id` anchor and the upstream API would reject the
+    /// next request with `tool result's tool id not found`.
+    pub fn add_synthetic_assistant_tool_use(
+        &mut self,
+        tool_use: synthia_provider::types::ToolUse,
+    ) {
+        use synthia_provider::types::{Content, ContentPart};
+        self.messages.push(Message::new(
+            synthia_provider::Role::Assistant,
+            Content::Single(ContentPart::ToolUse(tool_use)),
+        ));
+    }
+
     /// 检查会话是否应停止：迭代上限 + 可选的墙上时钟超时。
     ///
     /// 当 `wall_clock_timeout` 为 `None` 或 `Some(Duration::ZERO)` 时
@@ -298,6 +363,97 @@ mod tests {
         assert!(!ctx.recent_tool_results[1].2);
         // The error case still has 1 message (no new Role::Tool pushed).
         assert_eq!(ctx.messages.len(), 1);
+    }
+
+    /// Regression: after sampling completes the assistant message
+    /// (with optional text and the tool calls the LLM issued) must
+    /// be appended to `ctx.messages` BEFORE the corresponding tool
+    /// results. Without this, the next LLM call sends a
+    /// `Role::Tool` message whose `tool_call_id` has no preceding
+    /// assistant declaration and the upstream API rejects it with
+    /// `tool result's tool id not found`. See the 2026-07-25 server
+    /// log at 10:58:30.080120 for the original symptom.
+    #[test]
+    fn test_add_assistant_message_from_sampling_anchors_tool_calls() {
+        use synthia_provider::types::SamplingResult;
+        let span_ctx = SpanContext::new("test-session");
+        let mut ctx = LoopContext::new("session-123".to_string(), span_ctx);
+        ctx.messages.push(Message::user("read the file"));
+
+        let sampling = SamplingResult {
+            text: "I'll read it".to_string(),
+            tool_calls: vec![synthia_provider::types::ToolUse {
+                id: "call-xyz".to_string(),
+                name: "read_file".to_string(),
+                input: serde_json::json!({"path": "x"}),
+            }],
+            ..Default::default()
+        };
+        ctx.add_assistant_message_from_sampling(&sampling);
+
+        assert_eq!(ctx.messages.len(), 2);
+        assert_eq!(ctx.messages[1].role, synthia_provider::Role::Assistant);
+        let tool_uses = ctx.messages[1].content.extract_tool_uses();
+        assert_eq!(tool_uses.len(), 1);
+        assert_eq!(tool_uses[0].id, "call-xyz");
+
+        // Now the tool result anchored by `call-xyz` is valid.
+        ctx.add_tool_result(
+            "read_file".to_string(),
+            "call-xyz".to_string(),
+            "file contents".to_string(),
+            true,
+        );
+        assert_eq!(ctx.messages.len(), 3);
+        assert_eq!(ctx.messages[2].role, synthia_provider::Role::Tool);
+        assert_eq!(ctx.messages[2].tool_call_id.as_deref(), Some("call-xyz"));
+    }
+
+    /// Text-only sampling must also produce an assistant message so
+    /// the conversation log remains coherent for any subsequent
+    /// iteration (e.g. auto-triggered self_reflect or compaction
+    /// re-prompting).
+    #[test]
+    fn test_add_assistant_message_from_sampling_text_only() {
+        use synthia_provider::types::SamplingResult;
+        let span_ctx = SpanContext::new("test-session");
+        let mut ctx = LoopContext::new("session-123".to_string(), span_ctx);
+        ctx.messages.push(Message::user("hi"));
+
+        let sampling = SamplingResult {
+            text: "hello there".to_string(),
+            tool_calls: vec![],
+            ..Default::default()
+        };
+        ctx.add_assistant_message_from_sampling(&sampling);
+
+        assert_eq!(ctx.messages.len(), 2);
+        assert_eq!(ctx.messages[1].role, synthia_provider::Role::Assistant);
+        assert_eq!(
+            ctx.messages[1].content.extract_text().as_deref(),
+            Some("hello there")
+        );
+    }
+
+    /// Synthetic tool-use messages (e.g. auto-triggered `self_reflect`)
+    /// must produce an assistant declaration so the following
+    /// `Role::Tool` result is anchored by a matching `tool_call_id`.
+    #[test]
+    fn test_add_synthetic_assistant_tool_use_anchors_result() {
+        let span_ctx = SpanContext::new("test-session");
+        let mut ctx = LoopContext::new("session-123".to_string(), span_ctx);
+        ctx.add_synthetic_assistant_tool_use(
+            synthia_provider::types::ToolUse {
+                id: "auto-1".to_string(),
+                name: "self_reflect".to_string(),
+                input: serde_json::json!({}),
+            },
+        );
+        assert_eq!(ctx.messages.len(), 1);
+        assert_eq!(ctx.messages[0].role, synthia_provider::Role::Assistant);
+        let tool_uses = ctx.messages[0].content.extract_tool_uses();
+        assert_eq!(tool_uses.len(), 1);
+        assert_eq!(tool_uses[0].id, "auto-1");
     }
 
     #[test]

@@ -8,6 +8,7 @@ use futures::StreamExt;
 use synthia_agent::{
     agent::Agent,
     config::AgentConfig,
+    events::{HookEvent, SystemEvent},
     steering::{MpscSteeringChannel, SteeringChannel, SteeringMessage},
     types::{AgentEvent, AgentInput},
 };
@@ -70,20 +71,16 @@ async fn test_steering_message_emitted_as_event() {
 
     let steering_event = events
         .iter()
-        .find(|e| matches!(e, AgentEvent::SteeringReceived { .. }));
+        .find(|e| matches!(e, AgentEvent::Hook(HookEvent::Message { .. })));
     assert!(
         steering_event.is_some(),
-        "should emit SteeringReceived event when pending input has a message"
+        "should emit Hook::Message event when pending input has a message"
     );
 
-    if let Some(AgentEvent::SteeringReceived {
-        message,
-        session_id,
-        ..
-    }) = steering_event
+    if let Some(AgentEvent::Hook(HookEvent::Message { message, .. })) =
+        steering_event
     {
         assert_eq!(message, "focus on testing");
-        assert_eq!(session_id, "steer-test-1");
     }
 }
 
@@ -139,11 +136,11 @@ async fn test_multiple_steering_messages() {
 
     let steering_count = events
         .iter()
-        .filter(|e| matches!(e, AgentEvent::SteeringReceived { .. }))
+        .filter(|e| matches!(e, AgentEvent::Hook(HookEvent::Message { .. })))
         .count();
     assert!(
         steering_count >= 1,
-        "should emit at least 1 SteeringReceived event, got {}",
+        "should emit at least 1 Hook::Message event, got {}",
         steering_count
     );
 }
@@ -192,18 +189,18 @@ async fn test_steering_message_emits_steering_received_event() {
 
     let events: Vec<AgentEvent> = Agent::run_stream(run_config).collect().await;
 
-    let has_start = events
-        .iter()
-        .any(|e| matches!(e, AgentEvent::SessionStarted { .. }));
-    let has_end = events
-        .iter()
-        .any(|e| matches!(e, AgentEvent::SessionEnded { .. }));
+    let has_start = events.iter().any(|e| {
+        matches!(e, AgentEvent::System(SystemEvent::SessionStarted { .. }))
+    });
+    let has_end = events.iter().any(|e| {
+        matches!(e, AgentEvent::System(SystemEvent::SessionEnded { .. }))
+    });
     assert!(has_start, "should start session");
     assert!(has_end, "should end session");
 
     let steering_count = events
         .iter()
-        .filter(|e| matches!(e, AgentEvent::SteeringReceived { .. }))
+        .filter(|e| matches!(e, AgentEvent::Hook(HookEvent::Message { .. })))
         .count();
     assert!(steering_count >= 1, "should have received steering message");
 }
@@ -252,11 +249,11 @@ async fn test_no_steering_when_empty_queue() {
 
     let steering_count = events
         .iter()
-        .filter(|e| matches!(e, AgentEvent::SteeringReceived { .. }))
+        .filter(|e| matches!(e, AgentEvent::Hook(HookEvent::Message { .. })))
         .count();
     assert_eq!(
         steering_count, 0,
-        "should have no SteeringReceived events when queue is empty"
+        "should have no Hook::Message events when queue is empty"
     );
 }
 
@@ -306,10 +303,12 @@ async fn test_steering_content_preserved() {
 
     let steering_event = events
         .iter()
-        .find(|e| matches!(e, AgentEvent::SteeringReceived { .. }));
+        .find(|e| matches!(e, AgentEvent::Hook(HookEvent::Message { .. })));
     assert!(steering_event.is_some(), "should have steering event");
 
-    if let Some(AgentEvent::SteeringReceived { message, .. }) = steering_event {
+    if let Some(AgentEvent::Hook(HookEvent::Message { message, .. })) =
+        steering_event
+    {
         assert_eq!(message, "Please prioritize security checks");
     }
 }

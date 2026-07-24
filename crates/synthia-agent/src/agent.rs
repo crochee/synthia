@@ -400,7 +400,7 @@ pub(crate) mod otel_context {
 
         #[tokio::test]
         async fn wrap_output_propagates_task_locals_during_poll() {
-            use crate::events::AgentEvent;
+            use crate::events::{AgentEvent, SystemEvent, WarningKind};
 
             // Inner stream reads `SESSION_ID` *when polled* (not at
             // construction). The outer wrapper polls it inside
@@ -411,7 +411,7 @@ pub(crate) mod otel_context {
                 let msg = SESSION_ID
                     .try_get()
                     .unwrap_or_else(|_| "no-task-local".to_string());
-                yield AgentEvent::Warning { message: msg };
+                yield AgentEvent::warning_kind(WarningKind::Hook, msg);
             });
             let ctx = OtelContext {
                 session_id: "sess-2".to_string(),
@@ -424,12 +424,15 @@ pub(crate) mod otel_context {
             let wrapped = wrap_output_with_otel(inner, ctx);
             let collected: Vec<AgentEvent> = wrapped.collect().await;
             assert_eq!(collected.len(), 1);
-            if let AgentEvent::Warning { message } = &collected[0] {
+            if let AgentEvent::System(SystemEvent::Warning {
+                message, ..
+            }) = &collected[0]
+            {
                 // Proves the task-local was set when the inner stream
                 // was polled by the wrapper.
                 assert_eq!(message, "sess-2");
             } else {
-                panic!("expected AgentEvent::Warning");
+                panic!("expected AgentEvent::System(SystemEvent::Warning)");
             }
         }
 
@@ -447,12 +450,13 @@ pub(crate) mod otel_context {
         /// guard's `Drop` runs during unwinding.
         #[tokio::test]
         async fn session_span_created_and_ended_on_normal_completion() {
-            use crate::events::AgentEvent;
+            use crate::events::{AgentEvent, SystemEvent, WarningKind};
 
             let inner: AgentOutput = Box::pin(stream! {
-                yield AgentEvent::Warning {
-                    message: "session-span-normal".to_string(),
-                };
+                yield AgentEvent::warning_kind(
+                    WarningKind::Hook,
+                    "session-span-normal".to_string(),
+                );
             });
             let ctx = OtelContext {
                 session_id: "sess-normal".to_string(),
@@ -465,10 +469,13 @@ pub(crate) mod otel_context {
             let wrapped = wrap_output_with_otel(inner, ctx);
             let collected: Vec<AgentEvent> = wrapped.collect().await;
             assert_eq!(collected.len(), 1);
-            if let AgentEvent::Warning { message } = &collected[0] {
+            if let AgentEvent::System(SystemEvent::Warning {
+                message, ..
+            }) = &collected[0]
+            {
                 assert_eq!(message, "session-span-normal");
             } else {
-                panic!("expected AgentEvent::Warning");
+                panic!("expected AgentEvent::System(SystemEvent::Warning)");
             }
             // After `collect` returns, the generator (and thus the
             // `SessionSpanGuard`) has been dropped. The span is ended.
@@ -490,15 +497,16 @@ pub(crate) mod otel_context {
 
             use futures::FutureExt;
 
-            use crate::events::AgentEvent;
+            use crate::events::{AgentEvent, WarningKind};
 
             // Yield one event so `stream!` infers `Item = AgentEvent`,
             // then panic on the next poll. The panic propagates
             // through `wrap_output_with_otel` to `collect`.
             let inner: AgentOutput = Box::pin(stream! {
-                yield AgentEvent::Warning {
-                    message: "pre-panic".to_string(),
-                };
+                yield AgentEvent::warning_kind(
+                    WarningKind::Hook,
+                    "pre-panic".to_string(),
+                );
                 panic!("test panic in inner stream");
             });
             let ctx = OtelContext {

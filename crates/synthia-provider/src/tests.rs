@@ -10,6 +10,7 @@ use crate::{
     ContentPart,
     ImageContent,
     Message,
+    ReasoningContent,
     ResourceLink,
     Role,
     StreamChunk,
@@ -27,9 +28,9 @@ fn test_content_part_with_wrapper_types() {
     });
     assert!(matches!(text_part, ContentPart::Text(_)));
 
-    let reasoning_part = ContentPart::Reasoning(TextContent {
+    let reasoning_part = ContentPart::Reasoning(ReasoningContent {
         text: "Let me think".into(),
-        cache_control: None,
+        signature: None,
     });
     assert!(matches!(reasoning_part, ContentPart::Reasoning(_)));
 
@@ -67,9 +68,9 @@ fn test_text_content_structure() {
 
 #[test]
 fn test_reasoning_content_structure() {
-    let reasoning_content = TextContent {
+    let reasoning_content = ReasoningContent {
         text: "thinking...".into(),
-        cache_control: None,
+        signature: None,
     };
     let part = ContentPart::Reasoning(reasoning_content);
     match part {
@@ -559,9 +560,9 @@ fn test_message_content_iterator_multi() {
             name: "test".into(),
             input: serde_json::json!({}),
         }),
-        ContentPart::Reasoning(TextContent {
+        ContentPart::Reasoning(ReasoningContent {
             text: "thinking".into(),
-            cache_control: None,
+            signature: None,
         }),
     ]);
     let parts: Vec<_> = (&content).into_iter().collect();

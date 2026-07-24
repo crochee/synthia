@@ -22,6 +22,7 @@ use crate::state::AppState;
 pub struct SkillInfo {
     pub name: String,
     pub description: String,
+    pub enabled: bool,
 }
 
 #[derive(Serialize)]
@@ -35,6 +36,7 @@ pub struct SkillDetailResponse {
     pub name: String,
     pub description: String,
     pub path: String,
+    pub enabled: bool,
 }
 
 #[derive(Serialize)]
@@ -68,6 +70,7 @@ pub async fn list_skills(
 ) -> Json<ApiResponse<SkillListResponse>> {
     let skills_dir = state.workspace_root.join(".agents").join("skills");
     let mut skills = Vec::new();
+    let settings_snapshot = state.settings.snapshot().await;
 
     if skills_dir.exists()
         && let Ok(entries) = std::fs::read_dir(&skills_dir)
@@ -97,6 +100,7 @@ pub async fn list_skills(
                 skills.push(SkillInfo {
                     name: name.to_string(),
                     description,
+                    enabled: settings_snapshot.is_skill_enabled(name),
                 });
             }
         }
@@ -121,6 +125,7 @@ pub async fn get_skill(
         .join("SKILL.md");
 
     if skill_path.exists() {
+        let enabled = state.settings.snapshot().await.is_skill_enabled(&name);
         match std::fs::read_to_string(&skill_path) {
             Ok(content) => Json(ApiResponse::ok(SkillDetailResponse {
                 name: name.clone(),
@@ -130,6 +135,7 @@ pub async fn get_skill(
                     .collect::<Vec<_>>()
                     .join(" "),
                 path: skill_path.to_string_lossy().to_string(),
+                enabled,
             })),
             Err(_) => Json(ApiResponse::err(UserError::new(
                 ErrorCode::InternalServerError,
@@ -244,5 +250,39 @@ pub async fn reload_skills(
     Json(ApiResponse::ok(SkillReloadResponse {
         reloaded: true,
         count,
+    }))
+}
+
+/// Request body for `PUT /api/v2/skills/{name}`.
+#[derive(Deserialize)]
+pub struct SetSkillEnabledRequest {
+    pub enabled: bool,
+}
+
+#[derive(Serialize)]
+pub struct SkillEnabledResponse {
+    pub name: String,
+    pub enabled: bool,
+}
+
+/// PUT /api/v2/skills/{name} - Toggle the enabled flag for a skill.
+///
+/// The flag is persisted in [`SettingsStore`] so that it survives
+/// page reloads. Missing skills default to `enabled = true`, so a
+/// PUT always records an explicit value (even if the underlying
+/// `SKILL.md` directory does not exist yet — the caller may be
+/// pre-registering a flag for a skill that will be installed later).
+pub async fn set_skill_enabled(
+    State(state): State<Arc<AppState>>,
+    Path(name): Path<String>,
+    Json(req): Json<SetSkillEnabledRequest>,
+) -> Json<ApiResponse<SkillEnabledResponse>> {
+    let mut snapshot = state.settings.snapshot().await;
+    snapshot.skills.insert(name.clone(), req.enabled);
+    state.settings.replace(snapshot).await;
+
+    Json(ApiResponse::ok(SkillEnabledResponse {
+        name,
+        enabled: req.enabled,
     }))
 }

@@ -3,7 +3,12 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use futures::StreamExt;
-use synthia_agent::{agent::Agent, config::AgentConfig, types::AgentEvent};
+use synthia_agent::{
+    agent::Agent,
+    config::AgentConfig,
+    events::SystemEvent,
+    types::AgentEvent,
+};
 use synthia_hook::HookRegistry;
 use synthia_provider::types::{ContentPart, StreamChunk, TextContent, ToolUse};
 use synthia_tool::{
@@ -120,12 +125,16 @@ async fn test_guardian_allows_normal_tool_call() {
 
     let events: Vec<AgentEvent> = Agent::run_stream(run_config).collect().await;
 
-    let tool_call_started = events
-        .iter()
-        .any(|e| matches!(e, AgentEvent::ToolCallStarted { tool_name, .. } if tool_name == "read_file"));
-    let session_ended = events
-        .iter()
-        .any(|e| matches!(e, AgentEvent::SessionEnded { .. }));
+    let tool_call_started = events.iter().any(|e| {
+        matches!(
+            e,
+            AgentEvent::Model(ContentPart::ToolUse(ToolUse { name, .. }))
+                if name == "read_file"
+        )
+    });
+    let session_ended = events.iter().any(|e| {
+        matches!(e, AgentEvent::System(SystemEvent::SessionEnded { .. }))
+    });
 
     assert!(
         tool_call_started,
@@ -183,9 +192,10 @@ async fn test_guardian_blocks_dangerous_operation() {
     let events: Vec<AgentEvent> = Agent::run_stream(run_config).collect().await;
 
     assert!(
-        events
-            .iter()
-            .any(|e| matches!(e, AgentEvent::SessionStarted { .. })),
+        events.iter().any(|e| matches!(
+            e,
+            AgentEvent::System(SystemEvent::SessionStarted { .. })
+        )),
         "Session should start"
     );
 }

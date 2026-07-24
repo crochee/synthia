@@ -15,7 +15,7 @@ use super::types::LlmSampleOutcome;
 use crate::{
     config::AgentConfig,
     error_recovery::recovery_cascade::{RecoveryAction, run_recovery_cascade},
-    events::{AgentEvent, SessionEndReason},
+    events::{AgentEvent, SessionEndReason, SystemEvent},
     loop_context::LoopContext,
     stream_builder::builder::types::BuilderSteps,
 };
@@ -111,16 +111,37 @@ pub(crate) async fn sample_llm_and_cascade(
         )
         .await;
     match sample_result {
-        Ok((sampling, text_deltas)) => {
+        Ok((sampling, deltas)) => {
             steps.recovery.record_success();
-            let events: Vec<AgentEvent> = text_deltas
-                .into_iter()
-                .map(|delta| AgentEvent::LlmStreamDelta { content: delta })
-                .collect();
+            let events: Vec<AgentEvent> =
+                deltas.into_iter().map(AgentEvent::Model).collect();
             LlmSampleOutcome::Done { sampling, events }
         }
         Err(e) => {
             tracing::error!(error = %e, "LLM sampling failed");
+            // Validation errors are not transient — recovery actions
+            // (L3 fallback, L4 compact, L5 reset) cannot turn a
+            // permanent condition into a recoverable one. Running
+            // them only re-enters `execute()` with the same bad
+            // state, looping until the iteration cap. Detect the
+            // validation case up front and terminate the session
+            // with a clear error instead.
+            if let synthia_core::Error::Validation(ref reason) = e {
+                ctx.set_end_reason(SessionEndReason::Error(reason.clone()));
+                return LlmSampleOutcome::Terminate {
+                    events: vec![AgentEvent::System(
+                        SystemEvent::SessionEnded {
+                            reason: ctx.end_reason.clone().unwrap_or_else(
+                                || {
+                                    SessionEndReason::Error(
+                                        "Unknown".to_string(),
+                                    )
+                                },
+                            ),
+                        },
+                    )],
+                };
+            }
             let recovery_iteration = ctx.iteration;
             let steering_ref: Option<&dyn crate::steering::SteeringChannel> =
                 steps.steering_channel.as_deref();
@@ -144,12 +165,12 @@ pub(crate) async fn sample_llm_and_cascade(
                         "Recovery cascade recovered; continuing"
                     );
                     LlmSampleOutcome::Continue {
-                        events: vec![AgentEvent::RecoveryApplied {
-                            level_number: level,
-                            tool_name: Some("llm_sample".to_string()),
+                        events: vec![AgentEvent::recovery(
+                            level,
+                            Some("llm_sample".to_string()),
                             message,
-                            iteration: recovery_iteration,
-                        }],
+                            Some(recovery_iteration),
+                        )],
                     }
                 }
                 RecoveryAction::FailFast(reason) => {
@@ -163,12 +184,9 @@ pub(crate) async fn sample_llm_and_cascade(
                             SessionEndReason::Error("Unknown".to_string())
                         });
                     LlmSampleOutcome::Terminate {
-                        events: vec![
-                            AgentEvent::LlmError {
-                                error: e.to_string(),
-                            },
-                            AgentEvent::SessionEnded { reason: end_reason },
-                        ],
+                        events: vec![AgentEvent::System(
+                            SystemEvent::SessionEnded { reason: end_reason },
+                        )],
                     }
                 }
                 RecoveryAction::Escalate => {
@@ -183,12 +201,9 @@ pub(crate) async fn sample_llm_and_cascade(
                             SessionEndReason::Error("Unknown".to_string())
                         });
                     LlmSampleOutcome::Terminate {
-                        events: vec![
-                            AgentEvent::LlmError {
-                                error: e.to_string(),
-                            },
-                            AgentEvent::SessionEnded { reason: end_reason },
-                        ],
+                        events: vec![AgentEvent::System(
+                            SystemEvent::SessionEnded { reason: end_reason },
+                        )],
                     }
                 }
             }

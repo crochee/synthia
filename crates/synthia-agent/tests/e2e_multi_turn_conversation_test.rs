@@ -2,7 +2,12 @@
 use std::sync::Arc;
 
 use futures::StreamExt;
-use synthia_agent::{agent::Agent, config::AgentConfig, types::AgentEvent};
+use synthia_agent::{
+    agent::Agent,
+    config::AgentConfig,
+    events::SystemEvent,
+    types::AgentEvent,
+};
 use synthia_hook::HookRegistry;
 use synthia_tool::registry::{ToolEntry, ToolRegistry};
 use tokio_util::sync::CancellationToken;
@@ -56,16 +61,16 @@ async fn test_two_turn_conversation() {
 
     let events: Vec<AgentEvent> = Agent::run_stream(run_config).collect().await;
 
-    let session_started = events
-        .iter()
-        .any(|e| matches!(e, AgentEvent::SessionStarted { .. }));
+    let session_started = events.iter().any(|e| {
+        matches!(e, AgentEvent::System(SystemEvent::SessionStarted { .. }))
+    });
     let llm_responses = events
         .iter()
-        .filter(|e| matches!(e, AgentEvent::LlmResponseComplete { .. }))
+        .filter(|e| matches!(e, AgentEvent::ModelDone(_)))
         .count();
-    let session_ended = events
-        .iter()
-        .any(|e| matches!(e, AgentEvent::SessionEnded { .. }));
+    let session_ended = events.iter().any(|e| {
+        matches!(e, AgentEvent::System(SystemEvent::SessionEnded { .. }))
+    });
 
     assert!(session_started, "Session should start");
     assert!(llm_responses >= 1, "Should have at least one LLM response");
@@ -107,15 +112,14 @@ async fn test_three_turn_conversation() {
     let events: Vec<AgentEvent> =
         Agent::run_stream(turn1_config).collect().await;
     assert!(
-        events
-            .iter()
-            .any(|e| matches!(e, AgentEvent::SessionStarted { .. })),
+        events.iter().any(|e| matches!(
+            e,
+            AgentEvent::System(SystemEvent::SessionStarted { .. })
+        )),
         "Turn 1 should start a session"
     );
     assert!(
-        events
-            .iter()
-            .any(|e| matches!(e, AgentEvent::LlmResponseComplete { .. })),
+        events.iter().any(|e| matches!(e, AgentEvent::ModelDone(_))),
         "Turn 1 should complete"
     );
 
@@ -132,9 +136,7 @@ async fn test_three_turn_conversation() {
     let events: Vec<AgentEvent> =
         Agent::run_stream(turn2_config).collect().await;
     assert!(
-        events
-            .iter()
-            .any(|e| matches!(e, AgentEvent::LlmResponseComplete { .. })),
+        events.iter().any(|e| matches!(e, AgentEvent::ModelDone(_))),
         "Turn 2 should complete"
     );
 
@@ -151,9 +153,10 @@ async fn test_three_turn_conversation() {
     let events: Vec<AgentEvent> =
         Agent::run_stream(turn3_config).collect().await;
     assert!(
-        events
-            .iter()
-            .any(|e| matches!(e, AgentEvent::SessionEnded { .. })),
+        events.iter().any(|e| matches!(
+            e,
+            AgentEvent::System(SystemEvent::SessionEnded { .. })
+        )),
         "Turn 3 should end the session"
     );
 }

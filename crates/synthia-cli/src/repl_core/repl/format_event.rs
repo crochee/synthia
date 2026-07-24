@@ -1,14 +1,18 @@
 //! Event formatting and stream rendering.
 //!
-//! [`Repl::format_event`] turns an [`AgentEvent`] into a
-//! presentable string; [`Repl::render_event_stream`] drains a
-//! stream of events, updating session state and printing each
-//! formatted line (or streaming LLM deltas without newlines).
+//! [`Repl::format_event`] turns an [`AgentEvent`] into a presentable
+//! string; [`Repl::render_event_stream`] drains a stream of events,
+//! updating session state and printing each formatted line (or
+//! streaming model chunks without newlines).
 
 use std::io::{self, Write};
 
 use futures::StreamExt;
-use synthia_agent::{AgentEvent, SessionEndReason};
+use synthia_agent::{
+    AgentEvent,
+    events::{HookEvent, SessionEndReason, SystemEvent, WarningKind},
+};
+use synthia_provider::{ContentPart, TextContent};
 
 use super::{syntax::format_with_syntax_highlighting, types::Repl};
 
@@ -21,94 +25,62 @@ impl Repl {
         let theme = &state.theme;
 
         match event {
-            AgentEvent::SessionStarted { session_id } => {
+            AgentEvent::System(SystemEvent::SessionStarted { session_id }) => {
                 format!("Session started: {}", session_id)
             }
-            AgentEvent::IterationStarted { .. } => String::new(),
-            AgentEvent::LlmStreamDelta { content } => content.clone(),
-            AgentEvent::ToolCallStarted { tool_name, .. } => {
-                // Task 10.15: Colored tool call indicator
-                format!(
-                    "[{}: {}]...",
-                    theme.format_tool_call("TOOL"),
-                    tool_name
-                )
+
+            AgentEvent::Model(ContentPart::Text(TextContent {
+                text, ..
+            })) => text.clone(),
+
+            AgentEvent::Model(ContentPart::Reasoning(r)) => {
+                format!("[thinking] {}", r.text)
             }
-            AgentEvent::ToolCallCompleted {
-                tool_name,
-                output,
-                is_error,
-            } => {
-                let preview = output.chars().take(60).collect::<String>();
-                if *is_error {
+
+            AgentEvent::Model(ContentPart::ToolUse(tu)) => {
+                format!("[{}: {}]...", theme.format_tool_call("TOOL"), tu.name)
+            }
+
+            AgentEvent::Model(ContentPart::ToolResult(tr)) => {
+                let text: String = tr
+                    .content
+                    .iter()
+                    .filter_map(|c| match c {
+                        ContentPart::Text(TextContent { text, .. }) => {
+                            Some(text.clone())
+                        }
+                        _ => None,
+                    })
+                    .collect::<Vec<String>>()
+                    .join("");
+                let preview: String = text.chars().take(60).collect();
+                let err = tr.is_error.unwrap_or(false);
+                if err {
                     format!(
                         "[{}: {}] {} (error)",
                         theme.format_tool_call("TOOL"),
-                        tool_name,
+                        tr.tool_use_id,
                         theme.format_error(&preview)
                     )
                 } else {
                     format!(
                         "[{}: {}] {}",
                         theme.format_tool_call("TOOL"),
-                        tool_name,
+                        tr.tool_use_id,
                         preview
                     )
                 }
             }
-            AgentEvent::ToolCallSkipped { tool_name, reason } => {
-                format!(
-                    "[{}: {}] skipped: {}",
-                    theme.format_tool_call("TOOL"),
-                    tool_name,
-                    theme.format_error(reason)
-                )
+
+            AgentEvent::Model(ContentPart::Image(_))
+            | AgentEvent::Model(ContentPart::Audio(_))
+            | AgentEvent::Model(ContentPart::Resource(_)) => String::new(),
+
+            AgentEvent::ModelDone(sampling) => {
+                format_with_syntax_highlighting(&sampling.text, theme)
             }
-            AgentEvent::ToolCallError { tool_name, error } => {
-                format!(
-                    "[{}: {}] {}",
-                    theme.format_tool_call("TOOL"),
-                    tool_name,
-                    theme.format_error(error)
-                )
-            }
-            AgentEvent::LlmResponseComplete { content, .. } => {
-                format_with_syntax_highlighting(content, theme)
-            }
-            AgentEvent::ContextCompacted {
-                old_tokens,
-                new_tokens,
-            } => {
-                format!(
-                    "Context compacted: {} -> {} tokens (reduced by {:.0}%)",
-                    old_tokens,
-                    new_tokens,
-                    ((*old_tokens - *new_tokens) as f64 / *old_tokens as f64)
-                        * 100.0
-                )
-            }
-            AgentEvent::TokenBudgetWarning { status, .. } => {
-                format!("Token budget warning: {}", status)
-            }
-            AgentEvent::TokenBudgetNotice { .. } => String::new(),
-            AgentEvent::EditConflict {
-                tool_name,
-                path,
-                original_content_hash,
-                current_content_hash,
-                ..
-            } => {
-                format!(
-                    "{}Edit conflict on {} (tool: {}){} - File was modified since read. Original hash: {}, Current hash: {}",
-                    theme.format_error("⚠ "),
-                    path,
-                    tool_name,
-                    theme.format_error(" ⚠"),
-                    original_content_hash,
-                    current_content_hash
-                )
-            }
-            AgentEvent::SessionEnded { reason } => {
+
+            AgentEvent::System(SystemEvent::SessionEnded { reason }) => {
                 let reason_str = match reason {
                     SessionEndReason::Completed => "completed".to_string(),
                     SessionEndReason::Cancelled => "cancelled".to_string(),
@@ -131,33 +103,118 @@ impl Repl {
                 };
                 format!("Session ended: {}", reason_str)
             }
-            AgentEvent::GuardianWarning { reason, .. } => {
-                format!("Guardian: {}", theme.format_error(reason))
+
+            AgentEvent::System(SystemEvent::SessionInterrupted { reason }) => {
+                format!("Session interrupted: {}", reason)
             }
-            AgentEvent::GuardianConfirmationRequest { tool_name, reason } => {
+
+            AgentEvent::System(SystemEvent::Warning {
+                kind,
+                message,
+                iteration,
+            }) => {
+                let prefix = match kind {
+                    WarningKind::Guardian => "Guardian",
+                    WarningKind::Loop => "Loop",
+                    WarningKind::TokenBudget => "Token budget",
+                    WarningKind::ContextCompaction => "ContextCompaction",
+                    WarningKind::Hook => "Hook",
+                    WarningKind::EditConflict => "EditConflict",
+                };
+                match iteration {
+                    Some(it) => {
+                        format!(
+                            "[{} #{}] {}",
+                            prefix,
+                            it,
+                            theme.format_error(message)
+                        )
+                    }
+                    None => {
+                        format!("[{}] {}", prefix, theme.format_error(message))
+                    }
+                }
+            }
+
+            AgentEvent::System(SystemEvent::Progress {
+                message,
+                step,
+                total,
+            }) => {
+                format!("Progress ({}/{}): {}", step, total, message)
+            }
+
+            AgentEvent::System(SystemEvent::Recovery {
+                level_number,
+                tool_name,
+                message,
+                iteration,
+            }) => {
+                let tool = tool_name.as_deref().unwrap_or("global");
+                let iter = iteration
+                    .map(|i| i.to_string())
+                    .unwrap_or_else(|| "-".to_string());
+                format!(
+                    "[recovery L{} iter={} tool={}] {}",
+                    level_number, iter, tool, message
+                )
+            }
+
+            AgentEvent::System(SystemEvent::Usage {
+                input_tokens,
+                output_tokens,
+                cache_read_tokens,
+                cache_creation_tokens,
+            }) => {
+                format!(
+                    "Usage: in={} out={} cache_read={:?} cache_create={:?}",
+                    input_tokens,
+                    output_tokens,
+                    cache_read_tokens,
+                    cache_creation_tokens
+                )
+            }
+
+            AgentEvent::Hook(HookEvent::Message { priority, message }) => {
+                format!("[hook pri={}] {}", priority, message)
+            }
+
+            AgentEvent::Hook(HookEvent::ConfirmRequest {
+                tool_name,
+                reason,
+                ..
+            }) => {
                 format!(
                     "Guardian confirmation required for {}: {}",
                     theme.format_tool_call(tool_name),
                     theme.format_prompt(reason)
                 )
             }
-            AgentEvent::LlmError { error } => {
-                format!("LLM error: {}", theme.format_error(error))
-            }
-            AgentEvent::HookError {
-                hook_name, error, ..
-            } => {
+
+            AgentEvent::Hook(HookEvent::ConfirmResponse {
+                approved,
+                tool_use_id,
+            }) => {
                 format!(
-                    "Hook error: {}: {}",
-                    hook_name,
-                    theme.format_error(error)
+                    "Guardian response for {}: {}",
+                    tool_use_id,
+                    if *approved { "approved" } else { "denied" }
                 )
             }
-            AgentEvent::Thinking { text, iteration } => {
-                format!("[thinking #{}] {}", iteration, text)
+
+            AgentEvent::Hook(HookEvent::Custom { kind, .. }) => {
+                format!("[custom] {}", kind)
             }
-            // All other events are silent in the REPL
-            _ => String::new(),
+
+            AgentEvent::Agent(meta, inner) => {
+                format!(
+                    "[subagent {}->{} depth={}] {}",
+                    meta.parent_session_id,
+                    meta.child_session_id,
+                    meta.parent_depth,
+                    self.format_event(inner)
+                )
+            }
         }
     }
 
@@ -166,6 +223,7 @@ impl Repl {
         &self,
         stream: &mut (impl futures::Stream<Item = AgentEvent> + Unpin),
     ) {
+        let mut stdout = io::stdout();
         while let Some(event) = stream.next().await {
             // Update session state from events
             self.state.write().update(&event);
@@ -175,17 +233,23 @@ impl Repl {
                 continue;
             }
 
-            // For LLM deltas and reasoning deltas, stream directly without newline
-            if matches!(event, AgentEvent::LlmStreamDelta { .. })
-                || matches!(event, AgentEvent::LlmReasoningDelta { .. })
-            {
+            // For streaming model chunks, write directly without
+            // newline so the delta renders inline. For LLM reasoning
+            // chunks same treatment.
+            let is_streaming = matches!(
+                event,
+                AgentEvent::Model(ContentPart::Text(_))
+                    | AgentEvent::Model(ContentPart::Reasoning(_))
+            );
+            if is_streaming {
                 print!("{}", formatted);
-                io::stdout().flush().ok();
+                let _ = stdout.flush();
                 continue;
             }
 
             println!("{}", formatted);
+            let _ = stdout.flush();
         }
-        io::stdout().flush().ok();
+        let _ = stdout.flush();
     }
 }

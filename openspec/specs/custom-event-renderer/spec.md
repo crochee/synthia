@@ -5,25 +5,25 @@
 
 ## Purpose
 
-在 `synthia-agent::events::AgentEvent` 加 `Custom` variant，并在 `synthia-extension-v2` 下提供 `EventRenderer` registry + builtin JSON renderer，将 Custom event 投影到 `AgentMessage`。
+在 `synthia-agent::events::AgentEvent` 的 `HookEvent::Custom` variant 上提供 `EventRenderer` registry + builtin JSON renderer，将 Custom event 投影到 `AgentMessage`。
 
-## ADDED Requirements
+## Requirements
 
-### Requirement: AgentEvent::Custom variant
+### Requirement: AgentEvent custom event variant
 
-The existing `AgentEvent` enum (28-variant) MUST gain a `Custom { event_type: String, data: serde_json::Value }` variant.
+The `AgentEvent` enum MUST expose custom events via `AgentEvent::Hook(HookEvent::Custom { kind: String, data: serde_json::Value })`.
 
-#### Scenario: custom emission
+#### Scenario: custom emission via Hook::Custom
+- **WHEN** an extension emits via `EventBus::emit(AgentEvent::Hook(HookEvent::Custom { kind: "subagent.lane.created", data: json!(...) }))`
+- **THEN** the system MUST serialize the envelope with the custom kind preserved
+- **AND** MUST NOT reject unknown kind strings
 
-- **WHEN** an extension emits via `EventBus::emit(AgentEvent::Custom { event_type: "subagent.lane.created", data: json!(...) })`
-- **THEN** the system MUST serialize the envelope with the custom variant tag preserved
-- **AND** MUST NOT reject unknown event_type strings
+#### Scenario: Custom event projects through the renderer registry
+- **WHEN** the system starts without an explicit renderer registration for a kind
+- **THEN** the builtin `JsonEventRenderer` MUST match on the wildcard kind
+- **AND** MUST serialize the Custom variant as `Part::data({ kind: <kind>, ...data })` on the wire
 
-#### Scenario: 28 existing variants unchanged
-
-- **WHEN** the new variant is added
-- **THEN** all 28 existing variants MUST remain in their current positions (so JSON serialization order is stable)
-- **AND** `serde` derive order MUST be preserved
+---
 
 ### Requirement: EventRenderer registry
 

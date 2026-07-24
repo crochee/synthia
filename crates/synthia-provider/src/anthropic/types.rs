@@ -114,7 +114,14 @@ pub(super) enum AnthropicContentBlock {
     #[serde(rename = "document")]
     Document { source: AnthropicDocumentSource },
     #[serde(rename = "thinking")]
-    ThinkingBlock { thinking: String },
+    ThinkingBlock {
+        thinking: String,
+        /// Anthropic `signature` value attached to a thinking block
+        /// when the prior assistant turn included extended thinking.
+        /// Required to preserve reasoning continuity across turns.
+        #[serde(skip_serializing_if = "Option::is_none", default)]
+        signature: Option<String>,
+    },
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -336,5 +343,53 @@ mod tests {
         };
         let json = serde_json::to_value(&req).unwrap();
         assert_eq!(json["system"], serde_json::json!("You are helpful."));
+    }
+
+    /// Task 1.6: when a prior assistant turn emitted extended thinking
+    /// with a signature, the next request must echo the signature on
+    /// the `thinking` block. Serialize the wire form that the Anthropic
+    /// API expects and assert the `signature` field is preserved.
+    #[test]
+    fn anthropic_thinking_block_with_signature_round_trips() {
+        let block = AnthropicContentBlock::ThinkingBlock {
+            thinking: "Let me think about this carefully.".to_string(),
+            signature: Some("sig_round_trip_123".to_string()),
+        };
+        let json = serde_json::to_value(&block).unwrap();
+        assert_eq!(json["type"], serde_json::json!("thinking"));
+        assert_eq!(
+            json["thinking"],
+            serde_json::json!("Let me think about this carefully.")
+        );
+        assert_eq!(json["signature"], serde_json::json!("sig_round_trip_123"));
+
+        // Deserialize the same JSON and confirm we recover the value.
+        let parsed: AnthropicContentBlock =
+            serde_json::from_value(json).unwrap();
+        if let AnthropicContentBlock::ThinkingBlock {
+            thinking,
+            signature,
+        } = parsed
+        {
+            assert_eq!(thinking, "Let me think about this carefully.");
+            assert_eq!(signature.as_deref(), Some("sig_round_trip_123"));
+        } else {
+            panic!("expected ThinkingBlock variant");
+        }
+    }
+
+    /// Without a signature the wire form must omit the field entirely
+    /// (Anthropic rejects an empty-string signature).
+    #[test]
+    fn anthropic_thinking_block_without_signature_omits_field() {
+        let block = AnthropicContentBlock::ThinkingBlock {
+            thinking: "Just thinking out loud.".to_string(),
+            signature: None,
+        };
+        let json = serde_json::to_value(&block).unwrap();
+        assert!(
+            json.get("signature").is_none(),
+            "No signature must omit the field; got: {json}"
+        );
     }
 }

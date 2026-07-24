@@ -2,8 +2,7 @@
 //! E2E test: Complete event sequence verification.
 //!
 //! Tests that all AgentEvents are emitted in the correct order for a typical flow:
-//! SessionStarted -> IterationStarted -> LlmRequestStarted -> LlmStreamDelta(s) ->
-//! LlmResponseComplete -> IterationCompleted -> SessionEnded
+//! SessionStarted -> LlmStreamDelta(s) -> LlmResponseComplete -> SessionEnded
 
 mod test_support;
 use std::{path::PathBuf, sync::Arc};
@@ -12,9 +11,11 @@ use futures::StreamExt;
 use synthia_agent::{
     agent::Agent,
     config::AgentConfig,
+    events::{HookEvent, SystemEvent, WarningKind},
     types::{AgentEvent, AgentInput, SessionEndReason, TokenUsage},
 };
 use synthia_hook::HookRegistry;
+use synthia_provider::types::{ContentPart, ReasoningContent, TextContent};
 use synthia_session::types::TokenBudget;
 use synthia_tool::registry::ToolRegistry;
 use test_support::{FakeProvider, make_run_config};
@@ -28,45 +29,50 @@ async fn collect(
 
 fn event_variant_name(event: &AgentEvent) -> String {
     match event {
-        AgentEvent::SessionStarted { .. } => "SessionStarted".to_string(),
-        AgentEvent::IterationStarted { .. } => "IterationStarted".to_string(),
-        AgentEvent::Thinking { .. } => "Thinking".to_string(),
-        AgentEvent::LlmRequestStarted { .. } => "LlmRequestStarted".to_string(),
-        AgentEvent::LlmStreamDelta { .. } => "LlmStreamDelta".to_string(),
-        AgentEvent::LlmReasoningDelta { .. } => "LlmReasoningDelta".to_string(),
-        AgentEvent::LlmResponseComplete { .. } => {
-            "LlmResponseComplete".to_string()
+        AgentEvent::System(SystemEvent::SessionStarted { .. }) => {
+            "SessionStarted".to_string()
         }
-        AgentEvent::LlmError { .. } => "LlmError".to_string(),
-        AgentEvent::ToolCallStarted { .. } => "ToolCallStarted".to_string(),
-        AgentEvent::ToolCallCompleted { .. } => "ToolCallCompleted".to_string(),
-        AgentEvent::ToolCallSkipped { .. } => "ToolCallSkipped".to_string(),
-        AgentEvent::ToolCallError { .. } => "ToolCallError".to_string(),
-        AgentEvent::IterationCompleted { .. } => {
-            "IterationCompleted".to_string()
-        }
-        AgentEvent::ContextCompacted { .. } => "ContextCompacted".to_string(),
-        AgentEvent::Checkpoint { .. } => "Checkpoint".to_string(),
-        AgentEvent::StateChange { .. } => "StateChange".to_string(),
-        AgentEvent::Warning { .. } => "Warning".to_string(),
-        AgentEvent::Progress { .. } => "Progress".to_string(),
-        AgentEvent::SessionInterrupted { .. } => {
+        AgentEvent::System(SystemEvent::SessionInterrupted { .. }) => {
             "SessionInterrupted".to_string()
         }
-        AgentEvent::Finish { .. } => "Finish".to_string(),
-        AgentEvent::SessionEnded { .. } => "SessionEnded".to_string(),
-        AgentEvent::GuardianWarning { .. } => "GuardianWarning".to_string(),
-        AgentEvent::TokenBudgetWarning { .. } => {
-            "TokenBudgetWarning".to_string()
+        AgentEvent::System(SystemEvent::SessionEnded { .. }) => {
+            "SessionEnded".to_string()
         }
-        AgentEvent::TokenBudgetNotice { .. } => "TokenBudgetNotice".to_string(),
-        AgentEvent::SteeringReceived { .. } => "SteeringReceived".to_string(),
-        AgentEvent::HookError { .. } => "HookError".to_string(),
-        AgentEvent::GuardianConfirmationRequest { .. } => {
+        AgentEvent::System(SystemEvent::Progress { .. }) => {
+            "Progress".to_string()
+        }
+        AgentEvent::System(SystemEvent::Warning { kind, .. }) => match kind {
+            WarningKind::Guardian => "GuardianWarning".to_string(),
+            WarningKind::TokenBudget => "TokenBudgetWarning".to_string(),
+            WarningKind::Loop => "LoopWarning".to_string(),
+            WarningKind::ContextCompaction => "ContextCompacted".to_string(),
+            WarningKind::Hook => "HookError".to_string(),
+            WarningKind::EditConflict => "EditConflict".to_string(),
+        },
+        AgentEvent::Model(ContentPart::Reasoning(ReasoningContent {
+            ..
+        })) => "Thinking".to_string(),
+        AgentEvent::Model(ContentPart::Text(TextContent { .. })) => {
+            "LlmStreamDelta".to_string()
+        }
+        AgentEvent::Model(ContentPart::ToolUse(_)) => {
+            "ToolCallStarted".to_string()
+        }
+        AgentEvent::Model(ContentPart::ToolResult(_)) => {
+            "ToolCallCompleted".to_string()
+        }
+        AgentEvent::ModelDone(_) => "LlmResponseComplete".to_string(),
+        AgentEvent::Hook(HookEvent::Message { .. }) => {
+            "SteeringReceived".to_string()
+        }
+        AgentEvent::Hook(HookEvent::ConfirmRequest { .. }) => {
             "GuardianConfirmationRequest".to_string()
         }
-        AgentEvent::LoopWarning { .. } => "LoopWarning".to_string(),
-        AgentEvent::SelfReflection { .. } => "SelfReflection".to_string(),
+        AgentEvent::Hook(HookEvent::ConfirmResponse { .. }) => {
+            "ToolCallSkipped".to_string()
+        }
+        AgentEvent::Hook(HookEvent::Custom { .. }) => "Other".to_string(),
+        AgentEvent::Agent(_, _) => "Other".to_string(),
         _ => "Other".to_string(),
     }
 }
@@ -122,18 +128,21 @@ async fn test_basic_event_sequence() {
     let events = collect(Agent::run_stream(run_config)).await;
 
     assert!(
-        matches!(&events[0], AgentEvent::SessionStarted { .. }),
+        matches!(
+            &events[0],
+            AgentEvent::System(SystemEvent::SessionStarted { .. })
+        ),
         "First event should be SessionStarted"
     );
 
     let last = events.last().unwrap();
     assert!(
-        matches!(last, AgentEvent::SessionEnded { .. }),
+        matches!(last, AgentEvent::System(SystemEvent::SessionEnded { .. })),
         "Last event should be SessionEnded, got: {:?}",
         last
     );
 
-    if let AgentEvent::SessionEnded { reason } = last {
+    if let AgentEvent::System(SystemEvent::SessionEnded { reason }) = last {
         assert!(
             matches!(reason, SessionEndReason::Completed),
             "Session should end as completed"
@@ -141,7 +150,7 @@ async fn test_basic_event_sequence() {
     }
 }
 
-/// Test that IterationStarted comes before LlmRequestStarted.
+/// Test that the first event is a SessionStarted.
 #[tokio::test]
 async fn test_iteration_before_llm_request() {
     let temp_dir = tempfile::tempdir().unwrap();
@@ -168,17 +177,21 @@ async fn test_iteration_before_llm_request() {
     let events = collect(Agent::run_stream(run_config)).await;
     let names = event_type_names(&events);
 
-    let iter_idx = names.iter().position(|n| n == "IterationStarted");
-    let llm_req_idx = names.iter().position(|n| n == "LlmRequestStarted");
+    let session_start_idx = names
+        .iter()
+        .position(|n| n == "SessionStarted")
+        .expect("should have SessionStarted");
+    let llm_resp_idx = names
+        .iter()
+        .position(|n| n == "LlmResponseComplete")
+        .expect("should have LlmResponseComplete");
 
-    if let (Some(iter), Some(llm)) = (iter_idx, llm_req_idx) {
-        assert!(
-            iter < llm,
-            "IterationStarted (index {}) should come before LlmRequestStarted (index {})",
-            iter,
-            llm
-        );
-    }
+    assert!(
+        session_start_idx < llm_resp_idx,
+        "SessionStarted (index {}) should come before LlmResponseComplete (index {})",
+        session_start_idx,
+        llm_resp_idx
+    );
 }
 
 /// Test that LlmResponseComplete comes before SessionEnded.
@@ -226,7 +239,7 @@ async fn test_stream_delta_before_response_complete() {
     );
 }
 
-/// Test that IterationCompleted comes before SessionEnded.
+/// Test that SessionEnded always comes last.
 #[tokio::test]
 async fn test_iteration_completed_before_session_end() {
     let temp_dir = tempfile::tempdir().unwrap();
@@ -254,17 +267,17 @@ async fn test_iteration_completed_before_session_end() {
     let events = collect(Agent::run_stream(run_config)).await;
     let names = event_type_names(&events);
 
-    let iter_completed_idx =
-        names.iter().position(|n| n == "IterationCompleted");
     let session_end_idx =
         names.iter().position(|n| n == "SessionEnded").unwrap();
+    let llm_resp_idx = names
+        .iter()
+        .position(|n| n == "LlmResponseComplete")
+        .expect("should have LlmResponseComplete");
 
-    if let Some(iter_completed) = iter_completed_idx {
-        assert!(
-            iter_completed < session_end_idx,
-            "IterationCompleted should come before SessionEnded"
-        );
-    }
+    assert!(
+        llm_resp_idx < session_end_idx,
+        "LlmResponseComplete should come before SessionEnded"
+    );
 }
 
 /// Test the complete expected event sequence for a typical single-turn flow.
@@ -299,19 +312,9 @@ async fn test_complete_single_turn_sequence() {
         "should have SessionStarted"
     );
     assert!(
-        names.contains(&"IterationStarted".to_string()),
-        "should have IterationStarted"
-    );
-    assert!(
-        names.contains(&"LlmRequestStarted".to_string()),
-        "should have LlmRequestStarted"
-    );
-    assert!(
         names.contains(&"LlmResponseComplete".to_string()),
         "should have LlmResponseComplete"
     );
-    // Note: IterationCompleted is not emitted for simple text-only responses,
-    // as the loop breaks early when there are no tool calls.
     assert!(
         names.contains(&"SessionEnded".to_string()),
         "should have SessionEnded"
@@ -346,7 +349,7 @@ async fn test_session_ended_is_final_event() {
 
     let last = events.last().expect("should have at least one event");
     assert!(
-        matches!(last, AgentEvent::SessionEnded { .. }),
+        matches!(last, AgentEvent::System(SystemEvent::SessionEnded { .. })),
         "last event must be SessionEnded"
     );
 }
@@ -379,16 +382,10 @@ async fn test_session_id_consistency() {
     let events = collect(Agent::run_stream(run_config)).await;
 
     match &events[0] {
-        AgentEvent::SessionStarted { session_id } => {
+        AgentEvent::System(SystemEvent::SessionStarted { session_id }) => {
             assert_eq!(session_id, expected_session_id);
         }
         _ => panic!("First event should be SessionStarted"),
-    }
-
-    for event in &events {
-        if let AgentEvent::SteeringReceived { session_id, .. } = event {
-            assert_eq!(session_id, expected_session_id);
-        }
     }
 }
 
@@ -396,16 +393,21 @@ async fn test_session_id_consistency() {
 #[tokio::test]
 async fn test_event_serialization_roundtrip() {
     let events = vec![
-        AgentEvent::SessionStarted {
+        AgentEvent::System(SystemEvent::SessionStarted {
             session_id: "s1".to_string(),
-        },
-        AgentEvent::IterationStarted { iteration: 1 },
-        AgentEvent::LlmRequestStarted { iteration: 1 },
-        AgentEvent::LlmStreamDelta {
-            content: "Hello".to_string(),
-        },
-        AgentEvent::LlmResponseComplete {
-            content: "Hello world".to_string(),
+        }),
+        AgentEvent::System(SystemEvent::SessionEnded {
+            reason: SessionEndReason::Completed,
+        }),
+        AgentEvent::Model(ContentPart::Text(TextContent {
+            text: "Hello".to_string(),
+            cache_control: None,
+        })),
+        AgentEvent::ModelDone(synthia_provider::SamplingResult {
+            text: "Hello world".to_string(),
+            tool_calls: vec![],
+            reasoning: String::new(),
+            reasoning_signature: None,
             usage: TokenUsage {
                 prompt_tokens: 10,
                 completion_tokens: 5,
@@ -414,11 +416,7 @@ async fn test_event_serialization_roundtrip() {
                 cache_read_tokens: None,
                 cache_write_tokens: None,
             },
-        },
-        AgentEvent::IterationCompleted { iteration: 1 },
-        AgentEvent::SessionEnded {
-            reason: SessionEndReason::Completed,
-        },
+        }),
     ];
 
     for event in events {
@@ -433,7 +431,7 @@ async fn test_event_serialization_roundtrip() {
     }
 }
 
-/// Test that the event sequence includes correct iteration numbering.
+/// Test that the event sequence is non-empty and contains a SessionStarted.
 #[tokio::test]
 async fn test_iteration_numbering_in_events() {
     let temp_dir = tempfile::tempdir().unwrap();
@@ -459,23 +457,15 @@ async fn test_iteration_numbering_in_events() {
 
     let events = collect(Agent::run_stream(run_config)).await;
 
-    let iterations: Vec<usize> = events
+    let session_started_count = events
         .iter()
-        .filter_map(|e| {
-            if let AgentEvent::IterationStarted { iteration } = e {
-                Some(*iteration)
-            } else {
-                None
-            }
+        .filter(|e| {
+            matches!(e, AgentEvent::System(SystemEvent::SessionStarted { .. }))
         })
-        .collect();
+        .count();
 
     assert!(
-        !iterations.is_empty(),
-        "should have at least one IterationStarted event"
+        session_started_count >= 1,
+        "should have at least one SessionStarted event"
     );
-
-    for iter in &iterations {
-        assert!(*iter >= 1, "iteration should be >= 1");
-    }
 }

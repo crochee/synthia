@@ -1,22 +1,27 @@
 import { Card } from '../components/ui/Card';
 import { useEffect, useState } from 'react';
-
-interface TaskSummary {
-  id: string;
-  status: string;
-  createdAt?: string;
-  contextId?: string;
-}
+import { api } from '../api/client';
+import type { TaskSummary } from '../api/types';
 
 export function TasksPage() {
   const [tasks, setTasks] = useState<TaskSummary[]>([]);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    fetch('/api/tasks')
-      .then((r) => (r.ok ? r.json() : []))
-      .then((data) => setTasks(Array.isArray(data) ? data : (data.tasks ?? [])))
-      .catch((e) => setError(e.message));
+    let cancelled = false;
+    api
+      .get<TaskSummary[]>('/api/tasks')
+      .then((data) => {
+        if (cancelled) return;
+        setTasks(Array.isArray(data) ? data : []);
+      })
+      .catch((e: Error) => {
+        if (cancelled) return;
+        setError(e.message);
+      });
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   return (

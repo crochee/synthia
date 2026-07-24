@@ -1,45 +1,66 @@
-//! AgentEvent → A2A StreamResponse 类型映射。
+//! AgentEvent → A2A StreamResponse mapping.
 //!
-//! 将 synthia 内部事件流转换为 A2A 协议的 `StreamResponse`，
-//! 使得 `SynthiaExecutor` 可以直接输出 A2A 兼容的流式事件。
+//! Translates the agent's internal [`AgentEvent`] stream into A2A
+//! protocol [`StreamResponse`]s so `SynthiaExecutor` can directly emit
+//! A2A-compatible streaming events.
+//!
+//! # Phase-5 Wire Format
+//!
+//! Every content-carrying `AgentEvent` variant is translated into a
+//! `Part::data(serde_json::Value)` carrying an object whose `"kind"`
+//! key discriminates the variant and whose remaining keys carry the
+//! payload verbatim. The frontend (Phase 7) dispatches on
+//! `JSON.parse(part.data).kind`.
+//!
+//! Lifecycle `SystemEvent::Session*` variants keep `StreamResponse::StatusUpdate`
+//! shape (those are not `Part::data`). All other `SystemEvent`s and
+//! `HookEvent`s become `Message(Agent)` carrying a `Part::data`.
+//!
+//! See `openspec/changes/simplify-agent-event-stream/specs/agent-event-bus/spec.md`
+//! for the canonical wire format.
 
 use a2a::{
-    Artifact,
     Message,
     Part,
     Role,
     StreamResponse,
     Task,
-    TaskArtifactUpdateEvent,
     TaskId,
     TaskState,
     TaskStatus,
     TaskStatusUpdateEvent,
-    new_artifact_id,
     new_message_id,
 };
-use synthia_agent::AgentEvent;
+use synthia_agent::{
+    AgentEvent,
+    ContentPart,
+    events::{HookEvent, SessionEndReason, SystemEvent, WarningKind},
+};
+use synthia_provider::{ReasoningContent, TextContent, ToolUse};
 
-/// 将一个 `AgentEvent` 转换为零个或多个 A2A `StreamResponse`。
+/// Convert a single [`AgentEvent`] to zero or more A2A [`StreamResponse`]s.
 ///
-/// 映射规则：
-/// - `SessionStarted` → `StatusUpdate(Working)`
-/// - `SessionEnded(Clean)` → `StatusUpdate(Completed)`
-/// - `SessionEnded(Cancelled)` → `StatusUpdate(Canceled)`
-/// - `SessionEnded(Error)` → `StatusUpdate(Failed)`
-/// - `SessionInterrupted` → `StatusUpdate(Canceled)`
-/// - `LlmResponseComplete` → `Message(Agent)` + `StatusUpdate(Working)`
-/// - `LlmError` → `StatusUpdate(Failed)`
-/// - `ToolCallCompleted` → `ArtifactUpdate`
-/// - `Finish` → `Message(Agent)` + `StatusUpdate(Completed)`
-/// - 其他事件 → 忽略（产生空 Vec）
+/// Mapping rules (Phase 5):
+/// - `System::SessionStarted` → `StatusUpdate(Working)`
+/// - `System::SessionEnded(_)` → `StatusUpdate(<derived state>)`
+/// - `System::SessionInterrupted` → `StatusUpdate(InputRequired)`
+/// - `ModelDone` → `Message(Agent)` with `Part::data({ kind: "response_complete", ... })`
+/// - `Model(ContentPart::*)` → `Message(Agent)` with `Part::data({ kind, ...payload })`
+/// - `System::Progress` → `Message(Agent)` with `Part::data({ kind: "progress", ... })`
+/// - `System::Warning` → `Message(Agent)` with `Part::data({ kind: "warning", ... })`
+/// - `System::Recovery` → `Message(Agent)` with `Part::data({ kind: "recovery", ... })`
+/// - `System::Usage` → `Message(Agent)` with `Part::data({ kind: "usage", ... })`
+/// - `Hook(HookEvent::*)` → `Message(Agent)` with `Part::data({ kind, ...payload })`
+/// - `Agent(meta, inner)` → emits two responses: a meta
+///   `Part::data({ kind: "agent_meta", ... })` followed by the
+///   recursive translation of `inner`.
 pub fn agent_event_to_stream_responses(
     event: &AgentEvent,
     task_id: &TaskId,
     context_id: &str,
 ) -> Vec<Result<StreamResponse, a2a::A2AError>> {
     match event {
-        AgentEvent::SessionStarted { .. } => {
+        AgentEvent::System(SystemEvent::SessionStarted { .. }) => {
             vec![Ok(StreamResponse::StatusUpdate(TaskStatusUpdateEvent {
                 task_id: task_id.clone(),
                 context_id: context_id.to_string(),
@@ -52,17 +73,8 @@ pub fn agent_event_to_stream_responses(
             }))]
         }
 
-        AgentEvent::SessionEnded { reason } => {
-            let state = match reason {
-                synthia_agent::events::SessionEndReason::Completed => TaskState::Completed,
-                synthia_agent::events::SessionEndReason::Cancelled => TaskState::Canceled,
-                synthia_agent::events::SessionEndReason::Error(_) => TaskState::Failed,
-                synthia_agent::events::SessionEndReason::TokenBudgetExceeded => TaskState::Failed,
-                synthia_agent::events::SessionEndReason::MaxIterationsReached => TaskState::Failed,
-                synthia_agent::events::SessionEndReason::GuardianBlocked => TaskState::Rejected,
-                synthia_agent::events::SessionEndReason::LoopDetected => TaskState::Failed,
-                synthia_agent::events::SessionEndReason::CircuitBreakerOpen => TaskState::Failed,
-            };
+        AgentEvent::System(SystemEvent::SessionEnded { reason }) => {
+            let state = session_end_reason_to_task_state(reason);
             vec![Ok(StreamResponse::StatusUpdate(TaskStatusUpdateEvent {
                 task_id: task_id.clone(),
                 context_id: context_id.to_string(),
@@ -75,12 +87,12 @@ pub fn agent_event_to_stream_responses(
             }))]
         }
 
-        AgentEvent::SessionInterrupted { .. } => {
+        AgentEvent::System(SystemEvent::SessionInterrupted { .. }) => {
             vec![Ok(StreamResponse::StatusUpdate(TaskStatusUpdateEvent {
                 task_id: task_id.clone(),
                 context_id: context_id.to_string(),
                 status: TaskStatus {
-                    state: TaskState::Canceled,
+                    state: TaskState::InputRequired,
                     message: None,
                     timestamp: None,
                 },
@@ -88,201 +100,291 @@ pub fn agent_event_to_stream_responses(
             }))]
         }
 
-        AgentEvent::LlmResponseComplete { content, .. } => {
-            // Emit an empty marker message with `segment_type:
-            // response_complete` so clients can detect end-of-LLM-response
-            // and close any open thinking segment. The full content has
-            // already been streamed via `LlmStreamDelta` chunks; re-emitting
-            // it here would duplicate everything the client rendered.
-            let msg = Message {
-                message_id: new_message_id(),
-                context_id: Some(context_id.to_string()),
-                task_id: Some(task_id.clone()),
-                role: Role::Agent,
-                parts: vec![Part::text("")],
-                metadata: Some(std::collections::HashMap::from([(
-                    "segment_type".to_string(),
-                    serde_json::json!("response_complete"),
-                )])),
-                extensions: None,
-                reference_task_ids: None,
-            };
-            // Touch content so the variable is used (avoids dead_code lint).
-            let _ = content;
-            vec![Ok(StreamResponse::Message(msg))]
-        }
-
-        AgentEvent::LlmError { error } => {
-            let msg = Message {
-                message_id: new_message_id(),
-                context_id: Some(context_id.to_string()),
-                task_id: Some(task_id.clone()),
-                role: Role::Agent,
-                parts: vec![Part::text(error.clone())],
-                metadata: None,
-                extensions: None,
-                reference_task_ids: None,
-            };
-            vec![Ok(StreamResponse::StatusUpdate(TaskStatusUpdateEvent {
-                task_id: task_id.clone(),
-                context_id: context_id.to_string(),
-                status: TaskStatus {
-                    state: TaskState::Failed,
-                    message: Some(msg),
-                    timestamp: None,
-                },
-                metadata: None,
-            }))]
-        }
-
-        AgentEvent::ToolCallCompleted {
-            tool_name, output, ..
-        } => {
-            // Tag the artifact with segment_type=tool_result so
-            // the chat client can render tool output as a
-            // distinct (green) terminal-style block instead of
-            // collapsing it into the assistant's main text.
-            let mut meta = std::collections::HashMap::from([
-                ("segment_type".to_string(), serde_json::json!("tool_result")),
-                ("tool_name".to_string(), serde_json::json!(tool_name)),
-            ]);
-            // Some callers serialize metadata with serde_json's
-            // default serializer, which serializes a `HashMap`
-            // of string->Value as a JSON object. The chat
-            // client reads it back through serde_json so any
-            // JSON-compatible structure works.
-            let _ = &mut meta;
-            let artifact = Artifact {
-                artifact_id: new_artifact_id(),
-                name: Some(tool_name.clone()),
-                description: None,
-                parts: vec![Part::text(output.clone())],
-                metadata: Some(meta),
-                extensions: None,
-            };
-            vec![Ok(StreamResponse::ArtifactUpdate(
-                TaskArtifactUpdateEvent {
-                    task_id: task_id.clone(),
-                    context_id: context_id.to_string(),
-                    artifact,
-                    append: Some(false),
-                    last_chunk: Some(true),
-                    metadata: None,
-                },
-            ))]
-        }
-
-        AgentEvent::Finish { output } => {
-            let msg = Message {
-                message_id: new_message_id(),
-                context_id: Some(context_id.to_string()),
-                task_id: Some(task_id.clone()),
-                role: Role::Agent,
-                parts: vec![Part::text(output.clone())],
-                metadata: None,
-                extensions: None,
-                reference_task_ids: None,
-            };
-            vec![
-                Ok(StreamResponse::Message(msg)),
-                Ok(StreamResponse::StatusUpdate(TaskStatusUpdateEvent {
-                    task_id: task_id.clone(),
-                    context_id: context_id.to_string(),
-                    status: TaskStatus {
-                        state: TaskState::Completed,
-                        message: None,
-                        timestamp: None,
-                    },
-                    metadata: None,
-                })),
-            ]
-        }
-
-        AgentEvent::Thinking { text, iteration } => {
-            let msg = Message {
-                message_id: new_message_id(),
-                context_id: Some(context_id.to_string()),
-                task_id: Some(task_id.clone()),
-                role: Role::Agent,
-                parts: vec![Part::text(text.clone())],
-                metadata: Some(std::collections::HashMap::from([
-                    ("segment_type".to_string(), serde_json::json!("thinking")),
-                    ("iteration".to_string(), serde_json::json!(iteration)),
-                ])),
-                extensions: None,
-                reference_task_ids: None,
-            };
-            vec![Ok(StreamResponse::Message(msg))]
-        }
-
-        AgentEvent::ToolCallStarted { tool_name, input } => {
-            let input_json = serde_json::to_string(input).unwrap_or_default();
-            let msg = Message {
-                message_id: new_message_id(),
-                context_id: Some(context_id.to_string()),
-                task_id: Some(task_id.clone()),
-                role: Role::Agent,
-                parts: vec![Part::text(input_json)],
-                metadata: Some(std::collections::HashMap::from([
-                    (
-                        "segment_type".to_string(),
-                        serde_json::json!("tool_call"),
-                    ),
-                    ("tool_name".to_string(), serde_json::json!(tool_name)),
-                ])),
-                extensions: None,
-                reference_task_ids: None,
-            };
-            vec![Ok(StreamResponse::Message(msg))]
-        }
-
-        AgentEvent::LlmStreamDelta { content } => {
-            let msg = Message {
-                message_id: new_message_id(),
-                context_id: Some(context_id.to_string()),
-                task_id: Some(task_id.clone()),
-                role: Role::Agent,
-                parts: vec![Part::text(content.clone())],
-                metadata: Some(std::collections::HashMap::from([(
-                    "segment_type".to_string(),
-                    serde_json::json!("text_delta"),
-                )])),
-                extensions: None,
-                reference_task_ids: None,
-            };
-            vec![Ok(StreamResponse::Message(msg))]
-        }
-
-        AgentEvent::Progress {
+        AgentEvent::System(SystemEvent::Progress {
             message,
             step,
             total,
-        } => {
-            let msg = Message {
-                message_id: new_message_id(),
-                context_id: Some(context_id.to_string()),
-                task_id: Some(task_id.clone()),
-                role: Role::Agent,
-                parts: vec![Part::text(message.clone())],
-                metadata: Some(std::collections::HashMap::from([
-                    ("segment_type".to_string(), serde_json::json!("progress")),
-                    ("step".to_string(), serde_json::json!(step)),
-                    ("total".to_string(), serde_json::json!(total)),
-                ])),
-                extensions: None,
-                reference_task_ids: None,
-            };
-            vec![Ok(StreamResponse::Message(msg))]
+        }) => vec![Ok(StreamResponse::Message(message_with_data_part(
+            task_id,
+            context_id,
+            serde_json::json!({
+                "kind": "progress",
+                "message": message,
+                "step": step,
+                "total": total,
+            }),
+        )))],
+
+        AgentEvent::System(SystemEvent::Warning {
+            kind,
+            message,
+            iteration,
+        }) => {
+            let source = warning_kind_to_source(kind);
+            vec![Ok(StreamResponse::Message(message_with_data_part(
+                task_id,
+                context_id,
+                serde_json::json!({
+                    "kind": "warning",
+                    "source": source,
+                    "message": message,
+                    "iteration": iteration,
+                }),
+            )))]
         }
 
-        // 所有其他事件：忽略（不影响 A2A 流）
-        _ => Vec::new(),
+        AgentEvent::System(SystemEvent::Recovery {
+            level_number,
+            tool_name,
+            message,
+            iteration,
+        }) => vec![Ok(StreamResponse::Message(message_with_data_part(
+            task_id,
+            context_id,
+            serde_json::json!({
+                "kind": "recovery",
+                "level": level_number,
+                "tool_name": tool_name,
+                "message": message,
+                "iteration": iteration,
+            }),
+        )))],
+
+        AgentEvent::System(SystemEvent::Usage {
+            input_tokens,
+            output_tokens,
+            cache_read_tokens,
+            cache_creation_tokens,
+        }) => vec![Ok(StreamResponse::Message(message_with_data_part(
+            task_id,
+            context_id,
+            serde_json::json!({
+                "kind": "usage",
+                "input_tokens": input_tokens,
+                "output_tokens": output_tokens,
+                "cache_read_tokens": cache_read_tokens,
+                "cache_creation_tokens": cache_creation_tokens,
+            }),
+        )))],
+
+        AgentEvent::ModelDone(sampling) => {
+            let value = serde_json::to_value(sampling)
+                .unwrap_or_else(|_| serde_json::json!({}));
+            // Wrap so the top-level shape is { kind: "response_complete", <sampling fields> }.
+            let mut obj = serde_json::Map::new();
+            obj.insert(
+                "kind".to_string(),
+                serde_json::Value::String("response_complete".to_string()),
+            );
+            if let serde_json::Value::Object(inner) = value {
+                for (k, v) in inner {
+                    obj.insert(k, v);
+                }
+            }
+            vec![Ok(StreamResponse::Message(message_with_data_part(
+                task_id,
+                context_id,
+                serde_json::Value::Object(obj),
+            )))]
+        }
+
+        AgentEvent::Model(part) => {
+            vec![Ok(StreamResponse::Message(message_with_data_part(
+                task_id,
+                context_id,
+                model_part_to_data_value(part),
+            )))]
+        }
+
+        AgentEvent::Hook(hook) => {
+            vec![Ok(StreamResponse::Message(message_with_data_part(
+                task_id,
+                context_id,
+                hook_event_to_data_value(hook),
+            )))]
+        }
+
+        AgentEvent::Agent(meta, inner) => {
+            let mut out = Vec::with_capacity(2);
+            out.push(Ok(StreamResponse::Message(message_with_data_part(
+                task_id,
+                context_id,
+                serde_json::json!({
+                    "kind": "agent_meta",
+                    "parent_session_id": meta.parent_session_id,
+                    "child_session_id": meta.child_session_id,
+                    "parent_depth": meta.parent_depth,
+                }),
+            ))));
+            out.extend(agent_event_to_stream_responses(
+                inner, task_id, context_id,
+            ));
+            out
+        }
     }
 }
 
-/// 从 A2A `Message` 中提取第一个文本部分。
+/// Project a [`SessionEndReason`] to its A2A [`TaskState`].
 ///
-/// 用于将 A2A 的 `SendMessageRequest.message` 转换为 Synthia prompt 文本。
+/// Mirrors the spec scenario "StatusUpdate state is derived from
+/// SessionEvent".
+fn session_end_reason_to_task_state(reason: &SessionEndReason) -> TaskState {
+    match reason {
+        SessionEndReason::Completed => TaskState::Completed,
+        SessionEndReason::Cancelled => TaskState::Canceled,
+        SessionEndReason::Error(_) => TaskState::Failed,
+        SessionEndReason::TokenBudgetExceeded => TaskState::Failed,
+        SessionEndReason::MaxIterationsReached => TaskState::Failed,
+        SessionEndReason::GuardianBlocked => TaskState::Rejected,
+        SessionEndReason::LoopDetected => TaskState::Failed,
+        SessionEndReason::CircuitBreakerOpen => TaskState::Failed,
+    }
+}
+
+/// Build an `Agent`-role [`Message`] carrying a single
+/// [`Part::data`] with the supplied JSON value.
+fn message_with_data_part(
+    task_id: &TaskId,
+    context_id: &str,
+    data: serde_json::Value,
+) -> Message {
+    Message {
+        message_id: new_message_id(),
+        context_id: Some(context_id.to_string()),
+        task_id: Some(task_id.clone()),
+        role: Role::Agent,
+        parts: vec![Part::data(data)],
+        metadata: None,
+        extensions: None,
+        reference_task_ids: None,
+    }
+}
+
+/// Translate a [`ContentPart`] into its wire `Part::data` payload.
+fn model_part_to_data_value(part: &ContentPart) -> serde_json::Value {
+    match part {
+        ContentPart::Text(TextContent {
+            text,
+            cache_control,
+        }) => {
+            serde_json::json!({
+                "kind": "model_text",
+                "text": text,
+                "cache_control": cache_control,
+            })
+        }
+        ContentPart::Reasoning(ReasoningContent { text, signature }) => {
+            serde_json::json!({
+                "kind": "model_reasoning",
+                "text": text,
+                "signature": signature,
+            })
+        }
+        ContentPart::ToolUse(ToolUse { id, name, input }) => {
+            serde_json::json!({
+                "kind": "tool_call",
+                "tool_use_id": id,
+                "tool_name": name,
+                "input": input,
+            })
+        }
+        ContentPart::ToolResult(tr) => {
+            let content: Vec<serde_json::Value> = tr
+                .content
+                .iter()
+                .filter_map(|c| serde_json::to_value(c).ok())
+                .collect();
+            serde_json::json!({
+                "kind": "tool_result",
+                "tool_use_id": tr.tool_use_id,
+                "content": content,
+                "structured_content": tr.structured_content,
+                "is_error": tr.is_error,
+            })
+        }
+        ContentPart::Image(image) => {
+            serde_json::json!({
+                "kind": "model_image",
+                "data": image.data,
+                "mime_type": image.mime_type,
+                "detail": image.detail,
+            })
+        }
+        ContentPart::Audio(audio) => {
+            serde_json::json!({
+                "kind": "model_audio",
+                "data": audio.data,
+                "mime_type": audio.mime_type,
+                "format": audio.format,
+            })
+        }
+        ContentPart::Resource(resource) => {
+            serde_json::json!({
+                "kind": "model_resource",
+                "uri": resource.uri,
+                "name": resource.name,
+                "title": resource.title,
+                "description": resource.description,
+                "mime_type": resource.mime_type,
+            })
+        }
+    }
+}
+
+/// Translate a [`HookEvent`] into its wire `Part::data` payload.
+fn hook_event_to_data_value(hook: &HookEvent) -> serde_json::Value {
+    match hook {
+        HookEvent::Message { priority, message } => {
+            serde_json::json!({
+                "kind": "steering_message",
+                "priority": priority,
+                "message": message,
+            })
+        }
+        HookEvent::ConfirmRequest {
+            tool_use_id,
+            tool_name,
+            reason,
+        } => {
+            serde_json::json!({
+                "kind": "guardian_confirm_request",
+                "tool_use_id": tool_use_id,
+                "tool_name": tool_name,
+                "reason": reason,
+            })
+        }
+        HookEvent::ConfirmResponse {
+            approved,
+            tool_use_id,
+        } => {
+            serde_json::json!({
+                "kind": "guardian_confirm_response",
+                "approved": approved,
+                "tool_use_id": tool_use_id,
+            })
+        }
+        HookEvent::Custom { kind, data } => {
+            serde_json::json!({
+                "kind": "custom",
+                "custom_kind": kind,
+                "data": data,
+            })
+        }
+    }
+}
+
+/// Render a [`WarningKind`] as the wire `source` string.
+fn warning_kind_to_source(kind: &WarningKind) -> String {
+    serde_json::to_value(kind)
+        .ok()
+        .and_then(|v| v.as_str().map(String::from))
+        .unwrap_or_else(|| "unknown".to_string())
+}
+
+/// Extract the first text part from an A2A `Message`.
+///
+/// Used to translate an A2A `SendMessageRequest.message` to a
+/// Synthia prompt text.
 pub fn extract_text_from_message(msg: &Message) -> Option<String> {
     msg.parts.iter().find_map(|p| {
         if let a2a::PartContent::Text(t) = &p.content {
@@ -293,7 +395,7 @@ pub fn extract_text_from_message(msg: &Message) -> Option<String> {
     })
 }
 
-/// 从 A2A Task 构建最终状态响应（用于 cancel 路径）。
+/// Build a final [`Task`] with the given state (used for the cancel path).
 pub fn task_with_state(
     task_id: TaskId,
     context_id: String,
@@ -314,9 +416,37 @@ pub fn task_with_state(
     }
 }
 
+/// Extract the `Part::data` JSON value from a single-part
+/// `Message(Agent)` produced by [`agent_event_to_stream_responses`].
+///
+/// Returns `None` if the message has zero parts, more than one part,
+/// or the single part is not a `Part::data` payload.
+#[cfg(test)]
+fn first_data_value(msg: &Message) -> Option<serde_json::Value> {
+    let part = msg.parts.first()?;
+    if let a2a::PartContent::Data(v) = &part.content {
+        Some(v.clone())
+    } else {
+        None
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use synthia_agent::events::SessionEndReason;
+    use synthia_agent::events::{AgentMeta, SessionEndReason, WarningKind};
+    use synthia_provider::{
+        ContentPart,
+        ImageContent,
+        ImageDetail,
+        ReasoningContent,
+        ResourceLink,
+        SamplingResult,
+        TextContent,
+        TokenUsage,
+        ToolResult,
+        ToolUse,
+        types::{AudioContent, AudioFormat},
+    };
 
     use super::*;
 
@@ -324,12 +454,22 @@ mod tests {
         ("task-1".to_string(), "ctx-1".to_string())
     }
 
+    fn empty_sampling() -> SamplingResult {
+        SamplingResult {
+            text: String::new(),
+            tool_calls: vec![],
+            reasoning: String::new(),
+            reasoning_signature: None,
+            usage: TokenUsage::default(),
+        }
+    }
+
     #[test]
     fn session_started_maps_to_working() {
         let (tid, cid) = test_ids();
-        let event = AgentEvent::SessionStarted {
+        let event = AgentEvent::System(SystemEvent::SessionStarted {
             session_id: "s1".to_string(),
-        };
+        });
         let results = agent_event_to_stream_responses(&event, &tid, &cid);
         assert_eq!(results.len(), 1);
         let resp = results[0].as_ref().unwrap();
@@ -338,269 +478,429 @@ mod tests {
                 assert_eq!(su.status.state, TaskState::Working);
                 assert_eq!(su.task_id, "task-1");
             }
-            _ => panic!("expected StatusUpdate, got {resp:?}"),
+            other => panic!("expected StatusUpdate, got {other:?}"),
         }
     }
 
     #[test]
     fn session_ended_clean_maps_to_completed() {
         let (tid, cid) = test_ids();
-        let event = AgentEvent::SessionEnded {
+        let event = AgentEvent::System(SystemEvent::SessionEnded {
             reason: SessionEndReason::Completed,
-        };
+        });
         let results = agent_event_to_stream_responses(&event, &tid, &cid);
-        assert_eq!(results.len(), 1);
         match results[0].as_ref().unwrap() {
             StreamResponse::StatusUpdate(su) => {
                 assert_eq!(su.status.state, TaskState::Completed);
             }
-            _ => panic!("expected StatusUpdate"),
+            other => panic!("expected StatusUpdate, got {other:?}"),
         }
     }
 
     #[test]
     fn session_ended_cancelled_maps_to_canceled() {
         let (tid, cid) = test_ids();
-        let event = AgentEvent::SessionEnded {
+        let event = AgentEvent::System(SystemEvent::SessionEnded {
             reason: SessionEndReason::Cancelled,
-        };
+        });
         let results = agent_event_to_stream_responses(&event, &tid, &cid);
-        assert_eq!(results.len(), 1);
         match results[0].as_ref().unwrap() {
             StreamResponse::StatusUpdate(su) => {
                 assert_eq!(su.status.state, TaskState::Canceled);
             }
-            _ => panic!("expected StatusUpdate"),
+            other => panic!("expected StatusUpdate, got {other:?}"),
         }
     }
 
     #[test]
     fn session_ended_error_maps_to_failed() {
         let (tid, cid) = test_ids();
-        let event = AgentEvent::SessionEnded {
+        let event = AgentEvent::System(SystemEvent::SessionEnded {
             reason: SessionEndReason::Error("oops".to_string()),
-        };
+        });
         let results = agent_event_to_stream_responses(&event, &tid, &cid);
-        assert_eq!(results.len(), 1);
         match results[0].as_ref().unwrap() {
             StreamResponse::StatusUpdate(su) => {
                 assert_eq!(su.status.state, TaskState::Failed);
             }
-            _ => panic!("expected StatusUpdate"),
+            other => panic!("expected StatusUpdate, got {other:?}"),
         }
     }
 
     #[test]
-    fn session_interrupted_maps_to_canceled() {
+    fn session_interrupted_maps_to_input_required() {
         let (tid, cid) = test_ids();
-        let event = AgentEvent::SessionInterrupted {
+        let event = AgentEvent::System(SystemEvent::SessionInterrupted {
             reason: "user cancel".to_string(),
-        };
+        });
         let results = agent_event_to_stream_responses(&event, &tid, &cid);
-        assert_eq!(results.len(), 1);
         match results[0].as_ref().unwrap() {
             StreamResponse::StatusUpdate(su) => {
-                assert_eq!(su.status.state, TaskState::Canceled);
+                assert_eq!(su.status.state, TaskState::InputRequired);
             }
-            _ => panic!("expected StatusUpdate"),
+            other => panic!("expected StatusUpdate, got {other:?}"),
         }
     }
 
     #[test]
-    fn llm_response_complete_maps_to_message() {
+    fn model_done_maps_to_data_part() {
         let (tid, cid) = test_ids();
-        let event = AgentEvent::LlmResponseComplete {
-            content: "Hello world".to_string(),
-            usage: synthia_agent::events::TokenUsage {
-                prompt_tokens: 10,
-                completion_tokens: 20,
-                total_tokens: 30,
-                cached_prompt_tokens: None,
-                cache_read_tokens: None,
-                cache_write_tokens: None,
-            },
-        };
+        let mut sampling = empty_sampling();
+        sampling.text = "Hello world".to_string();
+        let event = AgentEvent::ModelDone(sampling);
         let results = agent_event_to_stream_responses(&event, &tid, &cid);
         assert_eq!(results.len(), 1);
         match results[0].as_ref().unwrap() {
             StreamResponse::Message(msg) => {
                 assert_eq!(msg.role, Role::Agent);
-                assert_eq!(msg.text(), Some("Hello world"));
+                let data = first_data_value(msg).expect("data part");
+                assert_eq!(data["kind"], "response_complete");
+                assert_eq!(data["text"], "Hello world");
             }
-            _ => panic!("expected Message"),
+            other => panic!("expected Message, got {other:?}"),
         }
     }
 
     #[test]
-    fn llm_error_maps_to_failed_status() {
+    fn model_text_maps_to_data_part() {
         let (tid, cid) = test_ids();
-        let event = AgentEvent::LlmError {
-            error: "timeout".to_string(),
-        };
+        let event = AgentEvent::Model(ContentPart::Text(TextContent {
+            text: "hi".to_string(),
+            cache_control: None,
+        }));
         let results = agent_event_to_stream_responses(&event, &tid, &cid);
-        assert_eq!(results.len(), 1);
-        match results[0].as_ref().unwrap() {
-            StreamResponse::StatusUpdate(su) => {
-                assert_eq!(su.status.state, TaskState::Failed);
-                assert!(su.status.message.is_some());
-            }
-            _ => panic!("expected StatusUpdate"),
-        }
-    }
-
-    #[test]
-    fn tool_call_completed_maps_to_artifact_update() {
-        let (tid, cid) = test_ids();
-        let event = AgentEvent::ToolCallCompleted {
-            tool_name: "read_file".to_string(),
-            output: "file contents".to_string(),
-            is_error: false,
-        };
-        let results = agent_event_to_stream_responses(&event, &tid, &cid);
-        assert_eq!(results.len(), 1);
-        match results[0].as_ref().unwrap() {
-            StreamResponse::ArtifactUpdate(au) => {
-                assert_eq!(au.artifact.name.as_deref(), Some("read_file"));
-                assert_eq!(au.last_chunk, Some(true));
-            }
-            _ => panic!("expected ArtifactUpdate"),
-        }
-    }
-
-    #[test]
-    fn finish_maps_to_message_and_completed() {
-        let (tid, cid) = test_ids();
-        let event = AgentEvent::Finish {
-            output: "done".to_string(),
-        };
-        let results = agent_event_to_stream_responses(&event, &tid, &cid);
-        assert_eq!(results.len(), 2);
         match results[0].as_ref().unwrap() {
             StreamResponse::Message(msg) => {
-                assert_eq!(msg.text(), Some("done"));
+                let data = first_data_value(msg).expect("data part");
+                assert_eq!(data["kind"], "model_text");
+                assert_eq!(data["text"], "hi");
             }
-            _ => panic!("expected Message"),
-        }
-        match results[1].as_ref().unwrap() {
-            StreamResponse::StatusUpdate(su) => {
-                assert_eq!(su.status.state, TaskState::Completed);
-            }
-            _ => panic!("expected StatusUpdate"),
+            other => panic!("expected Message, got {other:?}"),
         }
     }
 
     #[test]
-    fn ignored_events_produce_empty() {
+    fn model_reasoning_maps_to_data_part() {
         let (tid, cid) = test_ids();
-        // 只有尚未实现映射的事件才会产生空数组
-        let events = vec![AgentEvent::LlmReasoningDelta {
-            delta: "thinking...".to_string(),
-        }];
-        for event in events {
-            let results = agent_event_to_stream_responses(&event, &tid, &cid);
-            assert!(results.is_empty(), "expected empty for {event:?}");
-        }
-    }
-
-    #[test]
-    fn thinking_event_maps_to_message() {
-        let (tid, cid) = test_ids();
-        let event = AgentEvent::Thinking {
-            text: "hmm".to_string(),
-            iteration: 1,
-        };
+        let event =
+            AgentEvent::Model(ContentPart::Reasoning(ReasoningContent {
+                text: "hmm".to_string(),
+                signature: None,
+            }));
         let results = agent_event_to_stream_responses(&event, &tid, &cid);
-        assert_eq!(results.len(), 1);
         match results[0].as_ref().unwrap() {
             StreamResponse::Message(msg) => {
-                assert_eq!(msg.text(), Some("hmm"));
-                assert_eq!(
-                    msg.metadata.as_ref().unwrap().get("segment_type").unwrap(),
-                    "thinking"
-                );
-                assert_eq!(
-                    msg.metadata.as_ref().unwrap().get("iteration").unwrap(),
-                    1
-                );
+                let data = first_data_value(msg).expect("data part");
+                assert_eq!(data["kind"], "model_reasoning");
+                assert_eq!(data["text"], "hmm");
             }
-            _ => panic!("expected Message"),
+            other => panic!("expected Message, got {other:?}"),
         }
     }
 
     #[test]
-    fn tool_call_started_event_maps_to_message() {
+    fn model_tool_use_maps_to_data_part() {
         let (tid, cid) = test_ids();
-        let event = AgentEvent::ToolCallStarted {
-            tool_name: "read_file".to_string(),
+        let event = AgentEvent::Model(ContentPart::ToolUse(ToolUse {
+            id: "u1".to_string(),
+            name: "read_file".to_string(),
             input: serde_json::json!({"path": "/tmp/test"}),
-        };
+        }));
         let results = agent_event_to_stream_responses(&event, &tid, &cid);
-        assert_eq!(results.len(), 1);
         match results[0].as_ref().unwrap() {
             StreamResponse::Message(msg) => {
-                let text = msg.text().unwrap();
-                assert!(text.contains("path"));
-                assert!(text.contains("/tmp/test"));
+                let data = first_data_value(msg).expect("data part");
+                assert_eq!(data["kind"], "tool_call");
+                assert_eq!(data["tool_use_id"], "u1");
+                assert_eq!(data["tool_name"], "read_file");
                 assert_eq!(
-                    msg.metadata.as_ref().unwrap().get("segment_type").unwrap(),
-                    "tool_call"
-                );
-                assert_eq!(
-                    msg.metadata.as_ref().unwrap().get("tool_name").unwrap(),
-                    "read_file"
+                    data["input"],
+                    serde_json::json!({"path": "/tmp/test"})
                 );
             }
-            _ => panic!("expected Message"),
+            other => panic!("expected Message, got {other:?}"),
         }
     }
 
     #[test]
-    fn llm_stream_delta_event_maps_to_message() {
+    fn model_tool_result_maps_to_data_part() {
         let (tid, cid) = test_ids();
-        let event = AgentEvent::LlmStreamDelta {
-            content: "hi".to_string(),
-        };
+        let event = AgentEvent::Model(ContentPart::ToolResult(
+            ToolResult::new("u1", "file contents"),
+        ));
         let results = agent_event_to_stream_responses(&event, &tid, &cid);
-        assert_eq!(results.len(), 1);
         match results[0].as_ref().unwrap() {
             StreamResponse::Message(msg) => {
-                assert_eq!(msg.text(), Some("hi"));
-                assert_eq!(
-                    msg.metadata.as_ref().unwrap().get("segment_type").unwrap(),
-                    "text_delta"
-                );
+                let data = first_data_value(msg).expect("data part");
+                assert_eq!(data["kind"], "tool_result");
+                assert_eq!(data["tool_use_id"], "u1");
+                assert!(data["content"].is_array());
+                assert_eq!(data["content"][0]["text"], "file contents");
             }
-            _ => panic!("expected Message"),
+            other => panic!("expected Message, got {other:?}"),
         }
     }
 
     #[test]
-    fn progress_event_maps_to_message() {
+    fn model_image_maps_to_data_part() {
         let (tid, cid) = test_ids();
-        let event = AgentEvent::Progress {
+        let event = AgentEvent::Model(ContentPart::Image(ImageContent {
+            data: "b64-data".to_string(),
+            mime_type: "image/png".to_string(),
+            detail: Some(ImageDetail::High),
+        }));
+        let results = agent_event_to_stream_responses(&event, &tid, &cid);
+        match results[0].as_ref().unwrap() {
+            StreamResponse::Message(msg) => {
+                let data = first_data_value(msg).expect("data part");
+                assert_eq!(data["kind"], "model_image");
+                assert_eq!(data["data"], "b64-data");
+                assert_eq!(data["mime_type"], "image/png");
+            }
+            other => panic!("expected Message, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn model_audio_maps_to_data_part() {
+        let (tid, cid) = test_ids();
+        let event = AgentEvent::Model(ContentPart::Audio(AudioContent {
+            data: "b64-audio".to_string(),
+            mime_type: "audio/wav".to_string(),
+            format: Some(AudioFormat::Wav),
+        }));
+        let results = agent_event_to_stream_responses(&event, &tid, &cid);
+        match results[0].as_ref().unwrap() {
+            StreamResponse::Message(msg) => {
+                let data = first_data_value(msg).expect("data part");
+                assert_eq!(data["kind"], "model_audio");
+                assert_eq!(data["data"], "b64-audio");
+                assert_eq!(data["mime_type"], "audio/wav");
+            }
+            other => panic!("expected Message, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn model_resource_maps_to_data_part() {
+        let (tid, cid) = test_ids();
+        let event = AgentEvent::Model(ContentPart::Resource(ResourceLink {
+            uri: "file:///x.txt".to_string(),
+            name: "x.txt".to_string(),
+            title: Some("X".to_string()),
+            description: Some("desc".to_string()),
+            mime_type: Some("text/plain".to_string()),
+        }));
+        let results = agent_event_to_stream_responses(&event, &tid, &cid);
+        match results[0].as_ref().unwrap() {
+            StreamResponse::Message(msg) => {
+                let data = first_data_value(msg).expect("data part");
+                assert_eq!(data["kind"], "model_resource");
+                assert_eq!(data["uri"], "file:///x.txt");
+                assert_eq!(data["name"], "x.txt");
+            }
+            other => panic!("expected Message, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn system_progress_maps_to_data_part() {
+        let (tid, cid) = test_ids();
+        let event = AgentEvent::System(SystemEvent::Progress {
             message: "working".to_string(),
             step: 1,
             total: 10,
-        };
+        });
         let results = agent_event_to_stream_responses(&event, &tid, &cid);
-        assert_eq!(results.len(), 1);
         match results[0].as_ref().unwrap() {
             StreamResponse::Message(msg) => {
-                assert_eq!(msg.text(), Some("working"));
-                assert_eq!(
-                    msg.metadata.as_ref().unwrap().get("segment_type").unwrap(),
-                    "progress"
-                );
-                assert_eq!(
-                    msg.metadata.as_ref().unwrap().get("step").unwrap(),
-                    1
-                );
-                assert_eq!(
-                    msg.metadata.as_ref().unwrap().get("total").unwrap(),
-                    10
-                );
+                let data = first_data_value(msg).expect("data part");
+                assert_eq!(data["kind"], "progress");
+                assert_eq!(data["message"], "working");
+                assert_eq!(data["step"], 1);
+                assert_eq!(data["total"], 10);
             }
-            _ => panic!("expected Message"),
+            other => panic!("expected Message, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn warning_maps_to_data_part() {
+        let (tid, cid) = test_ids();
+        let event = AgentEvent::System(SystemEvent::Warning {
+            kind: WarningKind::Guardian,
+            message: "x".to_string(),
+            iteration: Some(1),
+        });
+        let results = agent_event_to_stream_responses(&event, &tid, &cid);
+        match results[0].as_ref().unwrap() {
+            StreamResponse::Message(msg) => {
+                let data = first_data_value(msg).expect("data part");
+                assert_eq!(data["kind"], "warning");
+                assert_eq!(data["source"], "guardian");
+                assert_eq!(data["message"], "x");
+                assert_eq!(data["iteration"], 1);
+            }
+            other => panic!("expected Message, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn recovery_maps_to_data_part() {
+        let (tid, cid) = test_ids();
+        let event = AgentEvent::System(SystemEvent::Recovery {
+            level_number: 1,
+            tool_name: Some("bash".to_string()),
+            message: "truncated".to_string(),
+            iteration: Some(3),
+        });
+        let results = agent_event_to_stream_responses(&event, &tid, &cid);
+        match results[0].as_ref().unwrap() {
+            StreamResponse::Message(msg) => {
+                let data = first_data_value(msg).expect("data part");
+                assert_eq!(data["kind"], "recovery");
+                assert_eq!(data["level"], 1);
+                assert_eq!(data["tool_name"], "bash");
+                assert_eq!(data["message"], "truncated");
+                assert_eq!(data["iteration"], 3);
+            }
+            other => panic!("expected Message, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn usage_maps_to_data_part() {
+        let (tid, cid) = test_ids();
+        let event = AgentEvent::System(SystemEvent::Usage {
+            input_tokens: 10,
+            output_tokens: 20,
+            cache_read_tokens: Some(5),
+            cache_creation_tokens: None,
+        });
+        let results = agent_event_to_stream_responses(&event, &tid, &cid);
+        match results[0].as_ref().unwrap() {
+            StreamResponse::Message(msg) => {
+                let data = first_data_value(msg).expect("data part");
+                assert_eq!(data["kind"], "usage");
+                assert_eq!(data["input_tokens"], 10);
+                assert_eq!(data["output_tokens"], 20);
+                assert_eq!(data["cache_read_tokens"], 5);
+                assert!(data["cache_creation_tokens"].is_null());
+            }
+            other => panic!("expected Message, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn hook_message_maps_to_data_part() {
+        let (tid, cid) = test_ids();
+        let event = AgentEvent::Hook(HookEvent::Message {
+            priority: 7,
+            message: "steer".to_string(),
+        });
+        let results = agent_event_to_stream_responses(&event, &tid, &cid);
+        match results[0].as_ref().unwrap() {
+            StreamResponse::Message(msg) => {
+                let data = first_data_value(msg).expect("data part");
+                assert_eq!(data["kind"], "steering_message");
+                assert_eq!(data["priority"], 7);
+                assert_eq!(data["message"], "steer");
+            }
+            other => panic!("expected Message, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn hook_confirm_request_maps_to_data_part() {
+        let (tid, cid) = test_ids();
+        let event = AgentEvent::Hook(HookEvent::ConfirmRequest {
+            tool_use_id: "u1".to_string(),
+            tool_name: "bash".to_string(),
+            reason: "needs approval".to_string(),
+        });
+        let results = agent_event_to_stream_responses(&event, &tid, &cid);
+        match results[0].as_ref().unwrap() {
+            StreamResponse::Message(msg) => {
+                let data = first_data_value(msg).expect("data part");
+                assert_eq!(data["kind"], "guardian_confirm_request");
+                assert_eq!(data["tool_use_id"], "u1");
+                assert_eq!(data["tool_name"], "bash");
+                assert_eq!(data["reason"], "needs approval");
+            }
+            other => panic!("expected Message, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn hook_confirm_response_maps_to_data_part() {
+        let (tid, cid) = test_ids();
+        let event = AgentEvent::Hook(HookEvent::ConfirmResponse {
+            approved: true,
+            tool_use_id: "u1".to_string(),
+        });
+        let results = agent_event_to_stream_responses(&event, &tid, &cid);
+        match results[0].as_ref().unwrap() {
+            StreamResponse::Message(msg) => {
+                let data = first_data_value(msg).expect("data part");
+                assert_eq!(data["kind"], "guardian_confirm_response");
+                assert_eq!(data["approved"], true);
+                assert_eq!(data["tool_use_id"], "u1");
+            }
+            other => panic!("expected Message, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn hook_custom_maps_to_data_part() {
+        let (tid, cid) = test_ids();
+        let event = AgentEvent::Hook(HookEvent::Custom {
+            kind: "my_ext.event".to_string(),
+            data: serde_json::json!({"hello": "world"}),
+        });
+        let results = agent_event_to_stream_responses(&event, &tid, &cid);
+        match results[0].as_ref().unwrap() {
+            StreamResponse::Message(msg) => {
+                let data = first_data_value(msg).expect("data part");
+                assert_eq!(data["kind"], "custom");
+                assert_eq!(data["custom_kind"], "my_ext.event");
+                assert_eq!(data["data"], serde_json::json!({"hello": "world"}));
+            }
+            other => panic!("expected Message, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn agent_meta_emits_two_stream_responses() {
+        let (tid, cid) = test_ids();
+        let meta = AgentMeta::new("parent-1", "child-1", 1);
+        let inner = AgentEvent::Model(ContentPart::Text(TextContent {
+            text: "x".to_string(),
+            cache_control: None,
+        }));
+        let event = AgentEvent::Agent(meta, Box::new(inner));
+        let results = agent_event_to_stream_responses(&event, &tid, &cid);
+        assert_eq!(results.len(), 2);
+
+        // First: agent_meta data part.
+        match results[0].as_ref().unwrap() {
+            StreamResponse::Message(msg) => {
+                let data = first_data_value(msg).expect("data part");
+                assert_eq!(data["kind"], "agent_meta");
+                assert_eq!(data["parent_session_id"], "parent-1");
+                assert_eq!(data["child_session_id"], "child-1");
+                assert_eq!(data["parent_depth"], 1);
+            }
+            other => panic!("expected Message(meta), got {other:?}"),
+        }
+
+        // Second: the inner Model(Text) translation.
+        match results[1].as_ref().unwrap() {
+            StreamResponse::Message(msg) => {
+                let data = first_data_value(msg).expect("data part");
+                assert_eq!(data["kind"], "model_text");
+                assert_eq!(data["text"], "x");
+            }
+            other => panic!("expected Message(inner), got {other:?}"),
         }
     }
 

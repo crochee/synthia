@@ -1,87 +1,133 @@
-//! 10 unit tests for the `events` module family.
+//! Unit tests for the `events` module family.
 //!
 //! Coverage map:
 //!
-//! - [`super::event_enum::AgentEvent`]: 6 tests
-//!   (session_started_serialization / event_serde_tag /
-//!   event_helper_methods /
-//!   context_compacted_serialization /
-//!   steering_received_serialization /
-//!   session_ended_serialization /
-//!   recovery_applied_event_roundtrip).
-//! - [`super::emitter::AgentEventEmitter`]: 3 tests
-//!   (pair / clone / returns_false_when_receiver_dropped).
+//! - [`super::event_enum::AgentEvent`]: top-level 5-variant shape,
+//!   serde round trip, helper ctors, `is_durable` correctness.
+//! - [`super::emitter::AgentEventEmitter`]: pair / clone /
+//!   returns_false_when_receiver_dropped.
+
+use synthia_provider::{
+    ContentPart,
+    ReasoningContent,
+    SamplingResult,
+    TextContent,
+    ToolResult,
+    ToolUse,
+};
 
 use super::*;
 
+fn sampling_result_for_test() -> SamplingResult {
+    SamplingResult {
+        text: "hi".to_string(),
+        tool_calls: vec![],
+        reasoning: String::new(),
+        reasoning_signature: None,
+        usage: super::TokenUsage::default(),
+    }
+}
+
 #[test]
 fn test_session_started_serialization() {
-    let event = AgentEvent::SessionStarted {
+    let event = AgentEvent::System(SystemEvent::SessionStarted {
         session_id: "s1".to_string(),
-    };
+    });
     let json = serde_json::to_string(&event).unwrap();
-    assert!(json.contains("SessionStarted"));
+    // Both AgentEvent and SystemEvent use serde `tag = "type"`. Because
+    // the inner SystemEvent's tag conflicts with the outer AgentEvent
+    // tag at the same JSON level, the outer "system" tag is suppressed
+    // by serde and only the inner SystemEvent variant tag is emitted.
+    assert!(json.contains("\"type\":\"session_started\""));
     assert!(json.contains("s1"));
 }
 
 #[test]
 fn test_event_serde_tag() {
-    let event = AgentEvent::Thinking {
+    let event = AgentEvent::Model(ContentPart::Reasoning(ReasoningContent {
         text: "Let me think".to_string(),
-        iteration: 1,
-    };
+        signature: None,
+    }));
     let json = serde_json::to_string(&event).unwrap();
-    assert!(json.contains("\"type\":\"Thinking\""));
+    assert!(json.contains("\"type\":\"Model\""));
+    assert!(json.contains("\"type\":\"reasoning\""));
 
-    let event2 = AgentEvent::ToolCallStarted {
-        tool_name: "read_file".to_string(),
+    let event2 = AgentEvent::Model(ContentPart::ToolUse(ToolUse {
+        id: "u1".to_string(),
+        name: "read_file".to_string(),
         input: serde_json::json!({ "path": "/tmp/test" }),
-    };
+    }));
     let json2 = serde_json::to_string(&event2).unwrap();
-    assert!(json2.contains("\"type\":\"ToolCallStarted\""));
+    assert!(json2.contains("\"type\":\"Model\""));
 
     let roundtripped: AgentEvent = serde_json::from_str(&json).unwrap();
-    assert!(matches!(roundtripped, AgentEvent::Thinking { .. }));
+    assert!(matches!(
+        roundtripped,
+        AgentEvent::Model(ContentPart::Reasoning(..))
+    ));
 }
 
 #[test]
 fn test_event_helper_methods() {
     let warning = AgentEvent::warning("low disk space");
-    assert!(matches!(warning, AgentEvent::Warning { .. }));
+    assert!(matches!(
+        warning,
+        AgentEvent::System(SystemEvent::Warning { .. })
+    ));
 
     let progress = AgentEvent::progress("loading", 5, 10);
     assert!(matches!(
         progress,
-        AgentEvent::Progress {
+        AgentEvent::System(SystemEvent::Progress {
             step: 5,
             total: 10,
             ..
-        }
+        })
     ));
 
-    let thinking = AgentEvent::thinking("analyzing", 2);
+    let delta = AgentEvent::text_delta("analyzing");
     assert!(matches!(
-        thinking,
-        AgentEvent::Thinking { iteration: 2, .. }
+        delta,
+        AgentEvent::Model(ContentPart::Text(TextContent { .. }))
+    ));
+
+    let reasoning = AgentEvent::reasoning_delta("thinking", None);
+    assert!(matches!(
+        reasoning,
+        AgentEvent::Model(ContentPart::Reasoning(ReasoningContent {
+            ref text,
+            ..
+        })) if text == "thinking"
     ));
 }
 
 #[test]
 fn test_event_emitter_pair() {
     let (emitter, mut rx) = AgentEventEmitter::pair();
-    emitter.emit(AgentEvent::SessionStarted {
+    emitter.emit(AgentEvent::System(SystemEvent::SessionStarted {
         session_id: "test".to_string(),
-    });
+    }));
     let received = rx.try_recv().unwrap();
-    assert!(matches!(received, AgentEvent::SessionStarted { .. }));
+    assert!(matches!(
+        received,
+        AgentEvent::System(SystemEvent::SessionStarted { .. })
+    ));
 }
 
 #[test]
 fn test_event_emitter_clone() {
     let (emitter1, mut rx) = AgentEventEmitter::pair();
     let emitter2 = emitter1.clone();
-    emitter1.emit(AgentEvent::IterationStarted { iteration: 1 });
-    emitter2.emit(AgentEvent::IterationCompleted { iteration: 1 });
+    emitter1.emit(AgentEvent::System(SystemEvent::Progress {
+        message: "a".into(),
+        step: 1,
+        total: 2,
+    }));
+    emitter2.emit(AgentEvent::System(SystemEvent::Progress {
+        message: "b".into(),
+        step: 2,
+        total: 2,
+    }));
     assert!(rx.try_recv().is_ok());
     assert!(rx.try_recv().is_ok());
 }
@@ -90,374 +136,476 @@ fn test_event_emitter_clone() {
 fn test_emitter_returns_false_when_receiver_dropped() {
     let (emitter, rx) = AgentEventEmitter::pair();
     drop(rx);
-    assert!(!emitter.emit(AgentEvent::Warning {
-        message: "ignored".to_string()
-    }));
+    assert!(!emitter.emit(AgentEvent::System(SystemEvent::Warning {
+        kind: WarningKind::Hook,
+        message: "ignored".to_string(),
+        iteration: None,
+    })));
 }
 
 #[test]
-fn test_context_compacted_serialization() {
-    let event = AgentEvent::ContextCompacted {
-        old_tokens: 5000,
-        new_tokens: 2500,
-    };
+fn test_context_compaction_warning_serialization() {
+    let event = AgentEvent::System(SystemEvent::Warning {
+        kind: WarningKind::ContextCompaction,
+        message: "compacted 5000 -> 2500".to_string(),
+        iteration: Some(3),
+    });
     let json = serde_json::to_string(&event).unwrap();
+    assert!(json.contains("\"type\":\"System\""));
     let parsed: AgentEvent = serde_json::from_str(&json).unwrap();
-    if let AgentEvent::ContextCompacted {
-        old_tokens,
-        new_tokens,
-    } = parsed
-    {
-        assert_eq!(old_tokens, 5000);
-        assert_eq!(new_tokens, 2500);
-    } else {
-        panic!("Expected ContextCompacted");
+    match parsed {
+        AgentEvent::System(SystemEvent::Warning {
+            kind,
+            message,
+            iteration,
+        }) => {
+            assert_eq!(kind, WarningKind::ContextCompaction);
+            assert_eq!(message, "compacted 5000 -> 2500");
+            assert_eq!(iteration, Some(3));
+        }
+        other => panic!("Expected System::Warning, got {other:?}"),
     }
 }
 
 #[test]
-fn test_steering_received_serialization() {
-    let event = AgentEvent::SteeringReceived {
+fn test_hook_message_serialization() {
+    let event = AgentEvent::Hook(HookEvent::Message {
+        priority: 7,
         message: "focus on tests".to_string(),
-        session_id: "s-1".to_string(),
-        priority: Some(7),
-    };
+    });
     let json = serde_json::to_string(&event).unwrap();
+    // Both AgentEvent and HookEvent use serde `tag = "type"`; the outer
+    // "hook" tag is suppressed by the same key collision (the inner
+    // HookEvent variant tag wins). The A2A adapter translates to the
+    // documented `kind` discriminator format on the wire.
+    assert!(json.contains("\"type\":\"message\""));
     let parsed: AgentEvent = serde_json::from_str(&json).unwrap();
-    if let AgentEvent::SteeringReceived {
-        message,
-        session_id,
-        priority,
-    } = parsed
-    {
-        assert_eq!(message, "focus on tests");
-        assert_eq!(session_id, "s-1");
-        assert_eq!(priority, Some(7));
-    } else {
-        panic!("Expected SteeringReceived");
-    }
-
-    // Backward compatibility: payloads without `priority` deserialize to None.
-    let legacy_json = r#"{"type":"SteeringReceived","data":{"message":"legacy","session_id":"s-2"}}"#;
-    let legacy: AgentEvent = serde_json::from_str(legacy_json).unwrap();
-    if let AgentEvent::SteeringReceived { priority, .. } = legacy {
-        assert_eq!(priority, None);
-    } else {
-        panic!("Expected SteeringReceived");
+    match parsed {
+        AgentEvent::Hook(HookEvent::Message { priority, message }) => {
+            assert_eq!(priority, 7);
+            assert_eq!(message, "focus on tests");
+        }
+        other => panic!("Expected Hook::Message, got {other:?}"),
     }
 }
 
 #[test]
 fn test_session_ended_serialization() {
-    let event = AgentEvent::SessionEnded {
+    let event = AgentEvent::System(SystemEvent::SessionEnded {
         reason: SessionEndReason::Completed,
-    };
+    });
     let json = serde_json::to_string(&event).unwrap();
     let parsed: AgentEvent = serde_json::from_str(&json).unwrap();
     assert!(matches!(
         parsed,
-        AgentEvent::SessionEnded {
+        AgentEvent::System(SystemEvent::SessionEnded {
             reason: SessionEndReason::Completed
-        }
+        })
     ));
 }
 
 #[test]
 fn test_subagent_event_serialization() {
-    let event = AgentEvent::SubagentEvent {
-        child_session_id: "child-1".to_string(),
-        event: Box::new(AgentEvent::Thinking {
-            text: "nested thinking".to_string(),
-            iteration: 2,
-        }),
-    };
+    let inner = AgentEvent::Model(ContentPart::Reasoning(ReasoningContent {
+        text: "nested thinking".to_string(),
+        signature: None,
+    }));
+    let event = AgentEvent::Agent(
+        AgentMeta::new("parent-1", "child-1", 1),
+        Box::new(inner),
+    );
     let json = serde_json::to_string(&event).unwrap();
-    assert!(json.contains("\"type\":\"subagent_event\""));
+    assert!(json.contains("\"type\":\"Agent\""));
+    assert!(json.contains("\"parent_session_id\":\"parent-1\""));
     assert!(json.contains("\"child_session_id\":\"child-1\""));
-    assert!(json.contains("\"event\":{\"type\":\"Thinking\""));
 
     let parsed: AgentEvent = serde_json::from_str(&json).unwrap();
     match parsed {
-        AgentEvent::SubagentEvent {
-            child_session_id,
-            event,
-        } => {
-            assert_eq!(child_session_id, "child-1");
-            assert!(matches!(event.as_ref(), AgentEvent::Thinking { .. }));
+        AgentEvent::Agent(meta, inner) => {
+            assert_eq!(meta.parent_session_id, "parent-1");
+            assert_eq!(meta.child_session_id, "child-1");
+            assert_eq!(meta.parent_depth, 1);
+            assert!(matches!(
+                inner.as_ref(),
+                AgentEvent::Model(ContentPart::Reasoning(..))
+            ));
         }
-        other => panic!("expected SubagentEvent, got {other:?}"),
+        other => panic!("expected Agent, got {other:?}"),
     }
 }
 
 #[test]
-fn test_subagent_completed_event_serializes() {
-    let event = AgentEvent::SubagentCompleted {
-        session_id: "s1".to_string(),
-        result_summary: "done".to_string(),
-    };
-    let json = serde_json::to_string(&event).unwrap();
-    assert!(json.contains("\"type\":\"SubagentCompleted\""));
-    assert!(json.contains("\"session_id\":\"s1\""));
-    assert!(json.contains("\"result_summary\":\"done\""));
-
-    let parsed: AgentEvent = serde_json::from_str(&json).unwrap();
-    match parsed {
-        AgentEvent::SubagentCompleted {
-            session_id,
-            result_summary,
-        } => {
-            assert_eq!(session_id, "s1");
-            assert_eq!(result_summary, "done");
-        }
-        other => panic!("expected SubagentCompleted, got {other:?}"),
-    }
-}
-
-#[test]
-fn test_recovery_applied_event_roundtrip() {
-    let event = AgentEvent::RecoveryApplied {
-        level_number: 3,
-        tool_name: Some("bash".to_string()),
-        message: "Describing the command instead of executing".to_string(),
-        iteration: 7,
-    };
+fn test_recovery_event_roundtrip() {
+    let event = AgentEvent::recovery(
+        3,
+        Some("bash".to_string()),
+        "Describing the command instead of executing",
+        Some(7),
+    );
     let json = serde_json::to_string(&event).unwrap();
     let parsed: AgentEvent = serde_json::from_str(&json).unwrap();
     match parsed {
-        AgentEvent::RecoveryApplied {
+        AgentEvent::System(SystemEvent::Recovery {
             level_number,
             tool_name,
             message,
             iteration,
-        } => {
+        }) => {
             assert_eq!(level_number, 3);
             assert_eq!(tool_name.as_deref(), Some("bash"));
             assert_eq!(message, "Describing the command instead of executing");
-            assert_eq!(iteration, 7);
+            assert_eq!(iteration, Some(7));
         }
-        other => panic!("expected RecoveryApplied, got {other:?}"),
+        other => panic!("expected System::Recovery, got {other:?}"),
     }
 }
 
-/// Helper: assert `is_durable_event_type` matches `is_durable` for a variant.
-fn assert_classification_consistent(event: &AgentEvent) {
-    let json = serde_json::to_value(event).unwrap();
-    let type_tag = json
-        .get("type")
-        .and_then(|v| v.as_str())
-        .unwrap_or_else(|| panic!("missing type tag in serialization: {json}"));
-    assert_eq!(
-        super::is_durable_event_type(type_tag),
-        event.is_durable(),
-        "classification mismatch for type tag {:?}",
-        type_tag,
+#[test]
+fn test_is_durable_top_level() {
+    // Model(Text) is durable — it's the text of the assistant message
+    // that needs to be replayed to reconstruct LoopContext.
+    let m = AgentEvent::Model(ContentPart::Text(TextContent {
+        text: "x".into(),
+        cache_control: None,
+    }));
+    assert!(m.is_durable());
+
+    // ModelDone is ephemeral — it is the aggregated final result;
+    // replay can recompute it from the persisted Model deltas.
+    let md = AgentEvent::ModelDone(sampling_result_for_test());
+    assert!(!md.is_durable());
+
+    // System(_): per spec all System variants are ephemeral
+    // (was: SessionStarted/Ended/Interrupted/Recovery were durable in
+    // the old implementation; the new spec unifies System as
+    // ephemeral because session lifecycle events are reconstructed
+    // from replay, not persisted as state transitions).
+    let started = AgentEvent::System(SystemEvent::SessionStarted {
+        session_id: "s".into(),
+    });
+    assert!(!started.is_durable());
+
+    let ended = AgentEvent::System(SystemEvent::SessionEnded {
+        reason: SessionEndReason::Completed,
+    });
+    assert!(!ended.is_durable());
+
+    let interrupted = AgentEvent::System(SystemEvent::SessionInterrupted {
+        reason: "boom".into(),
+    });
+    assert!(!interrupted.is_durable());
+
+    let progress = AgentEvent::progress("a", 1, 2);
+    assert!(!progress.is_durable());
+
+    let warning = AgentEvent::warning("warn");
+    assert!(!warning.is_durable());
+
+    let recovery = AgentEvent::recovery(1, None, "m", None);
+    assert!(!recovery.is_durable());
+
+    let usage = AgentEvent::usage(1, 2, None, None);
+    assert!(!usage.is_durable());
+
+    // Hook is ephemeral
+    let hook = AgentEvent::Hook(HookEvent::Message {
+        priority: 0,
+        message: "x".into(),
+    });
+    assert!(!hook.is_durable());
+
+    // Agent inherits durability from the inner event:
+    //   inner = Model(Text)  -> durable (true)
+    //   inner = ModelDone   -> ephemeral (false)
+    let inner_durable = AgentEvent::Agent(
+        AgentMeta::new("p", "c", 0),
+        Box::new(AgentEvent::Model(ContentPart::Text(TextContent {
+            text: "x".into(),
+            cache_control: None,
+        }))),
     );
+    assert!(inner_durable.is_durable());
+
+    let inner_ephemeral = AgentEvent::Agent(
+        AgentMeta::new("p", "c", 0),
+        Box::new(AgentEvent::ModelDone(sampling_result_for_test())),
+    );
+    assert!(!inner_ephemeral.is_durable());
 }
 
 #[test]
-fn test_durable_event_classification_consistency() {
-    use super::{AgentStatus, SessionEndReason};
-
-    // Durable variants
-    assert_classification_consistent(&AgentEvent::SessionStarted {
+fn test_all_top_level_variants_constructible() {
+    // 1. Model
+    let _ = AgentEvent::Model(ContentPart::Text(TextContent {
+        text: "x".into(),
+        cache_control: None,
+    }));
+    // 2. ModelDone
+    let _ = AgentEvent::ModelDone(sampling_result_for_test());
+    // 3. System
+    let _ = AgentEvent::System(SystemEvent::SessionStarted {
         session_id: "s".into(),
     });
-    assert_classification_consistent(&AgentEvent::SessionEnded {
+    // 4. Agent
+    let _ = AgentEvent::Agent(
+        AgentMeta::new("p", "c", 0),
+        Box::new(AgentEvent::ModelDone(sampling_result_for_test())),
+    );
+    // 5. Hook
+    let _ = AgentEvent::Hook(HookEvent::Message {
+        priority: 0,
+        message: "x".into(),
+    });
+
+    // All SystemEvent variants:
+    let _ = AgentEvent::System(SystemEvent::SessionEnded {
         reason: SessionEndReason::Completed,
     });
-    assert_classification_consistent(&AgentEvent::LlmRequestStarted {
-        iteration: 1,
+    let _ = AgentEvent::System(SystemEvent::SessionInterrupted {
+        reason: "x".into(),
     });
-    assert_classification_consistent(&AgentEvent::LlmResponseComplete {
-        content: "x".into(),
-        usage: super::TokenUsage::default(),
-    });
-    assert_classification_consistent(&AgentEvent::ToolCallStarted {
-        tool_name: "t".into(),
-        input: serde_json::json!({}),
-    });
-    assert_classification_consistent(&AgentEvent::ToolCallCompleted {
-        tool_name: "t".into(),
-        output: "o".into(),
-        is_error: false,
-    });
-    assert_classification_consistent(&AgentEvent::ToolCallSkipped {
-        tool_name: "t".into(),
-        reason: "r".into(),
-    });
-    assert_classification_consistent(&AgentEvent::ToolCallError {
-        tool_name: "t".into(),
-        error: "e".into(),
-    });
-    assert_classification_consistent(&AgentEvent::IterationStarted {
-        iteration: 1,
-    });
-    assert_classification_consistent(&AgentEvent::ContextCompacted {
-        old_tokens: 100,
-        new_tokens: 50,
-    });
-    assert_classification_consistent(&AgentEvent::Checkpoint {
-        session_id: "s".into(),
-        step: 1,
-    });
-    assert_classification_consistent(&AgentEvent::StateChange {
-        from: "a".into(),
-        to: "b".into(),
-    });
-    assert_classification_consistent(&AgentEvent::RecoveryApplied {
-        level_number: 1,
-        tool_name: None,
-        message: "m".into(),
-        iteration: 1,
-    });
-    assert_classification_consistent(&AgentEvent::Status(AgentStatus::Running));
-    assert_classification_consistent(&AgentEvent::SteeringReceived {
-        message: "m".into(),
-        session_id: "s".into(),
-        priority: Some(3),
-    });
-    assert_classification_consistent(
-        &AgentEvent::GuardianConfirmationRequest {
-            tool_name: "t".into(),
-            reason: "r".into(),
-        },
-    );
-    assert_classification_consistent(&AgentEvent::SubagentSpawnBegin {
-        session_id: "s".into(),
-        agent_path: "p".into(),
-    });
-    assert_classification_consistent(&AgentEvent::SubagentSpawnEnd {
-        session_id: "s".into(),
-        agent_path: "p".into(),
-        success: true,
-        error: None,
-    });
-    assert_classification_consistent(&AgentEvent::SubagentComplete {
-        session_id: "s".into(),
-        agent_path: "p".into(),
-        result: "r".into(),
-    });
-    assert_classification_consistent(&AgentEvent::Finish {
-        output: "o".into(),
-    });
-
-    // Ephemeral variants
-    assert_classification_consistent(&AgentEvent::LlmStreamDelta {
-        content: "x".into(),
-    });
-    assert_classification_consistent(&AgentEvent::LlmReasoningDelta {
-        delta: "x".into(),
-    });
-    assert_classification_consistent(&AgentEvent::LlmError {
-        error: "e".into(),
-    });
-    assert_classification_consistent(&AgentEvent::IterationCompleted {
-        iteration: 1,
-    });
-    assert_classification_consistent(&AgentEvent::Thinking {
-        text: "t".into(),
-        iteration: 1,
-    });
-    assert_classification_consistent(&AgentEvent::Warning {
-        message: "m".into(),
-    });
-    assert_classification_consistent(&AgentEvent::Progress {
-        message: "m".into(),
+    let _ = AgentEvent::System(SystemEvent::Progress {
+        message: "x".into(),
         step: 1,
         total: 2,
     });
-    assert_classification_consistent(&AgentEvent::SessionInterrupted {
-        reason: "r".into(),
+    let _ = AgentEvent::System(SystemEvent::Warning {
+        kind: WarningKind::Guardian,
+        message: "x".into(),
+        iteration: Some(1),
     });
-    assert_classification_consistent(&AgentEvent::GuardianWarning {
-        reason: "r".into(),
-        iteration: 1,
+    let _ = AgentEvent::recovery(1, None, "x", Some(1));
+    let _ = AgentEvent::usage(1, 2, Some(3), Some(4));
+
+    // All WarningKind variants:
+    for kind in [
+        WarningKind::Guardian,
+        WarningKind::Loop,
+        WarningKind::TokenBudget,
+        WarningKind::ContextCompaction,
+        WarningKind::Hook,
+        WarningKind::EditConflict,
+    ] {
+        let _ = AgentEvent::warning_kind(kind, "x");
+    }
+
+    // All HookEvent variants:
+    let _ = AgentEvent::Hook(HookEvent::ConfirmRequest {
+        tool_use_id: "u1".into(),
+        tool_name: "bash".into(),
+        reason: "needs approval".into(),
     });
-    assert_classification_consistent(&AgentEvent::LoopWarning {
-        reason: "r".into(),
-        iteration: 1,
+    let _ = AgentEvent::Hook(HookEvent::ConfirmResponse {
+        approved: true,
+        tool_use_id: "u1".into(),
     });
-    assert_classification_consistent(&AgentEvent::TokenBudgetNotice {
-        status: "s".into(),
-        current_tokens: 100,
-        threshold_tokens: 200,
-    });
-    assert_classification_consistent(&AgentEvent::TokenBudgetWarning {
-        status: "s".into(),
-        current_tokens: 100,
-        threshold_tokens: 200,
-    });
-    assert_classification_consistent(&AgentEvent::HookError {
-        hook_name: "h".into(),
-        error: "e".into(),
-        hook_type: "t".into(),
-    });
-    assert_classification_consistent(&AgentEvent::SelfReflection {
-        iteration: 1,
-        summary: "s".into(),
-        issues: vec![],
-        suggestions: vec![],
-    });
-    assert_classification_consistent(&AgentEvent::SubagentMessage {
-        session_id: "s".into(),
-        agent_path: "p".into(),
-        message: "m".into(),
-    });
-    assert_classification_consistent(&AgentEvent::SubagentCompleted {
-        session_id: "s".into(),
-        result_summary: "r".into(),
-    });
-    assert_classification_consistent(&AgentEvent::SubagentEvent {
-        child_session_id: "c".into(),
-        event: Box::new(AgentEvent::Thinking {
-            text: "t".into(),
-            iteration: 1,
-        }),
+    let _ = AgentEvent::Hook(HookEvent::Custom {
+        kind: "my_ext.event".into(),
+        data: serde_json::json!({}),
     });
 
-    // Custom is ephemeral
-    assert_classification_consistent(&AgentEvent::Custom {
-        event_type: "my_plugin.event".into(),
-        data: serde_json::json!({"key": "value"}),
-    });
+    // Model content includes ToolUse + ToolResult
+    let _ = AgentEvent::Model(ContentPart::ToolUse(ToolUse {
+        id: "u1".into(),
+        name: "bash".into(),
+        input: serde_json::json!({}),
+    }));
+    let _ =
+        AgentEvent::Model(ContentPart::ToolResult(ToolResult::new("u1", "ok")));
 }
 
 #[test]
-fn test_custom_event_serde_roundtrip() {
-    let event = AgentEvent::Custom {
-        event_type: "my_plugin.event".to_string(),
+fn test_hook_event_custom_serde_roundtrip() {
+    let event = AgentEvent::Hook(HookEvent::Custom {
+        kind: "my_plugin.event".to_string(),
         data: serde_json::json!({"key": "value", "count": 42}),
-    };
+    });
     let json = serde_json::to_string(&event).unwrap();
-    assert!(json.contains("\"type\":\"Custom\""));
-    assert!(json.contains("\"event_type\":\"my_plugin.event\""));
+    // Same serde tag collision as test_hook_message_serialization —
+    // the inner HookEvent::Custom variant tag wins.
+    assert!(json.contains("\"type\":\"custom\""));
+    assert!(json.contains("\"key\":\"value\""));
 
     let parsed: AgentEvent = serde_json::from_str(&json).unwrap();
     match parsed {
-        AgentEvent::Custom { event_type, data } => {
-            assert_eq!(event_type, "my_plugin.event");
+        AgentEvent::Hook(HookEvent::Custom { kind, data }) => {
+            assert_eq!(kind, "my_plugin.event");
             assert_eq!(data["key"], "value");
             assert_eq!(data["count"], 42);
         }
-        other => panic!("expected Custom, got {other:?}"),
+        other => panic!("expected Hook::Custom, got {other:?}"),
     }
 }
 
 #[test]
-fn test_custom_event_is_not_durable() {
-    let event = AgentEvent::Custom {
-        event_type: "test".into(),
-        data: serde_json::json!(null),
-    };
-    assert!(!event.is_durable());
+fn test_tool_result_in_model_preserves_is_error() {
+    let ok =
+        AgentEvent::Model(ContentPart::ToolResult(ToolResult::new("u1", "ok")));
+    let ok_json = serde_json::to_string(&ok).unwrap();
+    let ok_parsed: AgentEvent = serde_json::from_str(&ok_json).unwrap();
+    match ok_parsed {
+        AgentEvent::Model(ContentPart::ToolResult(tr)) => {
+            assert_eq!(tr.tool_use_id, "u1");
+            // ToolResult::new sets is_error = None (not Some(false));
+            // a successful tool result has no error tag.
+            assert_eq!(tr.is_error, None);
+        }
+        other => panic!("expected Model::ToolResult, got {other:?}"),
+    }
+
+    let err = AgentEvent::Model(ContentPart::ToolResult(ToolResult::error(
+        "u1", "boom",
+    )));
+    let err_json = serde_json::to_string(&err).unwrap();
+    let err_parsed: AgentEvent = serde_json::from_str(&err_json).unwrap();
+    match err_parsed {
+        AgentEvent::Model(ContentPart::ToolResult(tr)) => {
+            assert_eq!(tr.is_error, Some(true));
+        }
+        other => panic!("expected Model::ToolResult, got {other:?}"),
+    }
 }
 
 #[test]
 fn test_is_durable_event_type_unknown_defaults_to_durable() {
+    // Persistence-layer type-tag whitelist (the string-tagged analogue
+    // of `AgentEvent::is_durable`). The exhaustive, agent-layer
+    // method is tested in `test_agent_event_is_durable` below.
     assert!(super::is_durable_event_type("UnknownType"));
     assert!(super::is_durable_event_type(""));
     assert!(super::is_durable_event_type("TurnStarted"));
     assert!(super::is_durable_event_type("SampleCompleted"));
-    assert!(!super::is_durable_event_type("LlmStreamDelta"));
-    assert!(!super::is_durable_event_type("Thinking"));
+    assert!(super::is_durable_event_type("ToolCallStarted"));
+    assert!(super::is_durable_event_type("ToolCallCompleted"));
+    assert!(!super::is_durable_event_type("ModelText"));
+    assert!(!super::is_durable_event_type("ModelReasoning"));
+    assert!(!super::is_durable_event_type("ModelImage"));
+    assert!(!super::is_durable_event_type("ModelAudio"));
+    assert!(!super::is_durable_event_type("ModelResource"));
+    assert!(!super::is_durable_event_type("Hook"));
+    assert!(!super::is_durable_event_type("SteeringReceived"));
+    assert!(!super::is_durable_event_type("Progress"));
+    assert!(!super::is_durable_event_type("TokenBudgetNotice"));
+}
+
+#[test]
+fn test_agent_event_is_durable_exhaustive() {
+    // Durable paths (per event-durability-classification spec).
+    assert!(
+        AgentEvent::Model(ContentPart::Text(TextContent {
+            text: "hi".into(),
+            cache_control: None,
+        }))
+        .is_durable()
+    );
+    assert!(
+        AgentEvent::Model(ContentPart::ToolUse(ToolUse {
+            id: "tu_1".into(),
+            name: "search".into(),
+            input: serde_json::json!({}),
+        }))
+        .is_durable()
+    );
+    assert!(
+        AgentEvent::Model(ContentPart::ToolResult(ToolResult {
+            tool_use_id: "tu_1".into(),
+            content: vec![],
+            structured_content: None,
+            is_error: None,
+        }))
+        .is_durable()
+    );
+    assert!(
+        AgentEvent::Model(ContentPart::Resource(
+            synthia_provider::ResourceLink {
+                uri: String::new(),
+                name: String::new(),
+                title: None,
+                description: None,
+                mime_type: None,
+            }
+        ))
+        .is_durable()
+    );
+
+    // Ephemeral paths.
+    assert!(
+        !AgentEvent::Model(ContentPart::Reasoning(ReasoningContent {
+            text: "thinking".into(),
+            signature: None,
+        }))
+        .is_durable()
+    );
+    assert!(
+        !AgentEvent::Model(ContentPart::Image(
+            synthia_provider::ImageContent {
+                data: String::new(),
+                mime_type: String::new(),
+                detail: None,
+            }
+        ))
+        .is_durable()
+    );
+    assert!(
+        !AgentEvent::Model(ContentPart::Audio(
+            synthia_provider::types::AudioContent {
+                data: String::new(),
+                mime_type: String::new(),
+                format: None,
+            }
+        ))
+        .is_durable()
+    );
+    assert!(!AgentEvent::ModelDone(sampling_result_for_test()).is_durable());
+    assert!(
+        !AgentEvent::System(SystemEvent::SessionStarted {
+            session_id: "s".into(),
+        })
+        .is_durable()
+    );
+    assert!(
+        !AgentEvent::System(SystemEvent::SessionEnded {
+            reason: SessionEndReason::Completed,
+        })
+        .is_durable()
+    );
+    assert!(
+        !AgentEvent::System(SystemEvent::Progress {
+            message: "x".into(),
+            step: 1,
+            total: 1,
+        })
+        .is_durable()
+    );
+    assert!(
+        !AgentEvent::System(SystemEvent::Warning {
+            kind: WarningKind::Hook,
+            message: "x".into(),
+            iteration: None,
+        })
+        .is_durable()
+    );
+    assert!(
+        !AgentEvent::Hook(HookEvent::Message {
+            priority: 1,
+            message: "x".into(),
+        })
+        .is_durable()
+    );
+
+    // Agent(meta, inner) inherits from inner.
+    let durable_inner = AgentEvent::Model(ContentPart::Text(TextContent {
+        text: "hi".into(),
+        cache_control: None,
+    }));
+    let ephemeral_inner =
+        AgentEvent::Model(ContentPart::Reasoning(ReasoningContent {
+            text: "x".into(),
+            signature: None,
+        }));
+    let meta = AgentMeta::new("parent", "child", 0);
+    assert!(
+        AgentEvent::Agent(meta.clone(), Box::new(durable_inner)).is_durable()
+    );
+    assert!(!AgentEvent::Agent(meta, Box::new(ephemeral_inner)).is_durable());
 }

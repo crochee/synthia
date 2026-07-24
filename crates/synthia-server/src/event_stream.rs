@@ -72,6 +72,8 @@ impl SseEventStream {
 
 #[cfg(test)]
 mod tests {
+    use synthia_agent::events::SystemEvent;
+
     use super::*;
 
     #[test]
@@ -85,14 +87,17 @@ mod tests {
         let broadcaster = EventBroadcaster::new();
         let mut rx = broadcaster.subscribe();
 
-        let event = AgentEvent::SessionStarted {
+        let event = AgentEvent::System(SystemEvent::SessionStarted {
             session_id: "test-1".to_string(),
-        };
+        });
         let sent = broadcaster.send(event.clone()).unwrap();
         assert_eq!(sent, 1);
 
         let received = rx.recv().await.unwrap();
-        assert!(matches!(received, AgentEvent::SessionStarted { .. }));
+        assert!(matches!(
+            received,
+            AgentEvent::System(SystemEvent::SessionStarted { .. })
+        ));
     }
 
     #[test]

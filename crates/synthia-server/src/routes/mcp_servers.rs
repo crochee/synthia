@@ -14,6 +14,7 @@ pub async fn list_mcp_servers(
         .iter()
         .map(|c| {
             serde_json::json!({
+                "id": c.name,
                 "name": c.name,
                 "command": c.command,
                 "args": c.args,

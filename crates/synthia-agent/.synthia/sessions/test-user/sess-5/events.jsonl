@@ -22,3 +22,6 @@
 {"seq":22,"aggregate":"sess-5","type":"TurnStarted","ts":"2026-07-23T16:33:24.848899180Z","source":"agent","ephemeral":false,"payload":{"data":null,"iteration":1,"turn_id":"0624bca2-780b-4787-9cbe-f2a042b35a1e"}}
 {"seq":23,"aggregate":"sess-5","type":"TurnFailed","ts":"2026-07-23T16:33:24.851335899Z","source":"agent","ephemeral":false,"payload":{"data":{"reason":"cancelled"},"iteration":1,"turn_id":"0624bca2-780b-4787-9cbe-f2a042b35a1e"}}
 {"seq":24,"aggregate":"sess-5","type":"SessionEnded","ts":"2026-07-23T16:33:24.854052840Z","source":"agent","ephemeral":false,"payload":{"data":{"reason":"Cancelled"},"iteration":1,"turn_id":"0624bca2-780b-4787-9cbe-f2a042b35a1e"}}
+{"seq":25,"aggregate":"sess-5","type":"TurnStarted","ts":"2026-07-25T02:37:57.802424708Z","source":"agent","ephemeral":false,"payload":{"data":null,"iteration":1,"turn_id":"2099f52b-1323-4989-b471-ce777a4aabb1"}}
+{"seq":26,"aggregate":"sess-5","type":"TurnFailed","ts":"2026-07-25T02:37:57.808479373Z","source":"agent","ephemeral":false,"payload":{"data":{"reason":"cancelled"},"iteration":1,"turn_id":"2099f52b-1323-4989-b471-ce777a4aabb1"}}
+{"seq":27,"aggregate":"sess-5","type":"SessionEnded","ts":"2026-07-25T02:37:57.812527531Z","source":"agent","ephemeral":false,"payload":{"data":{"reason":"Cancelled"},"iteration":1,"turn_id":"2099f52b-1323-4989-b471-ce777a4aabb1"}}

@@ -8,7 +8,14 @@ use std::{convert::Infallible, pin::Pin, time::Duration};
 use axum::response::sse::{Event as SseEvent, KeepAlive, Sse};
 use futures::{Stream, StreamExt as _};
 use serde::Serialize;
-use synthia_agent::types::{AgentEvent, AgentOutput};
+use synthia_agent::events::{
+    AgentEvent,
+    AgentOutput,
+    HookEvent,
+    SystemEvent,
+    WarningKind,
+};
+use synthia_provider::ContentPart;
 use tokio_stream::wrappers::BroadcastStream;
 
 /// SSE heartbeat interval.
@@ -39,47 +46,39 @@ pub fn agent_event_to_sse(event: &AgentEvent) -> SseEvent {
 /// Extracts the variant name from an `AgentEvent` for use as the SSE event name.
 pub fn event_variant_name(event: &AgentEvent) -> &'static str {
     match event {
-        AgentEvent::SessionStarted { .. } => "SessionStarted",
-        AgentEvent::IterationStarted { .. } => "IterationStarted",
-        AgentEvent::Thinking { .. } => "Thinking",
-        AgentEvent::LlmRequestStarted { .. } => "LlmRequestStarted",
-        AgentEvent::LlmStreamDelta { .. } => "LlmStreamDelta",
-        AgentEvent::LlmReasoningDelta { .. } => "LlmReasoningDelta",
-        AgentEvent::LlmResponseComplete { .. } => "LlmResponseComplete",
-        AgentEvent::LlmError { .. } => "LlmError",
-        AgentEvent::ToolCallStarted { .. } => "ToolCallStarted",
-        AgentEvent::ToolCallCompleted { .. } => "ToolCallCompleted",
-        AgentEvent::ToolCallSkipped { .. } => "ToolCallSkipped",
-        AgentEvent::ToolCallError { .. } => "ToolCallError",
-        AgentEvent::IterationCompleted { .. } => "IterationCompleted",
-        AgentEvent::ContextCompacted { .. } => "ContextCompacted",
-        AgentEvent::Checkpoint { .. } => "Checkpoint",
-        AgentEvent::StateChange { .. } => "StateChange",
-        AgentEvent::Warning { .. } => "Warning",
-        AgentEvent::Progress { .. } => "Progress",
-        AgentEvent::SessionInterrupted { .. } => "SessionInterrupted",
-        AgentEvent::Finish { .. } => "Finish",
-        AgentEvent::SessionEnded { .. } => "SessionEnded",
-        AgentEvent::GuardianWarning { .. } => "GuardianWarning",
-        AgentEvent::LoopWarning { .. } => "LoopWarning",
-        AgentEvent::TokenBudgetWarning { .. } => "TokenBudgetWarning",
-        AgentEvent::TokenBudgetNotice { .. } => "TokenBudgetNotice",
-        AgentEvent::SteeringReceived { .. } => "SteeringReceived",
-        AgentEvent::HookError { .. } => "HookError",
-        AgentEvent::GuardianConfirmationRequest { .. } => {
-            "GuardianConfirmationRequest"
-        }
-        AgentEvent::SelfReflection { .. } => "SelfReflection",
-        AgentEvent::SubagentSpawnBegin { .. } => "SubagentSpawnBegin",
-        AgentEvent::SubagentSpawnEnd { .. } => "SubagentSpawnEnd",
-        AgentEvent::SubagentMessage { .. } => "SubagentMessage",
-        AgentEvent::SubagentComplete { .. } => "SubagentComplete",
-        AgentEvent::SubagentCompleted { .. } => "SubagentCompleted",
-        AgentEvent::SubagentEvent { .. } => "subagent_event",
-        AgentEvent::Status(_) => "Status",
-        AgentEvent::RecoveryApplied { .. } => "RecoveryApplied",
-        AgentEvent::EditConflict { .. } => "EditConflict",
-        AgentEvent::Custom { .. } => "Custom",
+        AgentEvent::Model(part) => match part {
+            ContentPart::Text(_) => "ModelText",
+            ContentPart::Reasoning(_) => "ModelReasoning",
+            ContentPart::ToolUse(_) => "ToolCallStarted",
+            ContentPart::ToolResult(_) => "ToolCallCompleted",
+            ContentPart::Image(_) => "ModelImage",
+            ContentPart::Audio(_) => "ModelAudio",
+            ContentPart::Resource(_) => "ModelResource",
+        },
+        AgentEvent::ModelDone(_) => "ModelDone",
+        AgentEvent::System(sys) => match sys {
+            SystemEvent::SessionStarted { .. } => "SessionStarted",
+            SystemEvent::SessionEnded { .. } => "SessionEnded",
+            SystemEvent::SessionInterrupted { .. } => "SessionInterrupted",
+            SystemEvent::Progress { .. } => "Progress",
+            SystemEvent::Warning { kind, .. } => match kind {
+                WarningKind::Guardian => "GuardianWarning",
+                WarningKind::Loop => "LoopWarning",
+                WarningKind::TokenBudget => "TokenBudgetWarning",
+                WarningKind::ContextCompaction => "ContextCompacted",
+                WarningKind::Hook => "HookError",
+                WarningKind::EditConflict => "EditConflict",
+            },
+            SystemEvent::Recovery { .. } => "RecoveryApplied",
+            SystemEvent::Usage { .. } => "TokenBudgetNotice",
+        },
+        AgentEvent::Agent(_, inner) => event_variant_name(inner),
+        AgentEvent::Hook(hook) => match hook {
+            HookEvent::Message { .. } => "SteeringReceived",
+            HookEvent::ConfirmRequest { .. } => "GuardianConfirmationRequest",
+            HookEvent::ConfirmResponse { .. } => "GuardianConfirmationResponse",
+            HookEvent::Custom { .. } => "Custom",
+        },
     }
 }
 

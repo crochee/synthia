@@ -4,31 +4,35 @@ Forward child session events to the parent controller's event channel, enabling 
 ## Requirements
 ### Requirement: Child session events SHALL be wrapped and forwarded to the parent controller's event channel
 
-When a child `SessionController` persists and broadcasts a child event, it SHALL additionally send an `AgentEvent::SubagentEvent { child_session_id, event }` to the parent controller's forwarded-event channel.
+When a child `SessionController` persists and broadcasts a child event, it MUST additionally send an `AgentEvent::Agent(AgentMeta, Box<AgentEvent>)` to the parent controller's forwarded-event channel, where `AgentMeta.parent_session_id` is the spawning parent session and `AgentMeta.child_session_id` is the producing child session.
 
-#### Scenario: Child emits a tool call event
-- **WHEN** a child session emits `ToolCallStarted`
-- **THEN** the parent controller receives `SubagentEvent { child_session_id, event: ToolCallStarted }`
+#### Scenario: Child emits a model event forwarded as Agent
+- **WHEN** a child session emits `AgentEvent::Model(ContentPart::Text(_))`
+- **THEN** the parent controller receives `AgentEvent::Agent(AgentMeta { parent_session_id, child_session_id, parent_depth }, Box::new(Model(ContentPart::Text(_))))`
+
+#### Scenario: Child emits a session-end event forwarded as Agent
+- **WHEN** a child session emits `AgentEvent::System(SystemEvent::SessionEnded(_))`
+- **THEN** the parent controller receives `AgentEvent::Agent(AgentMeta { ... }, Box::new(System(SystemEvent::SessionEnded(_))))`
 
 ---
 
-### Requirement: The parent controller SHALL persist forwarded SubagentEvents into its own event log
+### Requirement: The parent controller SHALL persist forwarded Agent events into its own event log
 
-The parent `SessionController` SHALL write every forwarded `SubagentEvent` to `{parent_session_path}/events.jsonl` using the same `EventStore::append` path as parent-generated events.
+The parent `SessionController` MUST write every forwarded `AgentEvent::Agent` to `{parent_session_path}/events.jsonl` using the same `EventStore::append` path as parent-generated events.
 
 #### Scenario: Replay parent events after subagent activity
 - **WHEN** a client requests `GET /api/v2/sessions/{parent_id}/events?last_seq=0`
-- **THEN** the response includes `SubagentEvent` entries for all child events that occurred
+- **THEN** the response includes `AgentEvent::Agent` entries for all child events that occurred
 
 ---
 
-### Requirement: The parent controller SHALL broadcast forwarded SubagentEvents to parent subscribers
+### Requirement: The parent controller SHALL broadcast forwarded Agent events to parent subscribers
 
-After persisting a forwarded `SubagentEvent`, the parent controller SHALL send it to its own `EventBroadcaster` so all parent SSE/WS clients receive it.
+After persisting a forwarded `AgentEvent::Agent`, the parent controller MUST send it to its own `EventBroadcaster` so all parent SSE/WS clients receive it.
 
 #### Scenario: Multi-client parent observation
 - **WHEN** two clients are subscribed to the parent `/events` stream
-- **THEN** both clients receive the same `SubagentEvent` when a child event occurs
+- **THEN** both clients receive forwarded `AgentEvent::Agent` entries
 
 ---
 
@@ -42,15 +46,23 @@ If the parent controller has shut down and its forwarded-event channel is closed
 
 ### Requirement: Foreground subagent completion events SHALL be distinguishable from background completion notifications
 
-When a subagent completes in the foreground, the result SHALL be returned as the direct `ToolOutput` of the `task` tool call. When a subagent completes in the background, the parent controller SHALL receive the result through the existing `SubagentEvent` forwarding path so it can be injected into the parent context.
+When a subagent completes in the foreground, the result SHALL be returned as the direct `ToolOutput` of the `task` tool call. When a subagent completes in the background, the parent controller SHALL receive the result through the existing `AgentEvent::Agent(AgentMeta, Box<AgentEvent>)` forwarding path so it can be injected into the parent context.
 
 #### Scenario: Foreground task completes
 - **WHEN** a foreground subagent finishes
 - **THEN** the result SHALL be returned synchronously in the `task` tool output
-- **AND THEN** no synthetic `SubagentEvent` completion message is injected into the parent context
+- **AND THEN** no synthetic `AgentEvent::Agent(...)` completion message is injected into the parent context
 
 #### Scenario: Background task completes
 - **WHEN** a background subagent finishes
-- **THEN** the parent SHALL receive the final child events through `SubagentEvent` forwarding
+- **THEN** the parent SHALL receive the final child events through `AgentEvent::Agent(AgentMeta, ...)` forwarding
 - **AND THEN** the main loop SHALL inject a synthetic `<task>` result message into `ctx.messages`
 
+<!--
+  Migration note (from simplify-agent-event-stream delta):
+  The legacy `AgentEvent::SubagentEvent { child_session_id, event }` wrapper variant is
+  replaced by `AgentEvent::Agent(AgentMeta, Box<AgentEvent>)`, which carries both
+  `parent_session_id` and `child_session_id` plus `parent_depth` in a structured
+  `AgentMeta`. Lifecycle boundaries are expressed via nested
+  `SystemEvent::SessionStarted | SessionEnded` events rather than dedicated wrappers.
+-->

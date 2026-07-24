@@ -140,6 +140,7 @@ async fn step_sample_emits_token_deltas_and_produces_sampling_result() {
                 text: "Hello world".to_string(),
                 tool_calls: vec![],
                 reasoning: String::new(),
+                reasoning_signature: None,
                 usage: ProviderTokenUsage {
                     prompt_tokens: 10,
                     completion_tokens: 2,
@@ -154,6 +155,7 @@ async fn step_sample_emits_token_deltas_and_produces_sampling_result() {
     let provider =
         Arc::new(ScriptedProvider::new(chunks, SamplingResult::default()));
     let mut ctx = make_ctx();
+    ctx.messages.push(synthia_provider::Message::user("hi"));
     let step = StepSample::new(AgentConfig::default());
     let result = step
         .execute(
@@ -168,9 +170,22 @@ async fn step_sample_emits_token_deltas_and_produces_sampling_result() {
     assert_eq!(sampling.text, "Hello world");
     assert_eq!(sampling.usage.total_tokens, 12);
     // Each streamed Text chunk should be surfaced as a separate
-    // delta so the agent loop can yield LlmStreamDelta events in
+    // delta so the agent loop can yield AgentEvent::Model events in
     // the order the provider sent them.
-    assert_eq!(deltas, vec!["Hello".to_string(), " world".to_string()]);
+    use synthia_provider::types::{ContentPart, TextContent};
+    assert_eq!(
+        deltas,
+        vec![
+            ContentPart::Text(TextContent {
+                text: "Hello".into(),
+                cache_control: None,
+            }),
+            ContentPart::Text(TextContent {
+                text: " world".into(),
+                cache_control: None,
+            }),
+        ]
+    );
 }
 
 #[tokio::test]
@@ -199,6 +214,7 @@ async fn step_sample_accumulates_tool_calls_from_start_delta_end() {
     let provider =
         Arc::new(ScriptedProvider::new(chunks, SamplingResult::default()));
     let mut ctx = make_ctx();
+    ctx.messages.push(synthia_provider::Message::user("hi"));
     let step = StepSample::new(AgentConfig::default());
     let result = step
         .execute(
@@ -307,6 +323,7 @@ async fn step_sample_cancellation_propagates_as_error() {
     }
     let provider = Arc::new(InfiniteProvider) as Arc<dyn ModelProvider>;
     let mut ctx = make_ctx();
+    ctx.messages.push(synthia_provider::Message::user("hi"));
     let step = StepSample::new(AgentConfig::default());
     let token = CancellationToken::new();
     token.cancel();
@@ -465,4 +482,114 @@ async fn step_sample_panicked_provider_task_is_surfaced_as_error() {
         .execute(provider, &mut ctx, vec![], CancellationToken::new())
         .await;
     assert!(result.is_err());
+}
+
+/// Regression: when `ctx.messages` is empty, `execute()` must short-circuit
+/// with an `Error::Validation` and MUST NOT call the provider. The upstream
+/// APIs (e.g. OpenAI Chat Completions) reject empty `messages` arrays with a
+/// 400 (`messages is empty (2013)`); without this guard the agent loops
+/// forever, each iteration repeating the same 400, with the recovery cascade
+/// resetting already-empty messages and returning `Recovered`.
+#[tokio::test]
+async fn step_sample_short_circuits_on_empty_messages() {
+    // Provider that records whether it was called at all.
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    struct TrackingProvider {
+        call_count: Arc<AtomicUsize>,
+    }
+    #[async_trait]
+    impl ModelProvider for TrackingProvider {
+        async fn initialize(
+            &mut self,
+            _config: ProviderConfig,
+        ) -> Result<(), Error> {
+            Ok(())
+        }
+
+        fn name(&self) -> &str {
+            "tracking"
+        }
+
+        fn model_config(&self) -> ModelConfig {
+            ModelConfig {
+                name: "tracking".to_string(),
+                provider: "tracking".to_string(),
+                context_window: 8192,
+                max_output_tokens: 2048,
+                supports_tools: true,
+                supports_streaming: true,
+                supports_reasoning: false,
+            }
+        }
+
+        async fn complete(
+            &self,
+            _request: CompletionRequest,
+        ) -> Result<CompletionResponse, Error> {
+            self.call_count.fetch_add(1, Ordering::SeqCst);
+            Ok(CompletionResponse {
+                id: "x".to_string(),
+                model: "x".to_string(),
+                content: synthia_provider::Content::text(""),
+                usage: ProviderTokenUsage::default(),
+                cached: false,
+            })
+        }
+
+        async fn complete_with_stream(
+            &self,
+            _request: CompletionRequest,
+            _cancel_token: Option<CancellationToken>,
+            _on_delta: Box<dyn FnMut(StreamChunk) + Send>,
+        ) -> Result<CompletionResponse, Error> {
+            self.call_count.fetch_add(1, Ordering::SeqCst);
+            Ok(CompletionResponse {
+                id: "x".to_string(),
+                model: "x".to_string(),
+                content: synthia_provider::Content::text(""),
+                usage: ProviderTokenUsage::default(),
+                cached: false,
+            })
+        }
+
+        async fn embed(
+            &self,
+            _texts: Vec<String>,
+        ) -> Result<Vec<Vec<f64>>, Error> {
+            Ok(vec![])
+        }
+    }
+
+    let call_count = Arc::new(AtomicUsize::new(0));
+    let provider = Arc::new(TrackingProvider {
+        call_count: call_count.clone(),
+    }) as Arc<dyn ModelProvider>;
+
+    let mut ctx = make_ctx();
+    // Sanity: messages start empty (LoopContext::new produces empty vec).
+    assert!(ctx.messages.is_empty());
+
+    let step = StepSample::new(AgentConfig::default());
+    let result = step
+        .execute(provider, &mut ctx, vec![], CancellationToken::new())
+        .await;
+
+    // Must be a validation error — not a network call, not Ok.
+    match result {
+        Err(Error::Validation(msg)) => {
+            assert!(
+                msg.to_lowercase().contains("empty")
+                    || msg.to_lowercase().contains("messages"),
+                "unexpected validation message: {msg}",
+            );
+        }
+        Err(other) => panic!("expected Error::Validation, got {other:?}"),
+        Ok(_) => panic!("expected error on empty messages, got Ok"),
+    }
+    // The provider must not have been called at all.
+    assert_eq!(
+        call_count.load(Ordering::SeqCst),
+        0,
+        "provider must not be called when ctx.messages is empty",
+    );
 }

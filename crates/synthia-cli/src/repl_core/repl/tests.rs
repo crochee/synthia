@@ -12,7 +12,18 @@ use std::path::PathBuf;
 
 use crossterm::style::Color;
 use regex::Regex;
-use synthia_agent::{AgentEvent, SessionEndReason};
+use serde_json::json;
+use synthia_agent::{
+    AgentEvent,
+    SessionEndReason,
+    events::{HookEvent, SystemEvent, WarningKind},
+};
+use synthia_provider::types::{
+    ContentPart,
+    TextContent,
+    ToolResult as ProviderToolResult,
+    ToolUse,
+};
 
 use super::types::{CommandAction, Repl, SessionState};
 use crate::{
@@ -103,35 +114,30 @@ fn test_handle_command_shortcuts() {
 #[test]
 fn test_format_event_session_started() {
     let repl = Repl::new(PathBuf::from("/tmp"));
-    let event = AgentEvent::SessionStarted {
+    let event = AgentEvent::System(SystemEvent::SessionStarted {
         session_id: "test-session".to_string(),
-    };
+    });
     assert_eq!(repl.format_event(&event), "Session started: test-session");
 }
 
 #[test]
-fn test_format_event_iteration_started_silent() {
+fn test_format_event_model_text_delta() {
     let repl = Repl::new(PathBuf::from("/tmp"));
-    let event = AgentEvent::IterationStarted { iteration: 1 };
-    assert_eq!(repl.format_event(&event), "");
-}
-
-#[test]
-fn test_format_event_llm_delta() {
-    let repl = Repl::new(PathBuf::from("/tmp"));
-    let event = AgentEvent::LlmStreamDelta {
-        content: "Hello world".to_string(),
-    };
+    let event = AgentEvent::Model(ContentPart::Text(TextContent {
+        text: "Hello world".to_string(),
+        cache_control: None,
+    }));
     assert_eq!(repl.format_event(&event), "Hello world");
 }
 
 #[test]
 fn test_format_event_tool_call_started() {
     let repl = Repl::new(PathBuf::from("/tmp"));
-    let event = AgentEvent::ToolCallStarted {
-        tool_name: "read_file".to_string(),
-        input: serde_json::json!({ "path": "/tmp/test" }),
-    };
+    let event = AgentEvent::Model(ContentPart::ToolUse(ToolUse {
+        id: "call-1".to_string(),
+        name: "read_file".to_string(),
+        input: json!({ "path": "/tmp/test" }),
+    }));
     let formatted = strip_ansi(&repl.format_event(&event));
     assert!(formatted.contains("[TOOL: read_file]"));
 }
@@ -139,65 +145,66 @@ fn test_format_event_tool_call_started() {
 #[test]
 fn test_format_event_tool_call_completed() {
     let repl = Repl::new(PathBuf::from("/tmp"));
-    let event = AgentEvent::ToolCallCompleted {
-        tool_name: "read_file".to_string(),
-        output: "File contents here".to_string(),
-        is_error: false,
-    };
+    let event = AgentEvent::Model(ContentPart::ToolResult(
+        ProviderToolResult::new("call-1", "File contents here"),
+    ));
     let formatted = strip_ansi(&repl.format_event(&event));
-    assert!(formatted.contains("[TOOL: read_file]"));
+    assert!(formatted.contains("[TOOL: call-1]"));
     assert!(formatted.contains("File contents"));
 }
 
 #[test]
 fn test_format_event_tool_call_error() {
     let repl = Repl::new(PathBuf::from("/tmp"));
-    let event = AgentEvent::ToolCallError {
-        tool_name: "search".to_string(),
-        error: "not found".to_string(),
-    };
+    let event = AgentEvent::Model(ContentPart::ToolResult(
+        ProviderToolResult::error("call-1", "not found"),
+    ));
     let formatted = strip_ansi(&repl.format_event(&event));
-    assert!(formatted.contains("[TOOL: search]"));
+    assert!(formatted.contains("[TOOL: call-1]"));
     assert!(formatted.contains("not found"));
+    assert!(formatted.contains("error"));
 }
 
 #[test]
 fn test_format_event_token_budget_warning() {
     let repl = Repl::new(PathBuf::from("/tmp"));
-    let event = AgentEvent::TokenBudgetWarning {
-        status: "near limit".to_string(),
-        current_tokens: 9000,
-        threshold_tokens: 10000,
-    };
-    assert!(repl.format_event(&event).contains("Token budget warning"));
+    let event = AgentEvent::System(SystemEvent::Warning {
+        kind: WarningKind::TokenBudget,
+        message: "near limit".to_string(),
+        iteration: None,
+    });
+    assert!(repl.format_event(&event).contains("Token budget"));
 }
 
 #[test]
-fn test_format_event_token_budget_notice_silent() {
+fn test_format_event_token_budget_usage_silent() {
+    // Usage is non-silent in the new event model, but the per-line
+    // format does not change session state — just verify it renders
+    // without panicking.
     let repl = Repl::new(PathBuf::from("/tmp"));
-    let event = AgentEvent::TokenBudgetNotice {
-        status: "ok".to_string(),
-        current_tokens: 5000,
-        threshold_tokens: 10000,
-    };
-    assert_eq!(repl.format_event(&event), "");
+    let event = AgentEvent::System(SystemEvent::Usage {
+        input_tokens: 5000,
+        output_tokens: 1000,
+        cache_read_tokens: None,
+        cache_creation_tokens: None,
+    });
+    let formatted = repl.format_event(&event);
+    assert!(formatted.contains("Usage"));
 }
 
 #[test]
 fn test_format_event_edit_conflict() {
     let repl = Repl::new(PathBuf::from("/tmp"));
-    let event = AgentEvent::EditConflict {
-        tool_name: "write".to_string(),
-        call_id: "call-123".to_string(),
-        path: "src/main.rs".to_string(),
-        original_content_hash: 43981,
-        current_content_hash: 57072,
-    };
+    let event = AgentEvent::System(SystemEvent::Warning {
+        kind: WarningKind::EditConflict,
+        message: "edit conflict on src/main.rs (write: 43981 -> 57072)"
+            .to_string(),
+        iteration: None,
+    });
     let formatted = repl.format_event(&event);
     let stripped = strip_ansi(&formatted);
-    assert!(stripped.contains("Edit conflict"));
+    assert!(stripped.contains("EditConflict"));
     assert!(stripped.contains("src/main.rs"));
-    assert!(stripped.contains("write"));
     assert!(stripped.contains("43981"));
     assert!(stripped.contains("57072"));
 }
@@ -205,18 +212,18 @@ fn test_format_event_edit_conflict() {
 #[test]
 fn test_format_event_session_ended() {
     let repl = Repl::new(PathBuf::from("/tmp"));
-    let event = AgentEvent::SessionEnded {
+    let event = AgentEvent::System(SystemEvent::SessionEnded {
         reason: SessionEndReason::Completed,
-    };
+    });
     assert!(repl.format_event(&event).contains("Session ended"));
 }
 
 #[test]
 fn test_format_event_session_ended_error() {
     let repl = Repl::new(PathBuf::from("/tmp"));
-    let event = AgentEvent::SessionEnded {
+    let event = AgentEvent::System(SystemEvent::SessionEnded {
         reason: SessionEndReason::Error("connection failed".to_string()),
-    };
+    });
     assert!(
         repl.format_event(&event)
             .contains("error: connection failed")
@@ -226,22 +233,24 @@ fn test_format_event_session_ended_error() {
 #[test]
 fn test_format_event_guardian_warning() {
     let repl = Repl::new(PathBuf::from("/tmp"));
-    let event = AgentEvent::GuardianWarning {
-        reason: "safety violation".to_string(),
-        iteration: 3,
-    };
+    let event = AgentEvent::System(SystemEvent::Warning {
+        kind: WarningKind::Guardian,
+        message: "safety violation".to_string(),
+        iteration: Some(3),
+    });
     let formatted = strip_ansi(&repl.format_event(&event));
-    assert!(formatted.contains("Guardian:"));
+    assert!(formatted.contains("Guardian"));
     assert!(formatted.contains("safety violation"));
 }
 
 #[test]
 fn test_format_event_guardian_confirmation_request() {
     let repl = Repl::new(PathBuf::from("/tmp"));
-    let event = AgentEvent::GuardianConfirmationRequest {
+    let event = AgentEvent::Hook(HookEvent::ConfirmRequest {
+        tool_use_id: "call-1".to_string(),
         tool_name: "shell_exec".to_string(),
         reason: "destructive operation".to_string(),
-    };
+    });
     let formatted = strip_ansi(&repl.format_event(&event));
     assert!(formatted.contains("Guardian confirmation required"));
     assert!(formatted.contains("shell_exec"));
@@ -251,72 +260,71 @@ fn test_format_event_guardian_confirmation_request() {
 #[test]
 fn test_format_event_tool_call_skipped() {
     let repl = Repl::new(PathBuf::from("/tmp"));
-    let event = AgentEvent::ToolCallSkipped {
-        tool_name: "write_file".to_string(),
-        reason: "guardian policy".to_string(),
-    };
+    let event = AgentEvent::Hook(HookEvent::ConfirmResponse {
+        approved: false,
+        tool_use_id: "call-write".to_string(),
+    });
     let formatted = strip_ansi(&repl.format_event(&event));
-    assert!(formatted.contains("[TOOL: write_file]"));
-    assert!(formatted.contains("skipped"));
-    assert!(formatted.contains("guardian policy"));
+    assert!(formatted.contains("call-write"));
+    assert!(formatted.contains("denied"));
 }
 
 #[test]
 fn test_format_event_llm_error() {
     let repl = Repl::new(PathBuf::from("/tmp"));
-    let event = AgentEvent::LlmError {
-        error: "timeout".to_string(),
-    };
+    let event = AgentEvent::System(SystemEvent::SessionEnded {
+        reason: SessionEndReason::Error("timeout".to_string()),
+    });
     let formatted = strip_ansi(&repl.format_event(&event));
-    assert_eq!(formatted, "LLM error: timeout");
+    assert!(formatted.contains("error: timeout"));
 }
 
 #[test]
 fn test_format_event_hook_error() {
     let repl = Repl::new(PathBuf::from("/tmp"));
-    let event = AgentEvent::HookError {
-        hook_name: "pre_request".to_string(),
-        error: "failed to connect".to_string(),
-        hook_type: "pre".to_string(),
-    };
+    let event = AgentEvent::System(SystemEvent::Warning {
+        kind: WarningKind::Hook,
+        message: "pre_request: failed to connect".to_string(),
+        iteration: None,
+    });
     let formatted = strip_ansi(&repl.format_event(&event));
-    assert_eq!(formatted, "Hook error: pre_request: failed to connect");
+    assert!(formatted.contains("Hook"));
+    assert!(formatted.contains("pre_request"));
+    assert!(formatted.contains("failed to connect"));
 }
 
 #[test]
 fn test_format_event_other_events_silent() {
     let repl = Repl::new(PathBuf::from("/tmp"));
 
-    let events = vec![
-        AgentEvent::Warning {
-            message: "some warning".to_string(),
-        },
-        AgentEvent::Progress {
-            message: "loading".to_string(),
-            step: 1,
-            total: 10,
-        },
-        AgentEvent::Finish {
-            output: "done".to_string(),
-        },
-        AgentEvent::Checkpoint {
-            session_id: "s1".to_string(),
-            step: 5,
-        },
-        AgentEvent::StateChange {
-            from: "idle".to_string(),
-            to: "running".to_string(),
-        },
+    let events = [
+        AgentEvent::Model(ContentPart::Image(
+            synthia_provider::types::ImageContent {
+                data: "x".into(),
+                mime_type: "image/png".into(),
+                detail: None,
+            },
+        )),
+        AgentEvent::Model(ContentPart::Audio(
+            synthia_provider::types::AudioContent {
+                data: "x".into(),
+                mime_type: "audio/wav".into(),
+                format: None,
+            },
+        )),
+        AgentEvent::Hook(HookEvent::Custom {
+            kind: "my_extension".to_string(),
+            data: json!({}),
+        }),
     ];
 
-    for event in events {
-        assert_eq!(
-            repl.format_event(&event),
-            "",
-            "Event {:?} should be silent",
-            event
-        );
-    }
+    // Image and Audio ContentParts render as empty strings. Custom
+    // hook events render a label. We assert that Image/Audio are
+    // silent, and Custom renders a label.
+    assert_eq!(repl.format_event(&events[0]), "");
+    assert_eq!(repl.format_event(&events[1]), "");
+    let custom = repl.format_event(&events[2]);
+    assert!(custom.contains("my_extension"));
 }
 
 #[test]
@@ -388,15 +396,13 @@ fn test_handle_command_provider() {
 fn test_format_event_tool_call_completed_long_output_truncated() {
     let repl = Repl::new(PathBuf::from("/tmp"));
     let long_output = "x".repeat(200);
-    let event = AgentEvent::ToolCallCompleted {
-        tool_name: "search".to_string(),
-        output: long_output.clone(),
-        is_error: false,
-    };
+    let event = AgentEvent::Model(ContentPart::ToolResult(
+        ProviderToolResult::new("call-search", &long_output),
+    ));
     let formatted = strip_ansi(&repl.format_event(&event));
     // Should be truncated to 60 chars
     assert!(formatted.len() < 120);
-    assert!(formatted.contains("[TOOL: search]"));
+    assert!(formatted.contains("[TOOL: call-search]"));
 }
 
 #[test]
@@ -442,19 +448,22 @@ fn test_prompt_generation() {
 #[test]
 fn test_session_state_update() {
     let mut state = SessionState::new();
-    state.update(&AgentEvent::IterationStarted { iteration: 5 });
-    assert_eq!(state.iteration_count, 5);
 
-    state.update(&AgentEvent::ToolCallStarted {
-        tool_name: "test".to_string(),
-        input: serde_json::json!({}),
-    });
+    // IterationStarted is no longer a wire event — the REPL derives
+    // iteration count from session/agent lifecycle instead.
+
+    state.update(&AgentEvent::Model(ContentPart::ToolUse(ToolUse {
+        id: "call-test".to_string(),
+        name: "test".to_string(),
+        input: json!({}),
+    })));
     assert_eq!(state.tool_call_count, 1);
 
-    state.update(&AgentEvent::ToolCallStarted {
-        tool_name: "test2".to_string(),
-        input: serde_json::json!({}),
-    });
+    state.update(&AgentEvent::Model(ContentPart::ToolUse(ToolUse {
+        id: "call-test2".to_string(),
+        name: "test2".to_string(),
+        input: json!({}),
+    })));
     assert_eq!(state.tool_call_count, 2);
 }
 
@@ -507,11 +516,12 @@ fn test_agent_mode_default() {
 #[test]
 fn test_context_compacted_display() {
     let repl = Repl::new(PathBuf::from("/tmp"));
-    let event = AgentEvent::ContextCompacted {
-        old_tokens: 10000,
-        new_tokens: 5000,
-    };
+    let event = AgentEvent::System(SystemEvent::Warning {
+        kind: WarningKind::ContextCompaction,
+        message: "Context compacted 10000 -> 5000".to_string(),
+        iteration: None,
+    });
     let formatted = repl.format_event(&event);
-    assert!(formatted.contains("Context compacted"));
-    assert!(formatted.contains("50"));
+    assert!(formatted.contains("ContextCompaction"));
+    assert!(formatted.contains("5000"));
 }

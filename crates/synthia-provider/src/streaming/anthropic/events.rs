@@ -46,4 +46,9 @@ pub struct AnthropicStreamDelta {
     pub thinking: Option<String>,
     #[serde(default)]
     pub partial_json: Option<String>,
+    /// Anthropic `signature_delta` value emitted alongside the final
+    /// `thinking_delta` for the same content block. Used to preserve
+    /// reasoning continuity across turns.
+    #[serde(default)]
+    pub signature: Option<String>,
 }

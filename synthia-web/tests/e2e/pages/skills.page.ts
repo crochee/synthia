@@ -7,15 +7,11 @@ export class SkillsPage extends BasePage {
     await this.waitForReady();
   }
 
-  get skillCards(): Locator {
-    return this.page.locator('.nt-card__title');
+  get noSkillsCard(): Locator {
+    return this.page.locator('.nt-card', { hasText: /no skills/i });
   }
 
-  /** Click the toggle button for a skill, identified by its card title. */
-  async toggleSkill(name: string): Promise<void> {
-    const card = this.page.locator('.nt-card', {
-      has: this.page.locator('.nt-card__title', { hasText: name }),
-    });
-    await card.getByRole('button').click();
+  get skillCards(): Locator {
+    return this.page.locator('.nt-card');
   }
 }

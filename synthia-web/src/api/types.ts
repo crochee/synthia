@@ -1,60 +1,64 @@
-export interface Session {
-  session_id: string;
-  model: string;
-  max_tokens: number;
-  state: 'completed' | 'cancelled' | 'error' | 'active';
-  token_usage?: TokenUsage;
-  created_at: string;
-  updated_at: string;
-}
+/**
+ * Shared types for the synthia-web frontend.
+ *
+ * Only types actually consumed by the React app live here. Backend
+ * field names mirror the JSON wire format (camelCase where the
+ * Rust server serializes camelCase, snake_case elsewhere).
+ */
 
-export interface TokenUsage {
-  prompt_tokens: number;
-  completion_tokens: number;
-  total_tokens: number;
-  cached_prompt_tokens?: number;
-}
-
-export interface Message {
-  id: string;
-  role: 'user' | 'assistant' | 'system' | 'tool';
-  content: string;
-  tool_call_id?: string;
-  timestamp: string;
-}
-
-export interface ToolCall {
-  id: string;
+export interface Skill {
   name: string;
-  input: Record<string, unknown>;
-  status: 'pending' | 'running' | 'completed' | 'error';
-  output?: string;
-}
-
-export interface AgentEvent {
-  type: string;
-  [key: string]: unknown;
-}
-
-export interface ChatResponse {
-  session_id: string;
-  events: AgentEvent[];
-  messages: Message[];
-}
-
-export interface ErrorResponse {
-  error: string;
-  message: string;
-}
-
-export interface ToolDefinition {
-  name: string;
-  description: string;
-  parameters: Record<string, unknown>;
-}
-
-export interface SkillInfo {
-  name: string;
-  description: string;
+  description?: string;
   enabled: boolean;
+}
+
+export interface Tool {
+  name: string;
+  description?: string;
+  status?: string;
+}
+
+/**
+ * Shape returned by `GET /api/memory/search`. The backend uses
+ * `score` (not `relevance`); the type is named `ScoreHit` to make
+ * the unit explicit at the call site.
+ */
+export interface ScoreHit {
+  id: string;
+  content: string;
+  score?: number;
+}
+
+export interface Settings {
+  provider?: string;
+  model?: string;
+  apiKey?: string;
+}
+
+export interface TaskSummary {
+  id: string;
+  status: string;
+  createdAt?: string;
+  contextId?: string;
+}
+
+export interface Job {
+  key: string;
+  description: string;
+  trigger_desc: string;
+  paused: boolean;
+}
+
+export interface JobsListResponse {
+  jobs: Job[];
+  paused: string[];
+  count: number;
+}
+
+export interface McpServer {
+  id: string;
+  name: string;
+  command: string;
+  args: string[];
+  status?: string;
 }

@@ -4,7 +4,7 @@ use std::sync::Arc;
 
 use synthia_context::truncate::{TruncateConfig, truncate_output};
 use synthia_memory::types::MemoryEvent;
-use synthia_provider::traits::ModelProvider;
+use synthia_provider::{traits::ModelProvider, types::ToolUse};
 use tokio::sync::mpsc::Sender;
 use tracing::warn;
 
@@ -25,18 +25,25 @@ pub(crate) async fn execute_self_reflect_tool_call(
     step: &StepToolExecute,
     ctx: &mut LoopContext,
 ) -> Result<(ToolResult, Vec<AgentEvent>), synthia_core::Error> {
-    use synthia_provider::types::ToolUse;
-
     let tool_use = ToolUse {
         id: format!("self_reflect-auto-{}-{}", ctx.session_id, ctx.iteration),
         name: synthia_guardian::SELF_REFLECT_TOOL_NAME.to_string(),
         input: serde_json::json!({}),
     };
 
-    let mut events = vec![AgentEvent::ToolCallStarted {
-        tool_name: tool_use.name.clone(),
-        input: tool_use.input.clone(),
-    }];
+    // The synthetic auto-triggered tool call must be anchored by a
+    // matching assistant `tool_calls[]` declaration on the next
+    // request — otherwise the API rejects the following
+    // `Role::Tool` message with `tool result's tool id not found`.
+    ctx.add_synthetic_assistant_tool_use(tool_use.clone());
+
+    let mut events = vec![AgentEvent::Model(
+        synthia_provider::ContentPart::ToolUse(ToolUse {
+            id: tool_use.id.clone(),
+            name: tool_use.name.clone(),
+            input: tool_use.input.clone(),
+        }),
+    )];
 
     let mut results = step.execute(ctx, vec![tool_use.clone()]).await?;
     let result = results.pop().ok_or_else(|| {
@@ -57,11 +64,21 @@ pub(crate) async fn execute_self_reflect_tool_call(
         result.output.clone()
     };
 
-    events.push(AgentEvent::ToolCallCompleted {
-        tool_name: result.tool_name.clone(),
-        output: effective_output.clone(),
-        is_error: result.is_error,
-    });
+    events.push(AgentEvent::Model(
+        synthia_provider::ContentPart::ToolResult(
+            synthia_provider::ToolResult {
+                tool_use_id: result.tool_call_id.clone(),
+                content: vec![synthia_provider::ContentPart::Text(
+                    synthia_provider::TextContent {
+                        text: effective_output.clone(),
+                        cache_control: None,
+                    },
+                )],
+                structured_content: None,
+                is_error: Some(result.is_error),
+            },
+        ),
+    ));
 
     let result = ToolResult {
         tool_name: result.tool_name,

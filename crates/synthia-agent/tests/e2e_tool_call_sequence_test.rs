@@ -2,7 +2,12 @@
 use std::sync::Arc;
 
 use futures::StreamExt;
-use synthia_agent::{agent::Agent, config::AgentConfig, types::AgentEvent};
+use synthia_agent::{
+    agent::Agent,
+    config::AgentConfig,
+    events::SystemEvent,
+    types::AgentEvent,
+};
 use synthia_hook::HookRegistry;
 use synthia_provider::types::{ContentPart, StreamChunk, TextContent, ToolUse};
 use synthia_tool::registry::{ToolEntry, ToolRegistry};
@@ -76,15 +81,23 @@ async fn test_tool_call_sequence_incorporates_results() {
 
     let events: Vec<AgentEvent> = Agent::run_stream(run_config).collect().await;
 
-    let tool_call_started = events
-        .iter()
-        .any(|e| matches!(e, AgentEvent::ToolCallStarted { tool_name, .. } if tool_name == "bash"));
-    let tool_call_completed = events
-        .iter()
-        .any(|e| matches!(e, AgentEvent::ToolCallCompleted { tool_name, .. } if tool_name == "bash"));
-    let session_ended = events
-        .iter()
-        .any(|e| matches!(e, AgentEvent::SessionEnded { .. }));
+    let tool_call_started = events.iter().any(|e| {
+        matches!(
+            e,
+            AgentEvent::Model(ContentPart::ToolUse(ToolUse { name, .. }))
+                if name == "bash"
+        )
+    });
+    let tool_call_completed = events.iter().any(|e| {
+        matches!(
+            e,
+            AgentEvent::Model(ContentPart::ToolUse(ToolUse { id, .. }))
+                if id == "call_1"
+        )
+    });
+    let session_ended = events.iter().any(|e| {
+        matches!(e, AgentEvent::System(SystemEvent::SessionEnded { .. }))
+    });
 
     assert!(tool_call_started, "Should start bash tool call");
     assert!(tool_call_completed, "Should complete bash tool call");
@@ -142,8 +155,12 @@ async fn test_sequential_tool_calls() {
     let tool_names: Vec<&str> = events
         .iter()
         .filter_map(|e| {
-            if let AgentEvent::ToolCallStarted { tool_name, .. } = e {
-                Some(tool_name.as_str())
+            if let AgentEvent::Model(ContentPart::ToolUse(ToolUse {
+                name,
+                ..
+            })) = e
+            {
+                Some(name.as_str())
             } else {
                 None
             }
@@ -156,9 +173,9 @@ async fn test_sequential_tool_calls() {
         tool_names
     );
 
-    let session_ended = events
-        .iter()
-        .any(|e| matches!(e, AgentEvent::SessionEnded { .. }));
+    let session_ended = events.iter().any(|e| {
+        matches!(e, AgentEvent::System(SystemEvent::SessionEnded { .. }))
+    });
     assert!(
         session_ended,
         "Session should end after tool result incorporated"

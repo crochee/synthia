@@ -4,7 +4,7 @@
 //!
 //! - [`StreamAccumulator`] — owns the per-chunk state
 //!   (`text` / `tool_calls` / `reasoning` / `usage` /
-//!   `tool_buffers` / `text_deltas`) and the big `match` on
+//!   `tool_buffers` / `deltas`) and the big `match` on
 //!   `StreamChunk`. Each provider chunk maps onto the
 //!   accumulator state via [`StreamAccumulator::handle_chunk`].
 //! - [`spawn_provider_task`] — kicks off the
@@ -71,12 +71,20 @@ pub(super) struct StreamAccumulator {
     text: String,
     tool_calls: Vec<ToolUse>,
     reasoning: String,
+    /// Anthropic `signature_delta` value attached to the most recent
+    /// reasoning block, propagated into [`SamplingResult`] on
+    /// `finalize`. Carried here so the agent can preserve reasoning
+    /// continuity across turns.
+    reasoning_signature: Option<String>,
     usage: ProviderTokenUsage,
     tool_buffers: HashMap<String, ToolUse>,
-    /// Text deltas observed in the order they arrived, so the agent
-    /// loop can yield one `AgentEvent::LlmStreamDelta` per chunk.
-    /// Stays empty when the provider never streams text in chunks.
-    text_deltas: Vec<String>,
+    /// Content deltas observed in the order they arrived, so the agent
+    /// loop can yield one `AgentEvent::Model(_)` per chunk. The list
+    /// captures every `StreamChunk::Content` (Text, Reasoning, ToolUse,
+    /// etc.) — previously reasoning deltas were silently dropped at
+    /// this seam, which made the UI unable to stream reasoning live.
+    /// Stays empty when the provider never streams content in chunks.
+    deltas: Vec<ContentPart>,
 }
 
 impl StreamAccumulator {
@@ -85,37 +93,49 @@ impl StreamAccumulator {
             text: String::new(),
             tool_calls: Vec::new(),
             reasoning: String::new(),
+            reasoning_signature: None,
             usage: ProviderTokenUsage::default(),
             tool_buffers: HashMap::new(),
-            text_deltas: Vec::new(),
+            deltas: Vec::new(),
         }
     }
 
     /// Fold one provider chunk into the accumulator state.
     pub(super) fn handle_chunk(&mut self, chunk: StreamChunk) -> ChunkOutcome {
         match chunk {
-            StreamChunk::Content(ContentPart::Text(tc)) => {
-                self.text_deltas.push(tc.text.clone());
-                self.text.push_str(&tc.text);
-                ChunkOutcome::Continue
-            }
-            StreamChunk::Content(ContentPart::Reasoning(tc)) => {
-                self.reasoning.push_str(&tc.text);
-                ChunkOutcome::Continue
-            }
-            StreamChunk::Content(ContentPart::ToolUse(tu)) => {
-                self.tool_calls.push(tu);
-                ChunkOutcome::Continue
-            }
-            StreamChunk::Content(
-                ContentPart::Image(_)
-                | ContentPart::Audio(_)
-                | ContentPart::ToolResult(_)
-                | ContentPart::Resource(_),
-            ) => {
-                // Non-text, non-tool content types are not used by the
-                // sampling-result contract. They are accepted from
-                // providers (e.g. image previews) but ignored here.
+            StreamChunk::Content(part) => {
+                match &part {
+                    ContentPart::Text(tc) => {
+                        self.text.push_str(&tc.text);
+                    }
+                    ContentPart::Reasoning(tc) => {
+                        self.reasoning.push_str(&tc.text);
+                        // Mirror the IsDone / fill_from_sampling rule:
+                        // capture the signature if we have not seen one
+                        // yet, so the value is preserved even when the
+                        // stream terminates without an IsDone.
+                        if self.reasoning_signature.is_none() {
+                            self.reasoning_signature = tc.signature.clone();
+                        }
+                    }
+                    ContentPart::ToolUse(tu) => {
+                        // Tool calls are accumulated into `tool_calls`
+                        // separately. The full ToolUse is also pushed
+                        // to `deltas` so the agent loop can emit a
+                        // Model(ToolUse) event.
+                        self.tool_calls.push(tu.clone());
+                    }
+                    ContentPart::Image(_)
+                    | ContentPart::Audio(_)
+                    | ContentPart::ToolResult(_)
+                    | ContentPart::Resource(_) => {
+                        // Non-text, non-tool content types are not used by
+                        // the sampling-result contract. They are accepted
+                        // from providers (e.g. image previews) but ignored
+                        // here. We still surface them as deltas.
+                    }
+                }
+                self.deltas.push(part);
                 ChunkOutcome::Continue
             }
             StreamChunk::Usage(u) => {
@@ -196,6 +216,10 @@ impl StreamAccumulator {
                 if self.reasoning.is_empty() {
                     self.reasoning = result.reasoning.clone();
                 }
+                if self.reasoning_signature.is_none() {
+                    self.reasoning_signature =
+                        result.reasoning_signature.clone();
+                }
                 if self.usage.total_tokens == 0 && self.usage.prompt_tokens == 0
                 {
                     self.usage = result.usage.clone();
@@ -219,22 +243,30 @@ impl StreamAccumulator {
         if self.reasoning.is_empty() {
             self.reasoning = sampling.reasoning;
         }
+        if self.reasoning_signature.is_none() {
+            self.reasoning_signature = sampling.reasoning_signature;
+        }
         if self.usage.total_tokens == 0 && self.usage.prompt_tokens == 0 {
             self.usage = sampling.usage;
         }
     }
 
     /// Consume the accumulator and produce the agent-facing
-    /// `(SamplingResult, Vec<String>)` return value.
-    pub(super) fn finalize(self) -> (SamplingResult, Vec<String>) {
+    /// `(SamplingResult, Vec<ContentPart>)` return value. Each
+    /// element of the `Vec<ContentPart>` represents one streaming
+    /// delta in the order it arrived from the provider, so the
+    /// agent loop can emit one `AgentEvent::Model(part)` per chunk
+    /// — restoring reasoning live-streaming.
+    pub(super) fn finalize(self) -> (SamplingResult, Vec<ContentPart>) {
         (
             SamplingResult {
                 text: self.text,
                 tool_calls: self.tool_calls,
                 reasoning: self.reasoning,
+                reasoning_signature: self.reasoning_signature,
                 usage: self.usage,
             },
-            self.text_deltas,
+            self.deltas,
         )
     }
 }

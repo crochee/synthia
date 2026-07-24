@@ -122,6 +122,7 @@ pub use subagent::{
     truncate_summary,
 };
 pub use synthia_memory::types::MemoryEvent;
+pub use synthia_provider::{ContentPart, SamplingResult, ToolResult, ToolUse};
 pub use tools as agent_builtin_tools;
 pub use tools::{ToolExecution, build_default_tool_registry, providers};
 pub use tracing::{MetricsServer, ObservabilityConfig};

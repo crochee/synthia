@@ -3,7 +3,11 @@
 use synthia_provider::types::Message;
 use synthia_session::store::SessionInputQueue;
 
-use crate::{events::AgentEvent, input::AgentInput, loop_context::LoopContext};
+use crate::{
+    events::{AgentEvent, HookEvent},
+    input::AgentInput,
+    loop_context::LoopContext,
+};
 
 /// Seed the context with the input message or the
 /// checkpoint-resumed state.
@@ -50,11 +54,10 @@ pub(crate) async fn drain_steering(
         return Vec::new();
     };
     for input in pending {
-        events.push(AgentEvent::SteeringReceived {
-            session_id: session_id.to_string(),
+        events.push(AgentEvent::Hook(HookEvent::Message {
+            priority: input.priority as i32,
             message: input.content.clone(),
-            priority: Some(input.priority as i32),
-        });
+        }));
         ctx.messages.insert(0, Message::user(input.content));
     }
     events

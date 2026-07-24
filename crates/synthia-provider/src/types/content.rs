@@ -118,6 +118,16 @@ pub struct TextContent {
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+pub struct ReasoningContent {
+    pub text: String,
+    /// Anthropic `signature_delta` value attached to the most recent
+    /// reasoning block. Required to preserve cross-turn reasoning
+    /// continuity when the upstream Provider is Anthropic.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub signature: Option<String>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub struct ImageContent {
     pub data: String,
     pub mime_type: String,
@@ -139,7 +149,7 @@ pub enum ContentPart {
     Audio(AudioContent),
     ToolUse(ToolUse),
     ToolResult(ToolResult),
-    Reasoning(TextContent),
+    Reasoning(ReasoningContent),
     Resource(ResourceLink),
 }
 

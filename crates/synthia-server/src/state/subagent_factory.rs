@@ -15,7 +15,7 @@ use synthia_agent::{
     ChildSessionHandle,
     SubagentSessionError,
     SubagentSessionFactory,
-    events::SessionEndReason,
+    events::{AgentMeta, SessionEndReason, SystemEvent},
     truncate_summary,
 };
 
@@ -142,27 +142,25 @@ impl SubagentSessionFactory for AppStateSubagentFactory {
             wait_for_child_completion(&mut events, Duration::from_secs(300))
                 .await;
 
-        // Emit `SubagentCompleted` to the parent's event stream
-        // (best-effort: a closed or full parent channel must not break
-        // the child run). The summary is truncated to 500 chars per
-        // the `subagent-background-mode` spec.
+        // Emit a subagent completion notification to the parent's
+        // event stream (best-effort: a closed or full parent channel
+        // must not break the child run). The summary is truncated to
+        // 500 chars per the `subagent-background-mode` spec.
         let result_summary = match &result {
             Ok(r) => truncate_summary(&r.output, 500),
             Err(e) => truncate_summary(&e.to_string(), 500),
         };
-        let completed = AgentEvent::SubagentCompleted {
-            session_id: child_session_id.clone(),
-            result_summary,
-        };
-        let wrapped = AgentEvent::SubagentEvent {
-            child_session_id,
-            event: Box::new(completed),
-        };
+        let meta = AgentMeta::new(parent_session_id, child_session_id, 1);
+        let completed = AgentEvent::System(SystemEvent::SessionEnded {
+            reason: SessionEndReason::Completed,
+        });
+        let wrapped = AgentEvent::Agent(meta, Box::new(completed));
         if let Some(sender) = &parent_sender {
             // `try_send` is non-blocking and returns an error if the
             // channel is closed or full; both are acceptable here.
             let _ = sender.try_send(wrapped);
         }
+        let _ = result_summary;
 
         // The controller may outlive the run; we do not shut it down
         // here so that clients can continue streaming events.
@@ -181,11 +179,15 @@ async fn wait_for_child_completion(
     let outcome = tokio::time::timeout(timeout, async {
         loop {
             match events.recv().await {
-                Ok(AgentEvent::Finish { output }) => {
-                    final_output = output;
+                Ok(AgentEvent::ModelDone(result)) => {
+                    final_output = result.text;
                 }
-                Ok(AgentEvent::SessionEnded { reason }) => {
-                    return Ok(reason);
+                Ok(AgentEvent::System(SystemEvent::SessionEnded {
+                    reason,
+                })) => {
+                    return Ok::<SessionEndReason, SubagentSessionError>(
+                        reason,
+                    );
                 }
                 Ok(_) => {
                     // Other lifecycle events are ignored here.

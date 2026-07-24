@@ -40,7 +40,7 @@ test.describe('Management API CRUD', () => {
     const mcp = new McpPage(page);
     await mcp.goto();
     await expect(mcp.nameInput).toBeVisible();
-    await expect(mcp.urlInput).toBeVisible();
+    await expect(mcp.commandInput).toBeVisible();
     await expect(mcp.addButton).toBeVisible();
   });
 });

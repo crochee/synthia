@@ -2,16 +2,12 @@ import { Card } from '../components/ui/Card';
 import { Input } from '../components/ui/Input';
 import { Button } from '../components/ui/Button';
 import { useState, type FormEvent } from 'react';
-
-interface MemoryHit {
-  id: string;
-  content: string;
-  relevance?: number;
-}
+import { api } from '../api/client';
+import type { ScoreHit } from '../api/types';
 
 export function MemoryPage() {
   const [query, setQuery] = useState('');
-  const [results, setResults] = useState<MemoryHit[]>([]);
+  const [results, setResults] = useState<ScoreHit[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
@@ -22,9 +18,8 @@ export function MemoryPage() {
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch(`/api/memory/search?q=${encodeURIComponent(q)}`);
-      const data = await res.json();
-      setResults(Array.isArray(data) ? data : (data.results ?? []));
+      const data = await api.get<ScoreHit[]>(`/api/memory/search?q=${encodeURIComponent(q)}`);
+      setResults(Array.isArray(data) ? data : []);
     } catch (e) {
       setError((e as Error).message);
     } finally {
@@ -57,9 +52,7 @@ export function MemoryPage() {
       {results.map((hit) => (
         <Card key={hit.id} title={`Memory ${hit.id.slice(0, 8)}`} glow="cyan">
           <p>{hit.content}</p>
-          {hit.relevance !== undefined && (
-            <code>relevance: {(hit.relevance * 100).toFixed(1)}%</code>
-          )}
+          {hit.score !== undefined && <code>score: {(hit.score * 100).toFixed(1)}%</code>}
         </Card>
       ))}
     </div>

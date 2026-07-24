@@ -5,13 +5,17 @@ description: >
   Requirements: Superpowers plugin installed, providing skills:
   brainstorming, writing-plans, using-git-worktrees,
   subagent-driven-development, finishing-a-development-branch.
-  Requires a subagent-capable platform (Claude Code, Codex, etc.) —
-  this schema does not support runtimes without subagent support,
-  because the alternative executor (executing-plans) loses TDD and
-  code-review transitive activation, defeating Superpowers' value.
-  If your platform lacks subagent support, use spec-driven instead.
-  Each artifact / apply step verifies its required skills before
-  invoking and surfaces a clear error if any are missing.
+  Per project AGENTS.md, superpowers skills may also be invoked
+  without the `superpowers:` prefix; each PRECHECK tries the
+  prefixed form first, then the unprefixed form.
+  On Trae, these skills live in `~/.trae-cn/skills/` (NOT in
+  `~/.trae-cn/builtin/` — the latter only contains TRAE-builtin
+  primitives like TRAE-code-mode-orchestrator). Always verify
+  against `~/.trae-cn/skills/` before declaring a skill missing.
+  Only when both prefixed and unprefixed forms fail does the
+  apply phase STOP. The user may also explicitly opt into the
+  manual fallback path described in the apply instruction.
+  Requires a subagent-capable platform (Claude Code, Codex, Trae).
   brainstorm → proposal → specs → tasks → plan → verify → retrospective.
   design is required (reorganizes raw brainstorm output into structured
   Context / Goals / Decisions / Risks / Migration; referenced by tasks
@@ -26,13 +30,19 @@ artifacts:
     template: brainstorm.md
     instruction: |
       PRECHECK — required skill availability:
-      Before invoking, confirm `superpowers:brainstorming` appears in
-      your available skills list. If missing, STOP and inform the user
-      that the Superpowers plugin must be installed (or that they can
-      explicitly opt to write brainstorm.md manually using the template
-      below). Do NOT silently fall back.
+      Confirm skill availability in this two-tier order:
 
-      Use the Skill tool to invoke **superpowers:brainstorming**.
+      1. `superpowers:brainstorming` (with `superpowers:` prefix).
+      2. `brainstorming` (no prefix) — per AGENTS.md rule. On Trae,
+         this resolves to `~/.trae-cn/skills/brainstorming/SKILL.md`.
+
+      If neither form is invocable, the user can explicitly opt to
+      write brainstorm.md manually using the template below. Do NOT
+      silently fall back without surfacing this choice.
+
+      Use the Skill tool to invoke the first available form
+      (`superpowers:brainstorming` preferred, `brainstorming` as
+      fallback).
 
       IMPORTANT output redirection:
       - Do NOT write to `docs/superpowers/specs/`. Instead, write the
@@ -169,13 +179,19 @@ artifacts:
     template: plan.md
     instruction: |
       PRECHECK — required skill availability:
-      Before invoking, confirm `superpowers:writing-plans` appears in
-      your available skills list. If missing, STOP and inform the user
-      that the Superpowers plugin must be installed (or that they can
-      explicitly opt to write plan.md manually using the template
-      below). Do NOT silently fall back.
+      Confirm skill availability in this two-tier order:
 
-      Use the Skill tool to invoke **superpowers:writing-plans**.
+      1. `superpowers:writing-plans` (with `superpowers:` prefix).
+      2. `writing-plans` (no prefix) — per AGENTS.md rule. On Trae,
+         this resolves to `~/.trae-cn/skills/writing-plans/SKILL.md`.
+
+      If neither form is invocable, the user can explicitly opt to
+      write plan.md manually using the template below. Do NOT
+      silently fall back without surfacing this choice.
+
+      Use the Skill tool to invoke the first available form
+      (`superpowers:writing-plans` preferred, `writing-plans` as
+      fallback).
 
       IMPORTANT output redirection:
       - Do NOT write to `docs/superpowers/plans/`. Instead, write
@@ -466,20 +482,30 @@ apply:
     0. **Pre-flight — verify required Superpowers skills**:
 
        This schema's apply phase requires the following skills.
-       Confirm each appears in your available skills list before
-       proceeding:
+       For EACH skill, confirm availability in this two-tier order:
 
-       - superpowers:using-git-worktrees
-       - superpowers:subagent-driven-development
-         (transitively: superpowers:test-driven-development,
-                        superpowers:requesting-code-review)
-       - superpowers:finishing-a-development-branch
+       1. First, check for `<skill>` with the `superpowers:` prefix
+          (e.g., `superpowers:using-git-worktrees`).
+       2. If unavailable, check for `<skill>` without prefix (e.g.,
+          `using-git-worktrees`) — per project AGENTS.md rule,
+          superpowers skills may also be called without the
+          `superpowers:` prefix. On Trae, these skills live at
+          `~/.trae-cn/skills/<skill>/SKILL.md` (NOT in
+          `~/.trae-cn/builtin/`).
 
-       If any required skill is missing, STOP and inform the user —
-       do NOT proceed and do NOT silently fall back to manual
+       If both forms fail, STOP and inform the user — do NOT
+       proceed and do NOT silently fall back to manual
        implementation. The user can install the Superpowers plugin,
-       or explicitly opt into the manual fallback path described at
-       the end of this instruction.
+       or explicitly opt into the manual fallback path described
+       at the end of this instruction.
+
+       Required skills:
+
+       - using-git-worktrees
+       - subagent-driven-development
+         (transitively: test-driven-development,
+                        requesting-code-review)
+       - finishing-a-development-branch
 
        Additionally, confirm the project's expected CLI tools are
        on PATH. The exact list depends on the project — read
@@ -489,15 +515,19 @@ apply:
        may have a fallback. Print the missing list once at apply
        start so the user isn't surprised mid-cycle.
 
-    1. **Workspace**: Use the Skill tool to invoke
-       **superpowers:using-git-worktrees** to create an isolated
-       git worktree for this change.
+    1. **Workspace**: Use the Skill tool to invoke the first available
+       form of `using-git-worktrees` (preferred:
+       `superpowers:using-git-worktrees`, fallback:
+       `using-git-worktrees`) to create an isolated git worktree
+       for this change.
 
     2. **Executor — subagent-driven-development**:
 
-       Use the Skill tool to invoke
-       **superpowers:subagent-driven-development** to execute
-       the plan.md micro-tasks with fresh subagents per task.
+       Use the Skill tool to invoke the first available form of
+       `subagent-driven-development` (preferred:
+       `superpowers:subagent-driven-development`, fallback:
+       `subagent-driven-development`) to execute the plan.md
+       micro-tasks with fresh subagents per task.
 
        Tell the executor:
        - Read plan.md in this change directory for micro-tasks
@@ -507,11 +537,13 @@ apply:
        IMPORTANT — transitive skill activation:
        subagent-driven-development internally enforces the
        following skills, so you do NOT need to invoke them
-       manually:
-       - **superpowers:test-driven-development** — every task
+       manually. Same fallback rules apply to each (try
+       `superpowers:<skill>` first, then `<skill>`):
+
+       - **test-driven-development** — every task
          follows RED-GREEN-REFACTOR. Implementation code written
          before a failing test is deleted.
-       - **superpowers:requesting-code-review** — after each
+       - **requesting-code-review** — after each
          task, a code-reviewer subagent is dispatched to catch
          spec compliance and code quality issues. A final review
          runs for the entire implementation before apply
@@ -557,7 +589,10 @@ apply:
     6. **Completion (PR is the LAST step)**:
 
        After retrospective + archive are both done, use the Skill
-       tool to invoke **superpowers:finishing-a-development-branch**.
+       tool to invoke the first available form of
+       `finishing-a-development-branch` (preferred:
+       `superpowers:finishing-a-development-branch`, fallback:
+       `finishing-a-development-branch`).
 
        The branch's PR diff MUST contain the complete archived
        cycle. If it doesn't (e.g., because retrospective or archive

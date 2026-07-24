@@ -8,7 +8,12 @@ mod test_support;
 use std::{path::PathBuf, sync::Arc};
 
 use futures::StreamExt;
-use synthia_agent::{agent::Agent, config::AgentConfig, types::AgentEvent};
+use synthia_agent::{
+    agent::Agent,
+    config::AgentConfig,
+    events::SystemEvent,
+    types::AgentEvent,
+};
 use synthia_command::CommandRegistry;
 use synthia_hook::HookRegistry;
 use synthia_session::types::TokenBudget;
@@ -72,18 +77,18 @@ async fn test_cli_input_flows_to_react_loop() {
 
     let events = collect(Agent::run_stream(run_config)).await;
 
-    let has_start = events
-        .iter()
-        .any(|e| matches!(e, AgentEvent::SessionStarted { .. }));
-    let has_end = events
-        .iter()
-        .any(|e| matches!(e, AgentEvent::SessionEnded { .. }));
+    let has_start = events.iter().any(|e| {
+        matches!(e, AgentEvent::System(SystemEvent::SessionStarted { .. }))
+    });
+    let has_end = events.iter().any(|e| {
+        matches!(e, AgentEvent::System(SystemEvent::SessionEnded { .. }))
+    });
     assert!(has_start, "should start session");
     assert!(has_end, "should end session");
 
     let llm_response = events
         .iter()
-        .find(|e| matches!(e, AgentEvent::LlmResponseComplete { .. }));
+        .find(|e| matches!(e, AgentEvent::ModelDone(_)));
     assert!(llm_response.is_some(), "LLM should have responded");
 }
 
@@ -113,9 +118,9 @@ async fn test_checkpoint_save_after_completion() {
 
     let events = collect(Agent::run_stream(run_config)).await;
 
-    let has_end = events
-        .iter()
-        .any(|e| matches!(e, AgentEvent::SessionEnded { .. }));
+    let has_end = events.iter().any(|e| {
+        matches!(e, AgentEvent::System(SystemEvent::SessionEnded { .. }))
+    });
     assert!(has_end, "session should complete");
 
     tokio::time::sleep(std::time::Duration::from_millis(200)).await;
@@ -165,15 +170,15 @@ async fn test_multiline_cli_input() {
 
     let llm_response = events
         .iter()
-        .find(|e| matches!(e, AgentEvent::LlmResponseComplete { .. }));
+        .find(|e| matches!(e, AgentEvent::ModelDone(_)));
     assert!(
         llm_response.is_some(),
         "LLM should respond to multiline input"
     );
 
-    let has_session_end = events
-        .iter()
-        .any(|e| matches!(e, AgentEvent::SessionEnded { .. }));
+    let has_session_end = events.iter().any(|e| {
+        matches!(e, AgentEvent::System(SystemEvent::SessionEnded { .. }))
+    });
     assert!(
         has_session_end,
         "session should complete for multiline input"
@@ -216,9 +221,9 @@ async fn test_slash_command_in_cli_input() {
 
     let events = collect(Agent::run_stream(run_config)).await;
 
-    let has_session_end = events
-        .iter()
-        .any(|e| matches!(e, AgentEvent::SessionEnded { .. }));
+    let has_session_end = events.iter().any(|e| {
+        matches!(e, AgentEvent::System(SystemEvent::SessionEnded { .. }))
+    });
     assert!(has_session_end, "session should complete for slash command");
 }
 
@@ -252,9 +257,9 @@ async fn test_special_characters_in_cli_input() {
 
     let events = collect(Agent::run_stream(run_config)).await;
 
-    let has_session_end = events
-        .iter()
-        .any(|e| matches!(e, AgentEvent::SessionEnded { .. }));
+    let has_session_end = events.iter().any(|e| {
+        matches!(e, AgentEvent::System(SystemEvent::SessionEnded { .. }))
+    });
     assert!(
         has_session_end,
         "session should complete with special characters in input"

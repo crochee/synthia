@@ -4587,6 +4587,7 @@ dependencies = [
  "serde",
  "serde_json",
  "synthia-agent",
+ "synthia-provider",
  "synthia-tool",
  "thiserror 2.0.18",
  "tokio",

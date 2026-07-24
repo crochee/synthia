@@ -26,35 +26,49 @@ pub const TURN_FAILED: &str = "TurnFailed";
 /// Event type emitted when the agent loop ends.
 pub const SESSION_ENDED: &str = "SessionEnded";
 
-/// Returns `true` if the given event type string is durable.
+/// Returns `true` if the given persistence-layer event type string is durable.
 ///
-/// This is the persistence-layer projection of [`AgentEvent::is_durable`]:
-/// given the serde type tag of an event, it returns the same result.
-/// Unknown event types default to `true` (durable, the safe default).
+/// This is the persistence-layer projection of
+/// [`crate::events::AgentEvent::is_durable`]. Note the distinction:
 ///
-/// Turn lifecycle types (`TurnStarted`, `SampleCompleted`, etc.) are durable
-/// and fall through to the default `true`.
+/// - `AgentEvent::is_durable()` (the agent-layer method, on the
+///   restructured 5-variant enum) is **exhaustive**: it inspects the
+///   inner `ContentPart` for `Model(...)` events, so the durability
+///   of a single `AgentEvent::Model(_)` is no longer decided by the
+///   variant alone. Use this method whenever you have an actual
+///   `AgentEvent` value.
+/// - This function is the **string-tagged** variant used by the
+///   persistence layer when persisting *legacy* turn-lifecycle event
+///   tags (`TurnStarted`, `SampleCompleted`, etc.) which carry no
+///   inner payload. For those tags the safe-default rule still
+///   applies: any unknown tag is treated as durable.
+///
+/// The new top-level `AgentEvent` variants are dispatched through
+/// the agent-layer method and routed to `append_agent_event` with a
+/// derived type tag. Currently the type tag is the inner
+/// `ContentPart` discriminant, e.g. `"ModelText"`, `"ModelReasoning"`,
+/// `"ToolCallStarted"`; the set below matches those tags.
 pub fn is_durable_event_type(event_type: &str) -> bool {
+    // Ephemeral type tags: streaming text/reasoning deltas, progress,
+    // warnings, usage, hooks. Everything else (including all unknown
+    // legacy tags) defaults to durable — this is the persisted layer
+    // analogue of the legacy "unknown = durable" rule, applied to the
+    // string-tagged view of events.
     !matches!(
         event_type,
-        "LlmStreamDelta"
-            | "LlmReasoningDelta"
-            | "LlmError"
-            | "IterationCompleted"
-            | "Thinking"
-            | "Warning"
+        // Top-level streaming Model events (legacy bare "Model" tag
+        // for text-delta strings, plus per-ContentPart tags emitted
+        // by the new SSE wire mapping).
+        "Model"
+            | "ModelText"
+            | "ModelReasoning"
+            | "ModelImage"
+            | "ModelAudio"
+            | "ModelResource"
+            | "Hook"
+            | "SteeringReceived"
             | "Progress"
-            | "SessionInterrupted"
-            | "GuardianWarning"
-            | "LoopWarning"
             | "TokenBudgetNotice"
-            | "TokenBudgetWarning"
-            | "HookError"
-            | "SelfReflection"
-            | "SubagentMessage"
-            | "SubagentCompleted"
-            | "subagent_event"
-            | "Custom"
     )
 }
 
@@ -67,6 +81,7 @@ pub fn is_durable_event_type(event_type: &str) -> bool {
 /// The caller must pass the shared [`EventStore`] from
 /// [`synthia_session::Store::event_store`] so that the in-process seq cache
 /// is reused across calls (O(1) after the first call per session).
+#[allow(clippy::too_many_arguments)]
 pub async fn append_agent_event<P>(
     store: &EventStore,
     session_path: impl AsRef<Path>,
@@ -264,12 +279,12 @@ mod tests {
         let temp = TempDir::new().unwrap();
         let path = temp.path().join("session");
 
-        // "Thinking" is classified as ephemeral
+        // "Model" is classified as ephemeral in the new world
         let event = append_agent_event(
             &EventStore::new(),
             &path,
             "session-1",
-            "Thinking",
+            "Model",
             TurnId::new(),
             1,
             serde_json::json!({"text": "hmm"}),

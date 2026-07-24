@@ -19,6 +19,7 @@ url = "2"
 uuid = { version = "1", features = ["v4"] }
 
 synthia-agent = { path = "../synthia-agent" }
+synthia-provider = { path = "../synthia-provider" }
 synthia-tool = { path = "../synthia-tool" }
 
 [dev-dependencies]

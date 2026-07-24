@@ -20,7 +20,7 @@
 //!    loop drains at its own pace).
 //! 4. [`super::stream::StreamAccumulator`] — owns the per-chunk
 //!    state (`text` / `tool_calls` / `reasoning` / `usage` /
-//!    `tool_buffers` / `text_deltas`) and the big `match` on
+//!    `tool_buffers` / `deltas`) and the big `match` on
 //!    `StreamChunk`. The match is the single place that knows how
 //!    each provider chunk maps onto the agent's accumulator
 //!    state.
@@ -41,7 +41,7 @@ use synthia_context::truncate::TruncateConfig;
 use synthia_core::Error;
 use synthia_provider::{
     traits::ModelProvider,
-    types::{SamplingResult, StreamChunk},
+    types::{ContentPart, SamplingResult, StreamChunk},
 };
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
@@ -84,7 +84,23 @@ impl StepSample {
         ctx: &mut LoopContext,
         tools: Vec<synthia_provider::ToolDefinition>,
         cancel_token: CancellationToken,
-    ) -> Result<(SamplingResult, Vec<String>), Error> {
+    ) -> Result<(SamplingResult, Vec<ContentPart>), Error> {
+        // Guard: never dispatch an LLM call with an empty conversation.
+        // Upstream APIs (OpenAI, Anthropic, etc.) reject an empty
+        // `messages` array with a 400 (`messages is empty (2013)`).
+        // The recovery cascade can clear `ctx.messages` via the L5
+        // reset, after which the next iteration would re-enter here
+        // and reproduce the same 400 in a tight loop — see the
+        // 2026-07-25 server logs for the original symptom. Failing
+        // fast here gives the cascade a clean Validation signal and
+        // prevents wasted network round trips.
+        if ctx.messages.is_empty() {
+            return Err(Error::Validation(
+                "cannot dispatch LLM call: conversation context is empty"
+                    .to_string(),
+            ));
+        }
+
         truncate::truncate_tool_messages(&mut ctx.messages, &self.truncate_cfg);
 
         let request =

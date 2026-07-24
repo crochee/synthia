@@ -15,12 +15,19 @@ use futures::StreamExt;
 use synthia_agent::{
     agent::Agent,
     config::AgentConfig,
+    events::{HookEvent, SystemEvent, WarningKind},
     steering::{MpscSteeringChannel, SteeringChannel, SteeringMessage},
     types::*,
 };
 use synthia_context::ContextAssembler;
 use synthia_hook::HookRegistry;
-use synthia_provider::types::{ContentPart, StreamChunk, TextContent, ToolUse};
+use synthia_provider::types::{
+    ContentPart,
+    ReasoningContent,
+    StreamChunk,
+    TextContent,
+    ToolUse,
+};
 use synthia_tool::registry::{ToolEntry, ToolRegistry};
 use test_support::{
     FakeProvider,
@@ -65,6 +72,46 @@ fn make_tool_registry() -> ToolRegistry {
         "sunny, 72F",
     ))));
     reg
+}
+
+fn event_type_str(event: &AgentEvent) -> &'static str {
+    match event {
+        AgentEvent::System(SystemEvent::SessionStarted { .. }) => {
+            "SessionStarted"
+        }
+        AgentEvent::System(SystemEvent::SessionInterrupted { .. }) => {
+            "SessionInterrupted"
+        }
+        AgentEvent::System(SystemEvent::SessionEnded { .. }) => "SessionEnded",
+        AgentEvent::System(SystemEvent::Progress { .. }) => "Progress",
+        AgentEvent::System(SystemEvent::Warning { kind, .. }) => match kind {
+            WarningKind::Guardian => "GuardianWarning",
+            WarningKind::TokenBudget => "TokenBudgetWarning",
+            WarningKind::Loop => "LoopWarning",
+            WarningKind::ContextCompaction => "ContextCompacted",
+            WarningKind::Hook => "HookError",
+            WarningKind::EditConflict => "EditConflict",
+        },
+        AgentEvent::Model(ContentPart::Reasoning(ReasoningContent {
+            ..
+        })) => "Thinking",
+        AgentEvent::Model(ContentPart::Text(TextContent { .. })) => {
+            "LlmStreamDelta"
+        }
+        AgentEvent::Model(ContentPart::ToolUse(_)) => "ToolCallStarted",
+        AgentEvent::Model(ContentPart::ToolResult(_)) => "ToolCallCompleted",
+        AgentEvent::ModelDone(_) => "LlmResponseComplete",
+        AgentEvent::Hook(HookEvent::Message { .. }) => "SteeringReceived",
+        AgentEvent::Hook(HookEvent::ConfirmRequest { .. }) => {
+            "GuardianConfirmationRequest"
+        }
+        AgentEvent::Hook(HookEvent::ConfirmResponse { .. }) => {
+            "ToolCallSkipped"
+        }
+        AgentEvent::Hook(HookEvent::Custom { .. }) => "Other",
+        AgentEvent::Agent(_, _) => "Other",
+        _ => "Other",
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -167,11 +214,10 @@ async fn test_multi_turn_message_history() {
     );
     let events1: Vec<AgentEvent> =
         Agent::run_stream(run_config).collect().await;
-    assert!(
-        events1
-            .iter()
-            .any(|e| matches!(e, AgentEvent::SessionEnded { .. }))
-    );
+    assert!(events1.iter().any(|e| matches!(
+        e,
+        AgentEvent::System(SystemEvent::SessionEnded { .. })
+    )));
 
     // The key property: in multi-turn, the message history should persist.
     // Since FakeProvider gives predetermined responses, we verify that
@@ -244,7 +290,7 @@ async fn test_steering_injection_during_loop() {
     // Should have received a SteeringReceived event
     let steering_event = events
         .iter()
-        .find(|e| matches!(e, AgentEvent::SteeringReceived { .. }));
+        .find(|e| matches!(e, AgentEvent::Hook(HookEvent::Message { .. })));
     assert!(
         steering_event.is_some(),
         "Expected SteeringReceived event, got events: {:?}",
@@ -315,7 +361,15 @@ async fn test_tool_failure_recovery() {
 
     // Should have ToolCallCompleted with is_error=true
     let tool_error = events.iter().find(|e| {
-        matches!(e, AgentEvent::ToolCallCompleted { is_error: true, .. })
+        matches!(
+            e,
+            AgentEvent::Model(ContentPart::ToolResult(
+                synthia_provider::ToolResult {
+                    is_error: Some(true),
+                    ..
+                }
+            ))
+        )
     });
     assert!(
         tool_error.is_some(),
@@ -323,9 +377,9 @@ async fn test_tool_failure_recovery() {
     );
 
     // Should have SessionEnded (agent recovered and finished)
-    let ended = events
-        .iter()
-        .find(|e| matches!(e, AgentEvent::SessionEnded { .. }));
+    let ended = events.iter().find(|e| {
+        matches!(e, AgentEvent::System(SystemEvent::SessionEnded { .. }))
+    });
     assert!(
         ended.is_some(),
         "Expected SessionEnded after tool failure recovery"
@@ -371,9 +425,9 @@ async fn test_cli_e2e_chain_checkpoint() {
     let ended = events.iter().find(|e| {
         matches!(
             e,
-            AgentEvent::SessionEnded {
+            AgentEvent::System(SystemEvent::SessionEnded {
                 reason: SessionEndReason::Completed,
-            }
+            })
         )
     });
     assert!(
@@ -417,43 +471,7 @@ async fn test_complete_event_sequence_text_only() {
     );
 
     let events: Vec<AgentEvent> = Agent::run_stream(run_config).collect().await;
-    let event_types: Vec<&str> = events
-        .iter()
-        .map(|e| match e {
-            AgentEvent::SessionStarted { .. } => "SessionStarted",
-            AgentEvent::IterationStarted { .. } => "IterationStarted",
-            AgentEvent::LlmRequestStarted { .. } => "LlmRequestStarted",
-            AgentEvent::LlmStreamDelta { .. } => "LlmStreamDelta",
-            AgentEvent::LlmReasoningDelta { .. } => "LlmReasoningDelta",
-            AgentEvent::LlmResponseComplete { .. } => "LlmResponseComplete",
-            AgentEvent::LlmError { .. } => "LlmError",
-            AgentEvent::ToolCallStarted { .. } => "ToolCallStarted",
-            AgentEvent::ToolCallCompleted { .. } => "ToolCallCompleted",
-            AgentEvent::ToolCallSkipped { .. } => "ToolCallSkipped",
-            AgentEvent::ToolCallError { .. } => "ToolCallError",
-            AgentEvent::Thinking { .. } => "Thinking",
-            AgentEvent::IterationCompleted { .. } => "IterationCompleted",
-            AgentEvent::ContextCompacted { .. } => "ContextCompacted",
-            AgentEvent::Checkpoint { .. } => "Checkpoint",
-            AgentEvent::StateChange { .. } => "StateChange",
-            AgentEvent::Warning { .. } => "Warning",
-            AgentEvent::Progress { .. } => "Progress",
-            AgentEvent::Finish { .. } => "Finish",
-            AgentEvent::SessionInterrupted { .. } => "SessionInterrupted",
-            AgentEvent::SessionEnded { .. } => "SessionEnded",
-            AgentEvent::GuardianWarning { .. } => "GuardianWarning",
-            AgentEvent::TokenBudgetWarning { .. } => "TokenBudgetWarning",
-            AgentEvent::TokenBudgetNotice { .. } => "TokenBudgetNotice",
-            AgentEvent::SteeringReceived { .. } => "SteeringReceived",
-            AgentEvent::HookError { .. } => "HookError",
-            AgentEvent::GuardianConfirmationRequest { .. } => {
-                "GuardianConfirmationRequest"
-            }
-            AgentEvent::LoopWarning { .. } => "LoopWarning",
-            AgentEvent::SelfReflection { .. } => "SelfReflection",
-            _ => "Other",
-        })
-        .collect();
+    let event_types: Vec<&str> = events.iter().map(event_type_str).collect();
 
     // SessionStarted must be first
     assert_eq!(
@@ -468,28 +486,18 @@ async fn test_complete_event_sequence_text_only() {
         "Last event should be SessionEnded"
     );
 
-    // IterationStarted should come before LlmRequestStarted
-    let iter_idx = event_types
+    // SessionStarted should come before LlmResponseComplete
+    let session_start_idx = event_types
         .iter()
-        .position(|&t| t == "IterationStarted")
+        .position(|&t| t == "SessionStarted")
         .unwrap();
-    let llm_req_idx = event_types
-        .iter()
-        .position(|&t| t == "LlmRequestStarted")
-        .unwrap();
-    assert!(
-        iter_idx < llm_req_idx,
-        "IterationStarted should come before LlmRequestStarted"
-    );
-
-    // LlmRequestStarted should come before LlmResponseComplete
     let llm_complete_idx = event_types
         .iter()
         .position(|&t| t == "LlmResponseComplete")
         .unwrap();
     assert!(
-        llm_req_idx < llm_complete_idx,
-        "LlmRequestStarted should come before LlmResponseComplete"
+        session_start_idx < llm_complete_idx,
+        "SessionStarted should come before LlmResponseComplete"
     );
 
     // No tool events in text-only response
@@ -522,21 +530,7 @@ async fn test_complete_event_sequence_with_tool_calls() {
     );
 
     let events: Vec<AgentEvent> = Agent::run_stream(run_config).collect().await;
-    let event_types: Vec<&str> = events
-        .iter()
-        .map(|e| match e {
-            AgentEvent::SessionStarted { .. } => "SessionStarted",
-            AgentEvent::IterationStarted { .. } => "IterationStarted",
-            AgentEvent::LlmRequestStarted { .. } => "LlmRequestStarted",
-            AgentEvent::LlmStreamDelta { .. } => "LlmStreamDelta",
-            AgentEvent::LlmResponseComplete { .. } => "LlmResponseComplete",
-            AgentEvent::ToolCallStarted { .. } => "ToolCallStarted",
-            AgentEvent::ToolCallCompleted { .. } => "ToolCallCompleted",
-            AgentEvent::IterationCompleted { .. } => "IterationCompleted",
-            AgentEvent::SessionEnded { .. } => "SessionEnded",
-            _ => "Other",
-        })
-        .collect();
+    let event_types: Vec<&str> = events.iter().map(event_type_str).collect();
 
     // Verify tool call ordering
     let tool_start_idx = event_types
@@ -552,14 +546,14 @@ async fn test_complete_event_sequence_with_tool_calls() {
         "ToolCallStarted should come before ToolCallCompleted"
     );
 
-    // First IterationCompleted should come after first ToolCallCompleted
-    let first_iter_complete = event_types
+    // ToolCallCompleted should come before SessionEnded
+    let session_end_idx = event_types
         .iter()
-        .position(|&t| t == "IterationCompleted")
-        .unwrap();
+        .position(|&t| t == "SessionEnded")
+        .expect("should have SessionEnded");
     assert!(
-        tool_complete_idx < first_iter_complete,
-        "ToolCallCompleted should come before IterationCompleted"
+        tool_complete_idx < session_end_idx,
+        "ToolCallCompleted should come before SessionEnded"
     );
 }
 

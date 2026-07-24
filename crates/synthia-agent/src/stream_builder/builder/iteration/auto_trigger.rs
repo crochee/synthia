@@ -8,7 +8,7 @@ use synthia_hook::UnifiedHookDispatcher;
 use synthia_telemetry::{CompactionAnalyticsAttempt, CompactionTrigger};
 
 use crate::{
-    events::AgentEvent,
+    events::{AgentEvent, SystemEvent, WarningKind},
     loop_context::LoopContext,
     stream_builder::steps::{StepCompact, StepToolExecute},
     types::AgentConfig,
@@ -44,9 +44,11 @@ pub(crate) async fn maybe_auto_trigger_self_reflect(
             events
         }
         Err(e) => {
-            vec![AgentEvent::Warning {
+            vec![AgentEvent::System(SystemEvent::Warning {
+                kind: WarningKind::Hook,
                 message: format!("Auto self_reflect failed: {}", e),
-            }]
+                iteration: None,
+            })]
         }
     }
 }
@@ -109,10 +111,14 @@ pub(crate) async fn maybe_auto_trigger_compact_context(
                 result.phase.clone(),
             )
             .emit();
-            vec![AgentEvent::ContextCompacted {
-                old_tokens: result.old_tokens,
-                new_tokens: result.new_tokens,
-            }]
+            vec![AgentEvent::System(SystemEvent::Warning {
+                kind: WarningKind::ContextCompaction,
+                message: format!(
+                    "compacted {} -> {} tokens",
+                    result.old_tokens, result.new_tokens
+                ),
+                iteration: Some(ctx.iteration),
+            })]
         }
         None => Vec::new(),
     }

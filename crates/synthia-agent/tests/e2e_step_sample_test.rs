@@ -34,6 +34,7 @@ use synthia_provider::{
         Message,
         ModelConfig,
         ProviderConfig,
+        ReasoningContent,
         SamplingResult,
         StreamChunk,
         TextContent,
@@ -243,6 +244,7 @@ async fn e2e_step_sample_emits_token_deltas_and_accumulates_tool_call() {
                     input: serde_json::json!({"q": "hello"}),
                 }],
                 reasoning: String::new(),
+                reasoning_signature: None,
                 usage: TokenUsage::default(),
             }),
         },
@@ -517,9 +519,9 @@ fn completion_to_sampling_extracts_text_and_tool_calls() {
                 name: "f".to_string(),
                 input: serde_json::json!({}),
             }),
-            ContentPart::Reasoning(TextContent {
+            ContentPart::Reasoning(ReasoningContent {
                 text: "because".to_string(),
-                cache_control: None,
+                signature: None,
             }),
         ]),
         usage: TokenUsage::default(),

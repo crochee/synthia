@@ -3,6 +3,7 @@ use std::collections::HashMap;
 use super::types::OpenAIDeltaResponse;
 use crate::types::{
     ContentPart,
+    ReasoningContent,
     SamplingResult,
     StreamChunk,
     TextContent,
@@ -72,9 +73,9 @@ impl OpenAIStreamProcessorV2 {
             {
                 self.reasoning.push_str(reasoning);
                 chunks.push(StreamChunk::Content(ContentPart::Reasoning(
-                    TextContent {
+                    ReasoningContent {
                         text: reasoning.clone(),
-                        cache_control: None,
+                        signature: None,
                     },
                 )));
             }
@@ -202,6 +203,7 @@ impl OpenAIStreamProcessorV2 {
             text,
             tool_calls,
             reasoning,
+            reasoning_signature: None,
             usage,
         };
         tracing::debug!(

@@ -379,4 +379,73 @@ mod tests {
         assert_eq!(parsed.usage.cache_write_tokens, None);
         assert!(!parsed.cached);
     }
+
+    /// Task 1.6: when an assistant message carries an `assistant`
+    /// content with a reasoning block signed by Anthropic, the
+    /// request builder must propagate the signature onto the
+    /// Anthropic `thinking` block so the API can preserve reasoning
+    /// continuity on the next turn.
+    #[test]
+    fn transform_request_preserves_signature_on_reasoning_block() {
+        let provider = make_provider();
+        let assistant_msg = Message {
+            role: Role::Assistant,
+            content: Content::Multi(vec![
+                ContentPart::Reasoning(crate::types::ReasoningContent {
+                    text: "I'll think this through.".to_string(),
+                    signature: Some("sig_persist_for_turn_2".to_string()),
+                }),
+                ContentPart::Text(TextContent {
+                    text: "Here is the answer.".to_string(),
+                    cache_control: None,
+                }),
+            ]),
+            tool_call_id: None,
+            name: None,
+            ..Default::default()
+        };
+        let req = CompletionRequest {
+            model: "claude-3".to_string(),
+            messages: Arc::new(vec![
+                Message::user("Hello"),
+                assistant_msg,
+                Message::user("And one more question?"),
+            ]),
+            tools: Arc::new(vec![]),
+            tool_choice: ToolChoice::Auto,
+            temperature: None,
+            max_tokens: None,
+            stop_sequences: vec![],
+            extra_body: None,
+            cache_policy: None,
+        };
+
+        let anthropic_req = provider.transform_request(&req);
+        // Find the assistant message that contained the signed
+        // reasoning block.
+        let assistant_msg = anthropic_req
+            .messages
+            .iter()
+            .find(|m| m.role == "assistant")
+            .expect("assistant message survives transform");
+        let thinking_block = assistant_msg
+            .content
+            .iter()
+            .find_map(|b| match b {
+                AnthropicContentBlock::ThinkingBlock {
+                    thinking,
+                    signature,
+                } if signature.is_some() => {
+                    Some((thinking.clone(), signature.clone()))
+                }
+                _ => None,
+            })
+            .expect("thinking block with signature survives transform");
+        assert_eq!(thinking_block.0, "I'll think this through.");
+        assert_eq!(
+            thinking_block.1.as_deref(),
+            Some("sig_persist_for_turn_2"),
+            "signature must propagate to the Anthropic wire form"
+        );
+    }
 }

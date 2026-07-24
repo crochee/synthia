@@ -1,9 +1,6 @@
 //! StepSpawn: spawns a sub-agent and emits lifecycle events.
 
-use crate::{
-    control::{AgentControl, AgentPath},
-    events::AgentEvent,
-};
+use crate::control::{AgentControl, AgentPath};
 
 /// Result of spawning a sub-agent.
 #[derive(Debug, Clone)]
@@ -15,8 +12,12 @@ pub struct SpawnResult {
 
 /// Step that spawns a sub-agent via the [`AgentControl`] plane.
 ///
-/// Emits `AgentEvent::SubagentSpawnBegin` before the spawn attempt and
-/// `AgentEvent::SubagentSpawnEnd` after, regardless of success or failure.
+/// Subagent lifecycle is now communicated through the inner
+/// [`AgentEvent::Agent`] wrapper rather than free-standing
+/// `SubagentSpawnBegin` / `SubagentSpawnEnd` events (Phase 2 of the
+/// `simplify-agent-event-stream` change). The step itself no longer
+/// emits subagent lifecycle events; the stream builder is responsible
+/// for wrapping the child session's events with [`AgentMeta`].
 pub struct StepSpawn {
     control: AgentControl,
 }
@@ -27,48 +28,27 @@ impl StepSpawn {
     }
 
     /// Attempt to spawn a sub-agent at the given `path` with the provided
-    /// `nickname`. Returns a [`SpawnResult`] and yields events to `event_tx`.
+    /// `nickname`. Returns a [`SpawnResult`].
     pub async fn execute(
         &self,
-        session_id: &str,
+        _session_id: &str,
         path: &AgentPath,
         nickname: &str,
     ) -> SpawnResult {
         let agent_path_str = path.as_str().to_string();
 
-        let event_begin = AgentEvent::SubagentSpawnBegin {
-            session_id: session_id.to_string(),
-            agent_path: agent_path_str.clone(),
-        };
-
-        let result = match self
-            .control
-            .spawn_agent(path.clone(), nickname.to_string())
-        {
+        match self.control.spawn_agent(path.clone(), nickname.to_string()) {
             Ok(_meta) => SpawnResult {
-                agent_path: agent_path_str.clone(),
+                agent_path: agent_path_str,
                 success: true,
                 error: None,
             },
             Err(e) => SpawnResult {
-                agent_path: agent_path_str.clone(),
+                agent_path: agent_path_str,
                 success: false,
                 error: Some(e),
             },
-        };
-
-        let event_end = AgentEvent::SubagentSpawnEnd {
-            session_id: session_id.to_string(),
-            agent_path: agent_path_str.clone(),
-            success: result.success,
-            error: result.error.clone(),
-        };
-
-        // Events are yielded by the caller (StreamBuilder) — we return them
-        // alongside the SpawnResult for integration.
-        drop((event_begin, event_end));
-
-        result
+        }
     }
 }
 

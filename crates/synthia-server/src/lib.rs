@@ -5,7 +5,6 @@
 pub mod a2a;
 pub mod api;
 pub mod approval;
-pub mod auth;
 pub mod cleanup;
 pub mod config;
 pub mod error;
@@ -21,7 +20,6 @@ pub mod state;
 pub mod workspace;
 
 pub use approval::*;
-pub use auth::auth_middleware;
 pub use cleanup::{CleanupConfig, CleanupDaemon, CleanupMetrics};
 pub use config::server::ServerConfig;
 pub use event_stream::{EventBroadcaster, SseEventStream};

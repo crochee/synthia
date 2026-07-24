@@ -12,6 +12,7 @@ use tracing::warn;
 use super::events::{AnthropicStreamDelta, AnthropicStreamEvent};
 use crate::types::{
     ContentPart,
+    ReasoningContent,
     SamplingResult,
     StreamChunk,
     TextContent,
@@ -42,6 +43,10 @@ pub struct StreamProcessorV2 {
     /// Per-turn accumulators for the final `SamplingResult`.
     text: String,
     reasoning: String,
+    /// Latest Anthropic `signature_delta` observed during this turn
+    /// (if any). Folded into the final `SamplingResult.reasoning_signature`
+    /// so the agent layer can preserve reasoning continuity across turns.
+    last_reasoning_signature: Option<String>,
     tool_calls: Vec<ToolUse>,
     /// Usage is optional; Anthropic emits it on a `message_delta` event.
     usage: Option<TokenUsage>,
@@ -56,6 +61,7 @@ impl StreamProcessorV2 {
             tool_buffers: HashMap::with_capacity(4),
             text: String::new(),
             reasoning: String::new(),
+            last_reasoning_signature: None,
             tool_calls: Vec::new(),
             usage: None,
             stop_reason: None,
@@ -101,9 +107,11 @@ impl StreamProcessorV2 {
                         if let Some(thinking) = &block.thinking {
                             self.reasoning.push_str(thinking);
                             chunks.push(StreamChunk::Content(
-                                ContentPart::Reasoning(TextContent {
+                                ContentPart::Reasoning(ReasoningContent {
                                     text: thinking.clone(),
-                                    cache_control: None,
+                                    signature: self
+                                        .last_reasoning_signature
+                                        .clone(),
                                 }),
                             ));
                         }
@@ -112,9 +120,11 @@ impl StreamProcessorV2 {
                         let marker = "[Redacted by safety filter]".to_string();
                         self.reasoning.push_str(&marker);
                         chunks.push(StreamChunk::Content(
-                            ContentPart::Reasoning(TextContent {
+                            ContentPart::Reasoning(ReasoningContent {
                                 text: marker,
-                                cache_control: None,
+                                signature: self
+                                    .last_reasoning_signature
+                                    .clone(),
                             }),
                         ));
                     }
@@ -146,11 +156,23 @@ impl StreamProcessorV2 {
                         if let Some(thinking) = &delta.thinking {
                             self.reasoning.push_str(thinking);
                             chunks.push(StreamChunk::Content(
-                                ContentPart::Reasoning(TextContent {
+                                ContentPart::Reasoning(ReasoningContent {
                                     text: thinking.clone(),
-                                    cache_control: None,
+                                    signature: self
+                                        .last_reasoning_signature
+                                        .clone(),
                                 }),
                             ));
+                        }
+                    }
+                    "signature_delta" => {
+                        // The signature folds into the most recent
+                        // reasoning block on finalize; we do not emit a
+                        // stream chunk here because the agent will
+                        // read the signature off `SamplingResult`.
+                        if let Some(signature) = &delta.signature {
+                            self.last_reasoning_signature =
+                                Some(signature.clone());
                         }
                     }
                     "input_json_delta" => {
@@ -209,10 +231,13 @@ impl StreamProcessorV2 {
                 let reasoning = std::mem::take(&mut self.reasoning);
                 let text = std::mem::take(&mut self.text);
                 let tool_calls = std::mem::take(&mut self.tool_calls);
+                let reasoning_signature =
+                    std::mem::take(&mut self.last_reasoning_signature);
                 let result = SamplingResult {
                     text,
                     tool_calls,
                     reasoning,
+                    reasoning_signature,
                     usage,
                 };
                 tracing::debug!(

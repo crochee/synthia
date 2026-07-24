@@ -2,44 +2,56 @@ import { Card } from '../components/ui/Card';
 import { Button } from '../components/ui/Button';
 import { Input } from '../components/ui/Input';
 import { useEffect, useState, type FormEvent } from 'react';
+import { api } from '../api/client';
+import type { McpServer } from '../api/types';
 
-interface McpServer {
-  id: string;
-  name: string;
-  url: string;
-  status?: string;
+interface McpServersListResponse {
+  servers: McpServer[];
+  count: number;
 }
 
 export function McpPage() {
   const [servers, setServers] = useState<McpServer[]>([]);
   const [name, setName] = useState('');
-  const [url, setUrl] = useState('');
+  const [command, setCommand] = useState('');
+  const [args, setArgs] = useState('');
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    fetch('/api/mcp/servers')
-      .then((r) => (r.ok ? r.json() : []))
-      .then((data) => setServers(Array.isArray(data) ? data : (data.servers ?? [])))
-      .catch((e) => setError(e.message));
+    let cancelled = false;
+    api
+      .get<McpServersListResponse>('/api/mcp/servers')
+      .then((data) => {
+        if (cancelled) return;
+        const list = (data.servers ?? []).map((s) => ({ ...s, id: s.id ?? s.name }));
+        setServers(list);
+      })
+      .catch((e: Error) => {
+        if (cancelled) return;
+        setError(e.message);
+      });
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   const add = async (e: FormEvent) => {
     e.preventDefault();
-    if (!name.trim() || !url.trim()) return;
+    if (!name.trim() || !command.trim()) return;
+    const argList = args
+      .split(/\s+/)
+      .map((a) => a.trim())
+      .filter((a) => a.length > 0);
     try {
-      const res = await fetch('/api/mcp/servers', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name, url }),
+      const created = await api.post<McpServer>('/api/mcp/servers', {
+        name,
+        command,
+        args: argList,
       });
-      if (res.ok) {
-        const created = await res.json();
-        setServers((prev) => [...prev, created]);
-        setName('');
-        setUrl('');
-      } else {
-        setError(`Add failed: HTTP ${res.status}`);
-      }
+      setServers((prev) => [...prev, { ...created, id: created.id ?? created.name }]);
+      setName('');
+      setCommand('');
+      setArgs('');
     } catch (e) {
       setError((e as Error).message);
     }
@@ -48,9 +60,7 @@ export function McpPage() {
   const remove = async (id: string) => {
     setServers((prev) => prev.filter((s) => s.id !== id));
     try {
-      await fetch(`/api/mcp/servers/${encodeURIComponent(id)}`, {
-        method: 'DELETE',
-      });
+      await api.del(`/api/mcp/servers/${encodeURIComponent(id)}`);
     } catch (e) {
       setError((e as Error).message);
     }
@@ -74,21 +84,33 @@ export function McpPage() {
             data-testid="mcp-name"
           />
           <Input
-            label="URL"
-            value={url}
-            onChange={(e) => setUrl(e.target.value)}
-            placeholder="http://localhost:3000"
-            data-testid="mcp-url"
+            label="Command"
+            value={command}
+            onChange={(e) => setCommand(e.target.value)}
+            placeholder="e.g. npx"
+            data-testid="mcp-command"
+          />
+          <Input
+            label="Args"
+            value={args}
+            onChange={(e) => setArgs(e.target.value)}
+            placeholder="space-separated args"
+            data-testid="mcp-args"
           />
           <Button type="submit" data-testid="mcp-add">
             Add
           </Button>
         </form>
       </Card>
-      {servers.length === 0 && <Card title="No servers">No MCP servers registered.</Card>}
+      {servers.length === 0 && !error && <Card title="No servers">No MCP servers registered.</Card>}
       {servers.map((server) => (
         <Card key={server.id} title={server.name} glow="green">
-          <code>url: {server.url}</code>
+          <code>command: {server.command}</code>
+          {server.args && server.args.length > 0 && (
+            <div>
+              <code>args: {server.args.join(' ')}</code>
+            </div>
+          )}
           {server.status && (
             <div>
               <code>status: {server.status}</code>

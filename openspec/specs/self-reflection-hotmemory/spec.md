@@ -72,3 +72,13 @@ Self-reflection execution SHALL emit events for observability.
 - **AND** Upon completion, AgentEvent::SelfReflection SHALL be emitted with the reflection data
 - **AND** On failure, AgentEvent::Warning with error message SHALL be emitted
 
+<!--
+  Migration note (from simplify-agent-event-stream delta):
+  The legacy `AgentEvent::SelfReflection { ... }` and `AgentEvent::Thinking` top-level
+  variants are removed. Self-reflection is now a regular tool invocation — the LLM
+  emits `AgentEvent::Model(ContentPart::ToolUse(ToolUse { name: "self_reflection", input }))`
+  and receives `AgentEvent::Model(ContentPart::ToolResult(...))`. Consumers observing
+  reflection events MUST match the tool-name field on `ContentPart::ToolUse` rather
+  than a dedicated variant. The HotMemory key pattern and reflection data shape are
+  unchanged.
+-->

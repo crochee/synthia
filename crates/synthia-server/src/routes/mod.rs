@@ -11,6 +11,7 @@ pub mod memory;
 pub mod providers;
 pub mod settings;
 pub mod skills;
+pub mod tasks;
 pub mod tool;
 
 pub use tool::{delete_tool, get_tool, list_tools, register_tool};

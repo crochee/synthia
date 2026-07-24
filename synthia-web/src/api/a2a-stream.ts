@@ -150,6 +150,10 @@ export function extractPartText(parts: ReadonlyArray<unknown> | undefined): stri
       if (p.content?.$case === 'text' && typeof p.content.value === 'string') {
         return p.content.value;
       }
+      if (p.content?.$case === 'data') {
+        const v = p.content.value as { text?: string } | undefined;
+        return typeof v?.text === 'string' ? v.text : '';
+      }
       if (p.kind === 'text' && typeof p.text === 'string') {
         return p.text;
       }
@@ -159,6 +163,17 @@ export function extractPartText(parts: ReadonlyArray<unknown> | undefined): stri
 }
 
 // 新增：消息片段类型
+//
+// The wire-side `kind` values emitted by Phase-5's `Part::data({ kind,
+// ...payload })` cover more event kinds than the legacy frontend
+// dispatch needs.  We keep the historical `SegmentType` union
+// (used by ChatPage.tsx CSS classes and merging logic) and map
+// the new wire `kind` values onto it via `wireKindToSegmentType`
+// in ChatPage.tsx.  New wire kinds that don't map cleanly
+// (model_image / model_audio / model_resource / warning /
+// recovery / usage / steering_message / guardian_confirm_* /
+// custom / agent_meta) fall through to the `'text'`
+// rendering branch until specific UIs are designed for them.
 export type SegmentType =
   | 'text'
   | 'text_delta'
@@ -170,11 +185,45 @@ export type SegmentType =
   | 'response_complete';
 
 export interface SegmentMetadata {
-  segment_type?: SegmentType;
+  /** Raw wire `kind` discriminator emitted by the new
+   *  `Part::data({ kind, ...payload })` shape.  Existing
+   *  rendering branches in ChatPage.tsx dispatch through
+   *  `wireKindToSegmentType` before consulting CSS class
+   *  suffixes, so unknown kinds degrade to `'text'`. */
+  kind?: SegmentType | string;
+  /** Common data-part payload fields. */
+  tool_use_id?: string;
   tool_name?: string;
+  text?: string;
+  signature?: string | null;
+  input?: unknown;
+  /** Warning payload. */
+  source?: string;
+  message?: string;
+  /** Recovery payload. */
+  level?: number;
+  /** Recovery / warning payload — coerced from `number | null`
+   *  at the wire boundary since the frontend renderer treats
+   *  null and undefined identically. */
   iteration?: number;
+  /** Progress payload. */
   step?: number;
   total?: number;
+  /** Hook(SteeringMessage) payload. */
+  priority?: number;
+  /** Hook(ConfirmResponse) payload. */
+  approved?: boolean;
+  /** Hook(Custom) payload. */
+  custom_kind?: string;
+  data?: unknown;
+  /** Agent(meta) envelope payload (when the inner event
+   *  is carried in a nested Part::data). */
+  parent_session_id?: string;
+  child_session_id?: string;
+  parent_depth?: number;
+  // Legacy shape kept for resilience against any residual
+  // event that still emits `metadata.segment_type`.
+  segment_type?: SegmentType;
 }
 
 export interface PartWithMetadata {
@@ -204,18 +253,41 @@ export function extractPartWithMetadata(
   let text = '';
   let metadata: SegmentMetadata | undefined = messageMetadata;
 
-  if (firstPart.content?.$case === 'text' && typeof firstPart.content.value === 'string') {
+  if (firstPart.content?.$case === 'data' && firstPart.content.value) {
+    // Phase-5 wire shape: `Part::data({ kind, ...payload })`.
+    // The payload object is the new metadata: it carries the
+    // `kind` discriminator plus the per-event fields.  We treat
+    // it as a SegmentMetadata so ChatPage.tsx can stay
+    // dispatch-on-`metadata.kind`-only.
+    const value = firstPart.content.value as SegmentMetadata & { text?: string };
+    if (typeof value.text === 'string') {
+      text = value.text;
+    }
+    // Coerce wire `null` to undefined for fields the frontend
+    // renderer treats uniformly (specifically `iteration`).
+    if (value.iteration === null) {
+      value.iteration = undefined;
+    }
+    metadata = value;
+  } else if (firstPart.content?.$case === 'text' && typeof firstPart.content.value === 'string') {
+    // Legacy text-only Part (StatusUpdate and any residual
+    // non-data events still use this shape).
     text = firstPart.content.value;
   } else if (firstPart.kind === 'text' && typeof firstPart.text === 'string') {
+    // v0.3.x compatibility — kept for resilience against drift.
     text = firstPart.text;
   }
 
-  // 从 part 的 metadata 字段提取元数据（优先级高于 message metadata）
+  // Legacy: some older v0.3 drafts placed metadata in
+  // `part.metadata`.  Kept as a tertiary fallback so we don't
+  // silently drop segments during migration.
   if (firstPart.metadata) {
     metadata = firstPart.metadata;
   }
 
-  // 检查 parts[1] 是否包含 metadata（用于某些事件中 metadata 在第二个位置的情况）
+  // Legacy: a few early events wrapped text + metadata across
+  // two parts (parts[0].text + parts[1].metadata).  Kept as a
+  // tertiary fallback.
   if (parts.length > 1) {
     const secondPart = parts[1] as {
       metadata?: SegmentMetadata;

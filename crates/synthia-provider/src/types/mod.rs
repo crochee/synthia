@@ -53,6 +53,7 @@ pub use content::{
     ContentPart,
     ImageContent,
     ImageDetail,
+    ReasoningContent,
     TextContent,
 };
 pub use message::Message;

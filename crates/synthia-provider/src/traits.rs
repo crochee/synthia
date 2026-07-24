@@ -43,6 +43,7 @@ pub fn completion_to_sampling(resp: &CompletionResponse) -> SamplingResult {
         text: text_parts.join(""),
         tool_calls,
         reasoning: reasoning_parts.join(""),
+        reasoning_signature: None,
         usage: resp.usage.clone(),
     }
 }

@@ -282,6 +282,7 @@ impl AnthropicProvider {
             ContentPart::Reasoning(rc) => {
                 AnthropicContentBlock::ThinkingBlock {
                     thinking: rc.text.clone(),
+                    signature: rc.signature.clone(),
                 }
             }
             ContentPart::Image(ic) => AnthropicContentBlock::Image {

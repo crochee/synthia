@@ -9,7 +9,6 @@ use tower_http::cors::CorsLayer;
 
 use crate::{
     approval::{list_approvals, resolve_approval, ws_approvals_handler},
-    auth::auth_middleware,
     config::server::CorsConfig,
     middleware::{auth::AuthLayer, tracing::RequestTracingLayer},
     routes,
@@ -85,6 +84,8 @@ pub async fn create_router(state: Arc<AppState>) -> Router {
     let api_routes = Router::new()
         // Models listing
         .route("/models", get(routes::health::list_models))
+        // A2A task list (management view backed by the shared task store)
+        .route("/tasks", get(routes::tasks::list_tasks))
         // Provider management
         .route(
             "/providers",
@@ -151,14 +152,12 @@ pub async fn create_router(state: Arc<AppState>) -> Router {
         .route(
             "/settings",
             get(routes::settings::get_settings).put(routes::settings::put_settings),
-        )
-        .layer(axum::middleware::from_fn(auth_middleware));
+        );
 
     // Approval routes
     let approval_routes = Router::new()
         .route("/", get(list_approvals))
-        .route("/{id}/resolve", post(resolve_approval))
-        .layer(axum::middleware::from_fn(auth_middleware));
+        .route("/{id}/resolve", post(resolve_approval));
 
     // A2A protocol: initialize the service eagerly so we can
     // extract the merged JSON-RPC + REST router for nest_service.
@@ -166,11 +165,16 @@ pub async fn create_router(state: Arc<AppState>) -> Router {
     // This ensures the SDK uses the same origin as the frontend (through Vite proxy).
     let a2a_service = state.a2a_service("".to_string()).await;
 
-    Router::new()
+    // WebSocket routes perform their own auth via `?token=xxx` query
+    // parameter (browser WS clients cannot set Authorization headers),
+    // so they must NOT be wrapped by the HTTP-style AuthLayer.
+    let ws_routes =
+        Router::new().route("/ws/approvals", get(ws_approvals_handler));
+
+    let protected = Router::new()
         // --- Infrastructure management (flat /api/) ---
         .nest("/api", api_routes)
         .nest("/api/approvals", approval_routes)
-        .route("/ws/approvals", get(ws_approvals_handler))
         .route("/health", get(routes::health::health_check))
         // --- A2A protocol: sole agent interaction interface ---
         .route(
@@ -178,8 +182,12 @@ pub async fn create_router(state: Arc<AppState>) -> Router {
             get(routes::a2a::get_agent_card),
         )
         .nest_service("/a2a", a2a_service.a2a_app())
+        .layer(AuthLayer::new(state.auth_config.clone()));
+
+    Router::new()
+        .merge(ws_routes)
+        .merge(protected)
         .layer(build_cors_layer(&state.cors_config))
         .layer(RequestTracingLayer)
-        .layer(AuthLayer::new(state.auth_config.clone()))
         .with_state(state)
 }

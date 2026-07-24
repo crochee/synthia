@@ -32,6 +32,54 @@ function normalizeTaskState(state: string): string {
   return stripped || 'unknown';
 }
 
+/**
+ * Map the Phase-5 wire `kind` discriminator to a legacy
+ * `SegmentType` so the existing rendering branches (CSS class
+ * suffixes, tool_block merge logic, response_complete handling,
+ * etc.) keep working without an overhaul.
+ *
+ * Recognised wire kinds:
+ *   model_text           → 'text'
+ *   model_reasoning      → 'thinking'
+ *   tool_call            → 'tool_call'
+ *   tool_result          → 'tool_result'
+ *   progress             → 'progress'
+ *   response_complete    → 'response_complete'
+ *   text / text_delta    → 'text' (legacy names preserved)
+ *   thinking             → 'thinking' (legacy name preserved)
+ *
+ * Wire kinds without a direct mapping (model_image,
+ * model_audio, model_resource, warning, recovery, usage,
+ * steering_message, guardian_confirm_request,
+ * guardian_confirm_response, custom, agent_meta) return
+ * undefined so callers can fall through to a plain-text
+ * rendering branch.  Callers substitute `'text'` as the
+ * default when undefined.
+ */
+function wireKindToSegmentType(kind?: string): SegmentType | undefined {
+  switch (kind) {
+    case 'model_text':
+      return 'text';
+    case 'model_reasoning':
+      return 'thinking';
+    case 'tool_call':
+      return 'tool_call';
+    case 'tool_result':
+      return 'tool_result';
+    case 'progress':
+      return 'progress';
+    case 'response_complete':
+      return 'response_complete';
+    case 'text':
+    case 'text_delta':
+      return 'text';
+    case 'thinking':
+      return 'thinking';
+    default:
+      return undefined;
+  }
+}
+
 const THINK_OPEN = '<think>';
 const THINK_CLOSE = '</think>';
 
@@ -575,6 +623,10 @@ export function ChatPage() {
   const [input, setInput] = useState('');
   const [isStreaming, setIsStreaming] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  // Ref for the message textarea so we can refocus it after
+  // the user submits — chat UIs feel sluggish if focus stays
+  // on the (now disabled) textarea or wanders to the body.
+  const inputRef = useRef<HTMLTextAreaElement>(null);
   // Per-stream parser that incrementally splits text deltas
   // into text / thinking segments based on `<think>` markers.
   const parserRef = useRef<ThinkingParser | null>(null);
@@ -679,6 +731,10 @@ export function ChatPage() {
     if (!cancelled) {
       setMessages(raw ? JSON.parse(raw) : []);
     }
+    // Initial focus on the input — chat UIs land here first,
+    // and a manual click is friction. Focus even on session
+    // restore: the user is choosing to open this view to type.
+    inputRef.current?.focus();
     return () => {
       cancelled = true;
     };
@@ -708,6 +764,11 @@ export function ChatPage() {
     setMessages((prev) => [...prev, userMessage]);
     setInput('');
     setIsStreaming(true);
+
+    // Restore focus to the input right after submit so the
+    // user can immediately type the next message without
+    // clicking back into the textarea.
+    inputRef.current?.focus();
 
     const assistantId = crypto.randomUUID();
     parserRef.current = new ThinkingParser();
@@ -756,6 +817,12 @@ export function ChatPage() {
       );
     } finally {
       setIsStreaming(false);
+      // Re-focus the textarea once streaming completes. The
+      // textarea is disabled during streaming so the user
+      // can't type while the model is generating, but as soon
+      // as the response lands they should be ready to send
+      // the next message without an extra click.
+      inputRef.current?.focus();
     }
   };
 
@@ -786,7 +853,8 @@ export function ChatPage() {
         if (statusMsg) {
           const { text, metadata } = extractFromMessage(statusMsg);
           if (text) {
-            const segmentType: SegmentType = metadata?.segment_type || 'text';
+            const wireKind = metadata?.kind;
+            const segmentType: SegmentType = wireKindToSegmentType(wireKind) || 'text';
             // tool_call / tool_result merge into the open
             // tool_block via appendSegment; everything else
             // appends as its own segment.
@@ -829,8 +897,9 @@ export function ChatPage() {
       case 'message': {
         if (!event.message) return;
         const { text, metadata } = extractFromMessage(event.message);
-        if (text || metadata?.segment_type === 'response_complete') {
-          const segmentType: SegmentType = metadata?.segment_type || 'text';
+        if (text || metadata?.kind === 'response_complete') {
+          const wireKind = metadata?.kind;
+          const segmentType: SegmentType = wireKindToSegmentType(wireKind) || 'text';
 
           if (segmentType === 'response_complete') {
             // Backend marker signalling the LLM has finished its
@@ -922,7 +991,8 @@ export function ChatPage() {
           event.artifactUpdate.artifact.metadata as SegmentMetadata | undefined,
         );
         if (text) {
-          const segmentType: SegmentType = metadata?.segment_type || 'text';
+          const wireKind = metadata?.kind;
+          const segmentType: SegmentType = wireKindToSegmentType(wireKind) || 'text';
           if (segmentType === 'tool_call' || segmentType === 'tool_result') {
             // Merge into the open tool_block so the call+result
             // pair renders as a single collapsible header.
@@ -1055,6 +1125,7 @@ export function ChatPage() {
 
       <form onSubmit={handleSubmit} className="nt-chat__form">
         <textarea
+          ref={inputRef}
           className="nt-chat__input"
           value={input}
           onChange={(e) => setInput(e.target.value)}

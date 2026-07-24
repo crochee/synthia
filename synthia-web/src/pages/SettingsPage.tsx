@@ -2,12 +2,8 @@ import { useEffect, useState } from 'react';
 import { Card } from '../components/ui/Card';
 import { Input } from '../components/ui/Input';
 import { Button } from '../components/ui/Button';
-
-interface Settings {
-  provider?: string;
-  model?: string;
-  apiKey?: string;
-}
+import { api } from '../api/client';
+import type { Settings } from '../api/types';
 
 export function SettingsPage() {
   const [settings, setSettings] = useState<Settings>({});
@@ -16,13 +12,16 @@ export function SettingsPage() {
 
   useEffect(() => {
     let cancelled = false;
-    fetch('/api/settings')
-      .then((res) => (res.ok ? res.json() : null))
-      .then((body: { data?: Settings } | null) => {
-        if (cancelled || !body?.data) return;
-        setSettings(body.data);
+    api
+      .get<Settings>('/api/settings')
+      .then((data) => {
+        if (cancelled) return;
+        setSettings(data);
       })
-      .catch(() => undefined);
+      .catch((e: Error) => {
+        if (cancelled) return;
+        setError(e.message);
+      });
     return () => {
       cancelled = true;
     };
@@ -32,13 +31,8 @@ export function SettingsPage() {
     setSaved(false);
     setError(null);
     try {
-      const res = await fetch('/api/settings', {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(settings),
-      });
-      if (res.ok) setSaved(true);
-      else setError(`Save failed: HTTP ${res.status}`);
+      await api.put<Settings>('/api/settings', settings);
+      setSaved(true);
     } catch (e) {
       setError((e as Error).message);
     }

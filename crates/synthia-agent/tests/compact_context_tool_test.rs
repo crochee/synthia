@@ -24,12 +24,19 @@ use futures::StreamExt;
 use synthia_agent::{
     agent::Agent,
     config::AgentConfig,
+    events::{SystemEvent, WarningKind},
     tools::CompactContextTool,
     types::*,
 };
 use synthia_core::{Registry, RegistryItem};
 use synthia_hook::HookRegistry;
-use synthia_provider::types::{ContentPart, StreamChunk, TextContent, ToolUse};
+use synthia_provider::types::{
+    ContentPart,
+    StreamChunk,
+    TextContent,
+    ToolResult,
+    ToolUse,
+};
 use synthia_session::types::TokenBudget;
 use synthia_tool::registry::{ToolEntry, ToolRegistry};
 use test_support::{FakeProvider, FakeTool, make_run_config};
@@ -148,30 +155,62 @@ async fn compact_context_llm_call_dispatches_through_tool_path() {
     let events: Vec<AgentEvent> = Agent::run_stream(run_config).collect().await;
 
     let started = events.iter().any(|e| {
-        matches!(e, AgentEvent::ToolCallStarted { tool_name, .. } if tool_name == "compact_context")
+        matches!(
+            e,
+            AgentEvent::Model(ContentPart::ToolUse(ToolUse { name, .. }))
+                if name == "compact_context"
+        )
     });
-    assert!(started, "expected ToolCallStarted for compact_context");
+    assert!(started, "expected ToolUse for compact_context");
 
     let completed = events.iter().find(|e| {
-        matches!(e, AgentEvent::ToolCallCompleted { tool_name, .. } if tool_name == "compact_context")
+        matches!(
+            e,
+            AgentEvent::Model(ContentPart::ToolResult(ToolResult {
+                tool_use_id,
+                ..
+            })) if tool_use_id.starts_with("call-compact_context")
+        )
     });
     assert!(
         completed.is_some(),
-        "expected ToolCallCompleted for compact_context"
+        "expected ToolResult for compact_context"
     );
-    if let AgentEvent::ToolCallCompleted { output, .. } = completed.unwrap() {
+    if let AgentEvent::Model(ContentPart::ToolResult(ToolResult {
+        content,
+        ..
+    })) = completed.unwrap()
+    {
+        let combined: String = content
+            .iter()
+            .filter_map(|p| {
+                if let ContentPart::Text(TextContent { text, .. }) = p {
+                    Some(text.clone())
+                } else {
+                    None
+                }
+            })
+            .collect();
         assert!(
-            output.contains("Compaction requested"),
-            "expected facade acknowledgement, got: {output}"
+            combined.contains("Compaction requested"),
+            "expected facade acknowledgement, got: {combined}"
         );
     }
 
-    let compacted = events
-        .iter()
-        .any(|e| matches!(e, AgentEvent::ContextCompacted { .. }));
+    // ContextCompacted is no longer its own event in Phase 2 —
+    // context compaction is a Warning(kind=ContextCompaction) system event.
+    let compacted = events.iter().any(|e| {
+        matches!(
+            e,
+            AgentEvent::System(SystemEvent::Warning {
+                kind: WarningKind::ContextCompaction,
+                ..
+            })
+        )
+    });
     assert!(
         compacted,
-        "expected at least one ContextCompacted event, got: {:?}",
+        "expected at least one ContextCompaction warning event, got: {:?}",
         events
     );
 }
@@ -206,16 +245,26 @@ async fn compact_context_llm_call_with_reason() {
     let events: Vec<AgentEvent> = Agent::run_stream(run_config).collect().await;
 
     let started = events.iter().any(|e| {
-        matches!(e, AgentEvent::ToolCallStarted { tool_name, .. } if tool_name == "compact_context")
+        matches!(
+            e,
+            AgentEvent::Model(ContentPart::ToolUse(ToolUse { name, .. }))
+                if name == "compact_context"
+        )
     });
-    assert!(started, "expected ToolCallStarted for compact_context");
+    assert!(started, "expected ToolUse for compact_context");
 
-    let compacted = events
-        .iter()
-        .any(|e| matches!(e, AgentEvent::ContextCompacted { .. }));
+    let compacted = events.iter().any(|e| {
+        matches!(
+            e,
+            AgentEvent::System(SystemEvent::Warning {
+                kind: WarningKind::ContextCompaction,
+                ..
+            })
+        )
+    });
     assert!(
         compacted,
-        "expected ContextCompacted when LLM calls compact_context with reason"
+        "expected ContextCompaction warning when LLM calls compact_context with reason"
     );
 }
 
@@ -248,12 +297,18 @@ async fn compact_context_auto_triggers_at_80_percent() {
 
     let events: Vec<AgentEvent> = Agent::run_stream(run_config).collect().await;
 
-    let compacted = events
-        .iter()
-        .any(|e| matches!(e, AgentEvent::ContextCompacted { .. }));
+    let compacted = events.iter().any(|e| {
+        matches!(
+            e,
+            AgentEvent::System(SystemEvent::Warning {
+                kind: WarningKind::ContextCompaction,
+                ..
+            })
+        )
+    });
     assert!(
         compacted,
-        "expected auto-triggered ContextCompacted at >80% ratio, got: {:?}",
+        "expected auto-triggered ContextCompaction warning at >80% ratio, got: {:?}",
         events
     );
 }
@@ -291,27 +346,41 @@ async fn compact_context_llm_call_does_not_disable_auto_trigger() {
 
     let events: Vec<AgentEvent> = Agent::run_stream(run_config).collect().await;
 
-    // Iter 1: LLM called compact_context (one ToolCallStarted).
+    // Iter 1: LLM called compact_context (one ToolUse).
     let compact_starts: Vec<_> = events
         .iter()
         .filter(|e| {
-            matches!(e, AgentEvent::ToolCallStarted { tool_name, .. } if tool_name == "compact_context")
+            matches!(
+                e,
+                AgentEvent::Model(ContentPart::ToolUse(ToolUse {
+                    name,
+                    ..
+                })) if name == "compact_context"
+            )
         })
         .collect();
     assert_eq!(
         compact_starts.len(),
         1,
-        "expected exactly one compact_context ToolCallStarted"
+        "expected exactly one compact_context ToolUse"
     );
 
-    // At least one ContextCompacted (from iter 2 auto-trigger).
+    // At least one ContextCompaction warning (from iter 2 auto-trigger).
     let compacted: Vec<_> = events
         .iter()
-        .filter(|e| matches!(e, AgentEvent::ContextCompacted { .. }))
+        .filter(|e| {
+            matches!(
+                e,
+                AgentEvent::System(SystemEvent::Warning {
+                    kind: WarningKind::ContextCompaction,
+                    ..
+                })
+            )
+        })
         .collect();
     assert!(
         !compacted.is_empty(),
-        "expected at least one ContextCompacted from auto-trigger, got: {:?}",
+        "expected at least one ContextCompaction warning from auto-trigger, got: {:?}",
         events
     );
 }
@@ -348,12 +417,20 @@ async fn compact_context_same_iteration_dedup() {
 
     let compacted: Vec<_> = events
         .iter()
-        .filter(|e| matches!(e, AgentEvent::ContextCompacted { .. }))
+        .filter(|e| {
+            matches!(
+                e,
+                AgentEvent::System(SystemEvent::Warning {
+                    kind: WarningKind::ContextCompaction,
+                    ..
+                })
+            )
+        })
         .collect();
     assert_eq!(
         compacted.len(),
         1,
-        "expected exactly one ContextCompacted (dedup), got {} events: {:?}",
+        "expected exactly one ContextCompaction warning (dedup), got {} events: {:?}",
         compacted.len(),
         events
     );

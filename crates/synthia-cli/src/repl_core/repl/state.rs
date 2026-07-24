@@ -4,6 +4,7 @@
 //! the state-update logic is easy to audit in one place.
 
 use synthia_agent::{AgentEvent, TokenUsage};
+use synthia_provider::types::ContentPart;
 
 use super::types::SessionState;
 
@@ -37,14 +38,13 @@ impl SessionState {
     /// Update state from an agent event.
     pub fn update(&mut self, event: &AgentEvent) {
         match event {
-            AgentEvent::IterationStarted { iteration } => {
-                self.iteration_count = *iteration;
-            }
-            AgentEvent::ToolCallStarted { .. } => {
+            // IterationStarted is no longer a wire event — the REPL derives
+            // iteration count from session/agent lifecycle instead.
+            AgentEvent::Model(ContentPart::ToolUse(_)) => {
                 self.tool_call_count += 1;
             }
-            AgentEvent::LlmResponseComplete { usage, .. } => {
-                self.token_usage = usage.clone();
+            AgentEvent::ModelDone(sampling) => {
+                self.token_usage = sampling.usage.clone();
             }
             _ => {}
         }

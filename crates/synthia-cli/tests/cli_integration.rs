@@ -95,20 +95,32 @@ fn test_repl_format_event_with_themes() {
     let repl = Repl::new(PathBuf::from("/tmp"));
 
     // Test tool call events use theme colors
-    use synthia_agent::types::AgentEvent;
-
-    let tool_start = AgentEvent::ToolCallStarted {
-        tool_name: "search".to_string(),
-        input: serde_json::json!({"query": "test"}),
+    use synthia_agent::AgentEvent;
+    use synthia_provider::types::{
+        ContentPart,
+        TextContent,
+        ToolResult,
+        ToolUse,
     };
+
+    let tool_start = AgentEvent::Model(ContentPart::ToolUse(ToolUse {
+        id: "tu_1".into(),
+        name: "search".into(),
+        input: serde_json::json!({"query": "test"}),
+    }));
     let formatted = strip_ansi(&repl.format_event(&tool_start));
     assert!(formatted.contains("[TOOL: search]"));
 
-    let tool_complete = AgentEvent::ToolCallCompleted {
-        tool_name: "search".to_string(),
-        output: "results here".to_string(),
-        is_error: false,
-    };
+    let tool_complete =
+        AgentEvent::Model(ContentPart::ToolResult(ToolResult {
+            tool_use_id: "tu_1".into(),
+            content: vec![ContentPart::Text(TextContent {
+                text: "results here".into(),
+                cache_control: None,
+            })],
+            structured_content: None,
+            is_error: Some(false),
+        }));
     let formatted = strip_ansi(&repl.format_event(&tool_complete));
     assert!(formatted.contains("[TOOL: search]"));
     assert!(formatted.contains("results"));

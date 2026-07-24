@@ -57,12 +57,10 @@ impl Agent {
                     }
                     _ => {
                         return Box::pin(futures::stream::once(async move {
-                            AgentEvent::Warning {
-                                message: format!(
-                                    "No checkpoint or session data found for session '{}', cannot resume",
-                                    session_id
-                                ),
-                            }
+                            AgentEvent::warning(format!(
+                                "No checkpoint or session data found for session '{}', cannot resume",
+                                session_id
+                            ))
                         }));
                     }
                 },

@@ -1,230 +1,54 @@
-//! The serde-tagged [`AgentEvent`] enum + 3 helper
-//! constructors ([`AgentEvent::thinking`] /
-//! [`AgentEvent::progress`] / [`AgentEvent::warning`]).
+//! The serde-tagged [`AgentEvent`] enum collapsed to five top-level
+//! variants.
+//!
+//! - [`AgentEvent::Model`] — Provider [`synthia_provider::ContentPart`]
+//!   pass-through for raw streaming chunks (text, reasoning, tool
+//!   use, tool result, image, audio, resource).
+//! - [`AgentEvent::ModelDone`] — Final aggregated
+//!   [`synthia_provider::SamplingResult`].
+//! - [`AgentEvent::System`] — Lifecycle and diagnostic state changes
+//!   (see [`SystemEvent`]).
+//! - [`AgentEvent::Agent`] — Recursive subagent trace wrapped with
+//!   [`AgentMeta`].
+//! - [`AgentEvent::Hook`] — External injection and custom events (see
+//!   [`HookEvent`]).
 
 use serde::{Deserialize, Serialize};
+use synthia_provider::{ContentPart, SamplingResult};
 
 use super::{
-    TokenUsage,
-    reasons::{AgentStatus, SessionEndReason},
+    agent_meta::AgentMeta,
+    hook_event::HookEvent,
+    system_event::{SystemEvent, WarningKind},
 };
 
-/// Events emitted by the agent during a session
-/// lifecycle. Serialized with serde internally tagged
-/// for dispatch.
+/// Events emitted by the agent during a session lifecycle. Serialized
+/// with serde internally tagged for dispatch.
+///
+/// See module-level docs and the spec table in
+/// `openspec/changes/simplify-agent-event-stream/specs/agent-event-bus/spec.md`
+/// for the canonical wire format.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(tag = "type", content = "data")]
 pub enum AgentEvent {
-    SessionStarted {
-        session_id: String,
-    },
-    SessionEnded {
-        reason: SessionEndReason,
-    },
-    LlmRequestStarted {
-        iteration: usize,
-    },
-    LlmStreamDelta {
-        content: String,
-    },
-    LlmReasoningDelta {
-        delta: String,
-    },
-    LlmResponseComplete {
-        content: String,
-        usage: TokenUsage,
-    },
-    LlmError {
-        error: String,
-    },
-    ToolCallStarted {
-        tool_name: String,
-        input: serde_json::Value,
-    },
-    ToolCallCompleted {
-        tool_name: String,
-        output: String,
-        is_error: bool,
-    },
-    ToolCallSkipped {
-        tool_name: String,
-        reason: String,
-    },
-    ToolCallError {
-        tool_name: String,
-        error: String,
-    },
-    IterationStarted {
-        iteration: usize,
-    },
-    IterationCompleted {
-        iteration: usize,
-    },
-    Thinking {
-        text: String,
-        iteration: usize,
-    },
-    ContextCompacted {
-        old_tokens: usize,
-        new_tokens: usize,
-    },
-    Checkpoint {
-        session_id: String,
-        step: usize,
-    },
-    StateChange {
-        from: String,
-        to: String,
-    },
-    Warning {
-        message: String,
-    },
-    Progress {
-        message: String,
-        step: usize,
-        total: usize,
-    },
-    SessionInterrupted {
-        reason: String,
-    },
-    Finish {
-        output: String,
-    },
-    GuardianWarning {
-        reason: String,
-        iteration: usize,
-    },
-    LoopWarning {
-        reason: String,
-        iteration: usize,
-    },
-    /// Recovery action applied during the agent loop. Emitted for every
-    /// L1 truncation, L3 fallback, L4 compact, and L5 reset so external
-    /// observers (telemetry, UI, tests) can see *why* the session did
-    /// not abort despite a tool/LLM error.
+    /// A streaming chunk from the model.
     ///
-    /// `level_number`: 1 = Truncate, 2 = Retry, 3 = Fallback, 4 = Compact,
-    ///                 5 = Reset. `u32` is used instead of
-    /// `crate::error_recovery::RecoveryLevel` to keep the public event
-    /// wire format stable and independent of the recovery module's
-    /// internal enums (which the archive specs constrain).
-    ///
-    /// `tool_name`: `Some(name)` for tool-specific recovery; the LLM
-    /// sampling path uses the synthetic `Some("llm_sample")` so the
-    /// field is never `None` (preserves the spec invariant
-    /// "tool_name is Some('llm_sample') for LLM-only recovery").
-    RecoveryApplied {
-        level_number: u32,
-        tool_name: Option<String>,
-        message: String,
-        iteration: usize,
-    },
-    TokenBudgetNotice {
-        status: String,
-        current_tokens: usize,
-        threshold_tokens: usize,
-    },
-    TokenBudgetWarning {
-        status: String,
-        current_tokens: usize,
-        threshold_tokens: usize,
-    },
-    SteeringReceived {
-        message: String,
-        session_id: String,
-        /// Steering priority, if available. Preserved from the queued
-        /// input so consumers can observe or re-sort by urgency.
-        #[serde(default)]
-        priority: Option<i32>,
-    },
-    HookError {
-        hook_name: String,
-        error: String,
-        hook_type: String,
-    },
-    GuardianConfirmationRequest {
-        tool_name: String,
-        reason: String,
-    },
-    EditConflict {
-        tool_name: String,
-        call_id: String,
-        path: String,
-        original_content_hash: u64,
-        current_content_hash: u64,
-    },
-    SelfReflection {
-        iteration: usize,
-        summary: String,
-        issues: Vec<String>,
-        suggestions: Vec<String>,
-    },
-
-    // Subagent lifecycle events (Phase 5)
-    SubagentSpawnBegin {
-        session_id: String,
-        agent_path: String,
-    },
-    SubagentSpawnEnd {
-        session_id: String,
-        agent_path: String,
-        success: bool,
-        error: Option<String>,
-    },
-    SubagentMessage {
-        session_id: String,
-        agent_path: String,
-        message: String,
-    },
-    /// Emitted for inline (foreground) subagent completion. Carries the
-    /// full result and `agent_path` for direct callers.
-    ///
-    /// Distinct from [`AgentEvent::SubagentCompleted`], which is an
-    /// ephemeral best-effort notification with a truncated summary sent
-    /// to the parent's event stream when a (typically background)
-    /// subagent finishes.
-    SubagentComplete {
-        session_id: String,
-        agent_path: String,
-        result: String,
-    },
-    /// Emitted when a background subagent completes (success or error).
-    /// Wrapped in [`AgentEvent::SubagentEvent`] and forwarded to the
-    /// parent's event stream via
-    /// [`crate::subagent::ChildSessionHandle::parent_event_sender`].
-    ///
-    /// `result_summary` is the first 500 characters of the subagent's
-    /// final output or error message, truncated at a valid UTF-8
-    /// boundary with a trailing `"… [truncated]"` indicator when
-    /// truncation occurred (per the `subagent-background-mode` spec).
-    ///
-    /// This is an ephemeral notification: it is NOT durable (the parent
-    /// does not need to replay it to reconstruct state) and is distinct
-    /// from [`AgentEvent::SubagentComplete`], which carries the full
-    /// result for inline (foreground) callers.
-    SubagentCompleted {
-        session_id: String,
-        result_summary: String,
-    },
-    /// A raw event emitted by a child (subagent) session, wrapped so
-    /// that observers of the parent session see the whole session tree
-    /// without opening multiple connections.
-    #[serde(rename = "subagent_event")]
-    SubagentEvent {
-        child_session_id: String,
-        event: Box<AgentEvent>,
-    },
-    /// Agent status change event.
-    Status(AgentStatus),
-    /// Custom event emitted by extensions or plugins.
-    ///
-    /// Mirrors pi-mono `extensions/types.ts` `CustomEvent` support.
-    /// `event_type` is a free-form string that identifies the kind of
-    /// custom event; `data` carries arbitrary JSON payload.
-    Custom {
-        event_type: String,
-        data: serde_json::Value,
-    },
+    /// This is the pass-through carrier for `ContentPart` — text deltas,
+    /// reasoning deltas, tool use, tool result, image, audio, resource —
+    /// encoded verbatim from the Provider.
+    Model(ContentPart),
+    /// Final aggregated result of one model sampling pass (text, tool
+    /// calls, reasoning, usage).
+    ModelDone(SamplingResult),
+    /// Lifecycle, diagnostic, and terminal state changes that are not
+    /// user-visible streaming content.
+    System(SystemEvent),
+    /// A child (subagent) trace carrying the inner [`AgentEvent`] plus
+    /// the [`AgentMeta`] that ties it back to its parent session.
+    Agent(AgentMeta, Box<AgentEvent>),
+    /// External injection (user steering, guardian confirmations) and
+    /// extension custom events.
+    Hook(HookEvent),
 }
 
 impl AgentEvent {
@@ -232,56 +56,110 @@ impl AgentEvent {
     ///
     /// Durable events must be replayed to reconstruct `LoopContext` or
     /// `TurnTask` state. Ephemeral events (`is_durable() == false`) are
-    /// observable side-effects (streaming deltas, progress, warnings) that
-    /// can be skipped during replay without affecting projected state.
+    /// observable side-effects (streaming deltas, progress, warnings)
+    /// that can be skipped during replay without affecting projected
+    /// state.
+    ///
+    /// Per the `event-durability-classification` spec:
+    /// - Durable: `Model(Text | ToolUse | ToolResult | Resource)`
+    /// - Ephemeral: everything else, including `Model(Reasoning | Image | Audio)`,
+    ///   `ModelDone`, every `System` variant, every `Hook` variant,
+    ///   and the `Agent(meta, inner)` recursive wrapper (its inner
+    ///   event's durability is decided by recursively unwrapping).
     pub fn is_durable(&self) -> bool {
-        matches!(
-            self,
-            Self::SessionStarted { .. }
-                | Self::SessionEnded { .. }
-                | Self::LlmRequestStarted { .. }
-                | Self::LlmResponseComplete { .. }
-                | Self::ToolCallStarted { .. }
-                | Self::ToolCallCompleted { .. }
-                | Self::ToolCallSkipped { .. }
-                | Self::ToolCallError { .. }
-                | Self::IterationStarted { .. }
-                | Self::ContextCompacted { .. }
-                | Self::Checkpoint { .. }
-                | Self::StateChange { .. }
-                | Self::RecoveryApplied { .. }
-                | Self::Status(..)
-                | Self::SteeringReceived { .. }
-                | Self::GuardianConfirmationRequest { .. }
-                | Self::SubagentSpawnBegin { .. }
-                | Self::SubagentSpawnEnd { .. }
-                | Self::SubagentComplete { .. }
-                | Self::Finish { .. }
-        )
-    }
-
-    pub fn thinking(text: impl Into<String>, iteration: usize) -> Self {
-        Self::Thinking {
-            text: text.into(),
-            iteration,
+        match self {
+            Self::Model(ContentPart::Text(_))
+            | Self::Model(ContentPart::ToolUse(_))
+            | Self::Model(ContentPart::ToolResult(_))
+            | Self::Model(ContentPart::Resource(_)) => true,
+            Self::Model(_)
+            | Self::ModelDone(_)
+            | Self::System(_)
+            | Self::Hook(_) => false,
+            Self::Agent(_, inner) => inner.is_durable(),
         }
     }
 
+    /// Convenience constructor for an ephemeral text delta.
+    pub fn text_delta(text: impl Into<String>) -> Self {
+        Self::Model(ContentPart::Text(synthia_provider::TextContent {
+            text: text.into(),
+            cache_control: None,
+        }))
+    }
+
+    /// Convenience constructor for an ephemeral reasoning delta.
+    pub fn reasoning_delta(
+        text: impl Into<String>,
+        signature: Option<String>,
+    ) -> Self {
+        Self::Model(ContentPart::Reasoning(
+            synthia_provider::ReasoningContent {
+                text: text.into(),
+                signature,
+            },
+        ))
+    }
+
+    /// Convenience constructor for a system-level progress event.
     pub fn progress(
         message: impl Into<String>,
         step: usize,
         total: usize,
     ) -> Self {
-        Self::Progress {
+        Self::System(SystemEvent::Progress {
             message: message.into(),
             step,
             total,
-        }
+        })
     }
 
+    /// Convenience constructor for a system-level warning.
     pub fn warning(message: impl Into<String>) -> Self {
-        Self::Warning {
+        Self::System(SystemEvent::Warning {
+            kind: WarningKind::Hook,
             message: message.into(),
-        }
+            iteration: None,
+        })
+    }
+
+    /// Convenience constructor for a system-level warning of an
+    /// arbitrary [`WarningKind`].
+    pub fn warning_kind(kind: WarningKind, message: impl Into<String>) -> Self {
+        Self::System(SystemEvent::Warning {
+            kind,
+            message: message.into(),
+            iteration: None,
+        })
+    }
+
+    /// Convenience constructor for a [`SystemEvent::Recovery`].
+    pub fn recovery(
+        level_number: u32,
+        tool_name: Option<String>,
+        message: impl Into<String>,
+        iteration: Option<usize>,
+    ) -> Self {
+        Self::System(SystemEvent::Recovery {
+            level_number,
+            tool_name,
+            message: message.into(),
+            iteration,
+        })
+    }
+
+    /// Convenience constructor for a [`SystemEvent::Usage`].
+    pub fn usage(
+        input_tokens: usize,
+        output_tokens: usize,
+        cache_read_tokens: Option<usize>,
+        cache_creation_tokens: Option<usize>,
+    ) -> Self {
+        Self::System(SystemEvent::Usage {
+            input_tokens,
+            output_tokens,
+            cache_read_tokens,
+            cache_creation_tokens,
+        })
     }
 }

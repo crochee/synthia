@@ -6,7 +6,10 @@
 
 use std::{sync::Arc, time::Duration};
 
-use synthia_agent::types::{AgentEvent, SessionEndReason};
+use synthia_agent::{
+    events::{HookEvent, SystemEvent},
+    types::{AgentEvent, SessionEndReason},
+};
 use synthia_provider::types::CompletionResponse;
 use synthia_server::{session::controller::SessionOp, state::AppState};
 use synthia_session::manager::SessionManager;
@@ -82,7 +85,7 @@ async fn run_prompt_and_collect_events(
                 events.push(event);
                 if matches!(
                     events.last(),
-                    Some(AgentEvent::SessionEnded { .. })
+                    Some(AgentEvent::System(SystemEvent::SessionEnded { .. }))
                 ) {
                     break;
                 }
@@ -127,7 +130,9 @@ async fn run_prompt_until_ended(
             break;
         }
         match tokio::time::timeout(remaining, rx.recv()).await {
-            Ok(Ok(AgentEvent::SessionEnded { .. })) => break,
+            Ok(Ok(AgentEvent::System(SystemEvent::SessionEnded {
+                ..
+            }))) => break,
             Ok(Err(_)) => break,
             Err(_) => break,
             _ => {}
@@ -157,15 +162,14 @@ async fn test_e2e_prompt_submits_and_emits_session_events() {
     )
     .await;
 
-    let has_session_started = events
-        .iter()
-        .any(|e| matches!(e, AgentEvent::SessionStarted { .. }));
-    let has_llm_response = events
-        .iter()
-        .any(|e| matches!(e, AgentEvent::LlmResponseComplete { .. }));
-    let has_session_ended = events
-        .iter()
-        .any(|e| matches!(e, AgentEvent::SessionEnded { .. }));
+    let has_session_started = events.iter().any(|e| {
+        matches!(e, AgentEvent::System(SystemEvent::SessionStarted { .. }))
+    });
+    let has_llm_response =
+        events.iter().any(|e| matches!(e, AgentEvent::ModelDone(_)));
+    let has_session_ended = events.iter().any(|e| {
+        matches!(e, AgentEvent::System(SystemEvent::SessionEnded { .. }))
+    });
 
     assert!(has_session_started, "Should receive SessionStarted event");
     assert!(has_llm_response, "Should receive LlmResponseComplete event");
@@ -173,7 +177,7 @@ async fn test_e2e_prompt_submits_and_emits_session_events() {
 
     // Verify the SessionEnded reason is Completed
     let session_ended = events.iter().find_map(|e| {
-        if let AgentEvent::SessionEnded { reason } = e {
+        if let AgentEvent::System(SystemEvent::SessionEnded { reason }) = e {
             Some(reason.clone())
         } else {
             None
@@ -304,14 +308,15 @@ async fn test_e2e_event_lifecycle_order() {
     let durable_types: Vec<&str> = events
         .iter()
         .map(|e| match e {
-            AgentEvent::SessionStarted { .. } => "SessionStarted",
-            AgentEvent::IterationStarted { .. } => "IterationStarted",
-            AgentEvent::LlmRequestStarted { .. } => "LlmRequestStarted",
-            AgentEvent::LlmResponseComplete { .. } => "LlmResponseComplete",
-            AgentEvent::IterationCompleted { .. } => "IterationCompleted",
-            AgentEvent::SessionEnded { .. } => "SessionEnded",
-            AgentEvent::Finish { .. } => "Finish",
-            AgentEvent::SteeringReceived { .. } => "SteeringReceived",
+            AgentEvent::System(SystemEvent::SessionStarted { .. }) => {
+                "SessionStarted"
+            }
+            AgentEvent::System(SystemEvent::SessionEnded { .. }) => {
+                "SessionEnded"
+            }
+            AgentEvent::System(SystemEvent::Recovery { .. }) => "Recovery",
+            AgentEvent::ModelDone(_) => "LlmResponseComplete",
+            AgentEvent::Hook(HookEvent::Message { .. }) => "SteeringReceived",
             _ => "Other",
         })
         .filter(|t| *t != "Other")

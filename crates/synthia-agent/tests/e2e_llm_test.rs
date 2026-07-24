@@ -29,7 +29,12 @@
 use std::{path::PathBuf, sync::Arc};
 
 use futures::StreamExt;
-use synthia_agent::{agent::Agent, config::AgentConfig, types::AgentEvent};
+use synthia_agent::{
+    AgentEvent,
+    agent::Agent,
+    config::AgentConfig,
+    events::SystemEvent,
+};
 use synthia_hook::HookRegistry;
 use synthia_provider::{
     CachePolicy,
@@ -44,6 +49,7 @@ use synthia_provider::{
         TextContent,
         ToolChoice,
         ToolDefinition,
+        ToolResult,
         ToolUse,
     },
 };
@@ -257,16 +263,15 @@ async fn test_agent_react_loop_basic() {
 
     assert!(!events.is_empty(), "No events were emitted");
     assert!(
-        events
-            .iter()
-            .any(|e| matches!(e, AgentEvent::SessionStarted { .. })),
+        events.iter().any(|e| matches!(
+            e,
+            AgentEvent::System(SystemEvent::SessionStarted { .. })
+        )),
         "SessionStarted event not found"
     );
     assert!(
-        events
-            .iter()
-            .any(|e| matches!(e, AgentEvent::LlmResponseComplete { .. })),
-        "LlmResponseComplete event not found"
+        events.iter().any(|e| matches!(e, AgentEvent::ModelDone(_))),
+        "ModelDone (final sampling result) event not found"
     );
 }
 
@@ -317,12 +322,22 @@ async fn test_agent_tool_call() {
 
     let events: Vec<AgentEvent> = Agent::run_stream(run_config).collect().await;
 
-    let tool_call_started = events
-        .iter()
-        .any(|e| matches!(e, AgentEvent::ToolCallStarted { tool_name, .. } if tool_name == "glob"));
-    let tool_call_completed = events
-        .iter()
-        .any(|e| matches!(e, AgentEvent::ToolCallCompleted { tool_name, .. } if tool_name == "glob"));
+    let tool_call_started = events.iter().any(|e| {
+        matches!(
+            e,
+            AgentEvent::Model(ContentPart::ToolUse(ToolUse { name, .. }))
+                if name == "glob"
+        )
+    });
+    let tool_call_completed = events.iter().any(|e| {
+        matches!(
+            e,
+            AgentEvent::Model(ContentPart::ToolResult(ToolResult {
+                tool_use_id: id,
+                ..
+            })) if id == "call_1"
+        )
+    });
 
     assert!(tool_call_started, "ToolCallStarted(glob) event not found");
     assert!(
@@ -330,9 +345,10 @@ async fn test_agent_tool_call() {
         "ToolCallCompleted(glob) event not found"
     );
     assert!(
-        events
-            .iter()
-            .any(|e| matches!(e, AgentEvent::SessionEnded { .. })),
+        events.iter().any(|e| matches!(
+            e,
+            AgentEvent::System(SystemEvent::SessionEnded { .. })
+        )),
         "Agent should complete with SessionEnded"
     );
 }
@@ -391,8 +407,12 @@ async fn test_agent_multi_tool_in_turn() {
     let started_names: Vec<&str> = events
         .iter()
         .filter_map(|e| {
-            if let AgentEvent::ToolCallStarted { tool_name, .. } = e {
-                Some(tool_name.as_str())
+            if let AgentEvent::Model(ContentPart::ToolUse(ToolUse {
+                name,
+                ..
+            })) = e
+            {
+                Some(name.as_str())
             } else {
                 None
             }
@@ -401,16 +421,17 @@ async fn test_agent_multi_tool_in_turn() {
 
     assert!(
         started_names.contains(&"glob"),
-        "ToolCallStarted(glob) missing: {started_names:?}"
+        "ToolUse(glob) missing: {started_names:?}"
     );
     assert!(
         started_names.contains(&"grep"),
-        "ToolCallStarted(grep) missing: {started_names:?}"
+        "ToolUse(grep) missing: {started_names:?}"
     );
     assert!(
-        events
-            .iter()
-            .any(|e| matches!(e, AgentEvent::SessionEnded { .. })),
+        events.iter().any(|e| matches!(
+            e,
+            AgentEvent::System(SystemEvent::SessionEnded { .. })
+        )),
         "Agent should complete with SessionEnded"
     );
 }
@@ -444,29 +465,29 @@ async fn test_event_stream_ordering() {
     // SessionStarted must appear before SessionEnded.
     let first_idx = events
         .iter()
-        .position(|e| matches!(e, AgentEvent::SessionStarted { .. }))
+        .position(|e| {
+            matches!(e, AgentEvent::System(SystemEvent::SessionStarted { .. }))
+        })
         .expect("SessionStarted not found");
     let last_idx = events
         .iter()
-        .rposition(|e| matches!(e, AgentEvent::SessionEnded { .. }))
+        .rposition(|e| {
+            matches!(e, AgentEvent::System(SystemEvent::SessionEnded { .. }))
+        })
         .expect("SessionEnded not found");
     assert!(
         first_idx < last_idx,
         "SessionStarted should come before SessionEnded"
     );
 
-    // LLM request/response events should bracket the call: LlmRequestStarted
-    // before LlmResponseComplete.
-    let req_idx = events
-        .iter()
-        .position(|e| matches!(e, AgentEvent::LlmRequestStarted { .. }))
-        .expect("LlmRequestStarted not found");
+    // The final aggregated `ModelDone` (sampling result) must appear
+    // between SessionStarted and SessionEnded.
     let resp_idx = events
         .iter()
-        .position(|e| matches!(e, AgentEvent::LlmResponseComplete { .. }))
-        .expect("LlmResponseComplete not found");
+        .position(|e| matches!(e, AgentEvent::ModelDone(_)))
+        .expect("ModelDone not found");
     assert!(
-        req_idx < resp_idx,
-        "LlmRequestStarted should come before LlmResponseComplete"
+        first_idx < resp_idx && resp_idx < last_idx,
+        "ModelDone ({resp_idx}) should come between SessionStarted ({first_idx}) and SessionEnded ({last_idx})"
     );
 }

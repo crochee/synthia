@@ -6,8 +6,8 @@ TBD - created by archiving change agent-event-ephemeral-classification. Update P
 ### Requirement: AgentEvent durability method
 
 The `AgentEvent` enum SHALL expose a method `is_durable(&self) -> bool`
-that returns `true` for event variants whose replay mutates `LoopContext`
-or `TurnTask` state, and `false` for variants that are observable
+that returns `true` for event paths whose replay mutates `LoopContext`
+or `TurnTask` state, and `false` for paths that are observable
 side-effects only.
 
 #### Scenario: Durable event classification
@@ -30,6 +30,30 @@ side-effects only.
   `SelfReflection`, `SubagentMessage`, or `SubagentEvent`
 - **THEN** the method returns `false`
 
+#### Scenario: Durable paths in the restructured AgentEvent
+- **WHEN** `AgentEvent::is_durable()` is called on:
+  - `Model(ContentPart::Text(_))`
+  - `Model(ContentPart::ToolUse(_))`
+  - `Model(ContentPart::ToolResult(_))`
+  - `Model(ContentPart::Resource(_))`
+- **THEN** the method returns `true`
+
+#### Scenario: Ephemeral paths in the restructured AgentEvent
+- **WHEN** `AgentEvent::is_durable()` is called on:
+  - `Model(ContentPart::Reasoning(_))`
+  - `Model(ContentPart::Image(_))`
+  - `Model(ContentPart::Audio(_))`
+  - `ModelDone(_)`
+  - `System(_)` (any `SystemEvent` variant)
+  - `Agent(_, _)` (any nested subagent event)
+  - `Hook(_)` (any `HookEvent` variant)
+- **THEN** the method returns `false`
+
+#### Scenario: Reasoning is not durable but is wired
+- **WHEN** `is_durable()` is called on `Model(ContentPart::Reasoning(_))`
+- **THEN** it returns `false`
+- **AND** the variant is still emitted on the wire so that clients can display reasoning content
+
 ---
 
 ### Requirement: Durable event type lookup
@@ -45,11 +69,6 @@ in-memory classification.
   tag and `is_durable_event_type(type_tag)` is called
 - **THEN** the result matches `AgentEvent::is_durable()` for that variant
 
-#### Scenario: Unknown event type defaults to durable
-- **WHEN** `is_durable_event_type("UnknownType")` is called with a string
-  that does not match any known event type constant
-- **THEN** the function returns `true` (safe default: process unknown events)
-
 ---
 
 ### Requirement: Classification consistency invariant
@@ -60,4 +79,3 @@ The `AgentEvent::is_durable()` method and the `is_durable_event_type(&str)` look
 - **WHEN** the test iterates all `AgentEvent` variants
 - **THEN** for each variant, `is_durable()` matches
   `is_durable_event_type(serialized_type_tag)`
-

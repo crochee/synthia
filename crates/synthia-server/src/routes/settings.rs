@@ -4,7 +4,7 @@
 //! in a JSON file under the workspace so that values survive
 //! page reloads (and the E2E test that asserts this).
 
-use std::{path::PathBuf, sync::Arc};
+use std::{collections::HashMap, path::PathBuf, sync::Arc};
 
 use axum::{Json, extract::State};
 use serde::{Deserialize, Serialize};
@@ -19,8 +19,26 @@ pub struct Settings {
     pub provider: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub model: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none", default)]
+    #[serde(
+        skip_serializing_if = "Option::is_none",
+        default,
+        alias = "apiKey"
+    )]
     pub api_key: Option<String>,
+    /// Per-skill enable/disable flags, keyed by skill name.
+    /// Names that are absent (or mapped to `true`) are treated as enabled;
+    /// `false` marks the skill as disabled.
+    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
+    pub skills: HashMap<String, bool>,
+}
+
+impl Settings {
+    /// Returns the enabled flag for the given skill. Missing entries
+    /// default to `true` (enabled) to preserve existing behaviour for
+    /// skills that pre-date the disable feature.
+    pub fn is_skill_enabled(&self, name: &str) -> bool {
+        self.skills.get(name).copied().unwrap_or(true)
+    }
 }
 
 #[derive(Default)]
@@ -82,6 +100,7 @@ pub async fn put_settings(
         provider: req.provider.clone().filter(|s| !s.is_empty()),
         model: req.model.clone().filter(|s| !s.is_empty()),
         api_key: req.api_key.clone().filter(|s| !s.is_empty()),
+        skills: req.skills.clone(),
     };
     state.settings.replace(next.clone()).await;
     Json(ApiResponse::ok(next))
