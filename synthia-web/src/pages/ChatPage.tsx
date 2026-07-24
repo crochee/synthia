@@ -278,12 +278,17 @@ function SegmentView({
 }) {
   // Thinking is expanded by default so users see the reasoning
   // as it streams in (the typewriter reveals it character by
-  // character). Tool calls stay collapsed — the input/output
-  // is verbose and rarely the user's primary interest.
+  // character). Tool calls and tool results stay collapsed and
+  // render as static dumps — the user expands them on demand
+  // to inspect the JSON, no need to animate that.
   const defaultExpanded = segment.type === 'thinking';
   const [expanded, setExpanded] = useState(defaultExpanded);
 
   const isCollapsible = segment.type === 'thinking' || segment.type === 'tool_call';
+
+  // Tool segments skip the typewriter entirely; everything else
+  // gets the animated reveal so the user can perceive streaming.
+  const isInstant = segment.type === 'tool_call' || segment.type === 'tool_result';
 
   // Pick the reveal speed. Text segments that are gated on prior
   // thinking pass `cps=0` so the typewriter loop spins but
@@ -294,7 +299,7 @@ function SegmentView({
   // shouldn't make the user wait as long for the answer.
   const baseCps = segment.type === 'thinking' ? 180 : 120;
   const cps = waitingForPriorThinking ? 0 : baseCps;
-  const [revealed, done] = useTypewriter(segment.id, segment.content, streaming, cps);
+  const [revealed, done] = useTypewriter(segment.id, segment.content, streaming, cps, isInstant);
 
   // Fire the completion callback once when the segment has
   // finished typing. Guarded with a ref so it never fires
@@ -359,6 +364,11 @@ function SegmentView({
  * by the "wait for prior thinking to finish" gate so the final
  * answer never appears before its reasoning.
  *
+ * Passing `instant=true` skips the RAF loop entirely and returns
+ * the full content immediately. Used for tool_call/tool_result
+ * which should render as static dumps — the user is interested
+ * in what the tool *did*, not in watching its JSON grow.
+ *
  * Returns a tuple of:
  *   - `revealed`: the prefix to render right now
  *   - `done`: true once `revealed.length === content.length`
@@ -372,6 +382,7 @@ function useTypewriter(
   content: string,
   streaming: boolean,
   charsPerSec = 120,
+  instant = false,
 ): [string, boolean] {
   const [revealed, setRevealed] = useState('');
   const [done, setDone] = useState(false);
@@ -379,17 +390,28 @@ function useTypewriter(
   const contentRef = useRef('');
 
   // Reset when the underlying segment identity changes (new
-  // segment id from the parser).
+  // segment id from the parser). In instant mode there's
+  // nothing to reset — the next effect mirrors content into
+  // both refs immediately.
   useEffect(() => {
+    if (instant) return;
     revealedRef.current = '';
     contentRef.current = '';
     setRevealed('');
     setDone(false);
-  }, [segmentId]);
+  }, [segmentId, instant]);
 
   // Keep the latest content accessible from the RAF callback
-  // without restarting the loop on every chunk.
+  // without restarting the loop on every chunk. In instant
+  // mode we just re-sync the refs and signal done.
   useEffect(() => {
+    if (instant) {
+      contentRef.current = content;
+      revealedRef.current = content;
+      setRevealed(content);
+      setDone(true);
+      return;
+    }
     contentRef.current = content;
     // If new content arrived while the loop was idle (e.g. during
     // a status-update that flushed everything synchronously), make
@@ -400,9 +422,10 @@ function useTypewriter(
     if (content.length > 0 && revealedRef.current.length >= content.length) {
       setDone(true);
     }
-  }, [content]);
+  }, [content, instant]);
 
   useEffect(() => {
+    if (instant) return;
     let raf = 0;
     let last = performance.now();
     const tick = (now: number) => {
@@ -434,7 +457,7 @@ function useTypewriter(
     };
     raf = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(raf);
-  }, [segmentId, streaming, charsPerSec]);
+  }, [segmentId, streaming, charsPerSec, instant]);
 
   // Auto-scroll the chat container while the typewriter is
   // animating, so newly-revealed text doesn't get clipped at

@@ -145,37 +145,63 @@
   margin-top: 0.15rem;
 }
 
-/* 工具调用 - 极简：左边细线 + 等宽输入 */
+/* 工具调用 - 终端代码块风格：深色背景 + 黄色左边框 */
 .nt-chat__segment--tool_call {
-  border-left: 2px solid rgba(120, 120, 120, 0.4);
-  padding: 0.2rem 0 0.2rem 0.6rem;
-  margin: 0.15rem 0;
+  background: rgba(255, 200, 50, 0.04);
+  border-left: 2px solid rgba(255, 200, 50, 0.55);
+  border-radius: 3px;
+  padding: 0.25rem 0 0.25rem 0.6rem;
+  margin: 0.25rem 0;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
 }
 
 .nt-chat__segment--tool_call .nt-chat__segment-content {
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
   font-size: 0.85em;
-  color: #c8c8c8;
+  color: #f0d68a;
   white-space: pre-wrap;
   word-break: break-word;
-  margin-top: 0.15rem;
+  margin-top: 0.2rem;
+  background: rgba(0, 0, 0, 0.25);
+  padding: 0.4rem 0.5rem;
+  border-radius: 3px;
+  max-height: 24em;
+  overflow-y: auto;
 }
 
-/* 工具结果 - 同样极简 */
+/* 工具结果 - 终端输出风格：绿色左边框区分于 call */
 .nt-chat__segment--tool_result {
-  border-left: 2px solid rgba(120, 120, 120, 0.4);
-  padding: 0.2rem 0 0.2rem 0.6rem;
-  margin: 0.15rem 0;
+  background: rgba(0, 255, 136, 0.04);
+  border-left: 2px solid rgba(0, 255, 136, 0.55);
+  border-radius: 3px;
+  padding: 0.25rem 0 0.25rem 0.6rem;
+  margin: 0.25rem 0;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
 }
 
 .nt-chat__segment--tool_result .nt-chat__segment-content {
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
   font-size: 0.85em;
+  color: #aef0c5;
   white-space: pre-wrap;
   word-break: break-word;
-  max-height: 20em;
+  margin-top: 0.2rem;
+  background: rgba(0, 0, 0, 0.25);
+  padding: 0.4rem 0.5rem;
+  border-radius: 3px;
+  max-height: 28em;
   overflow-y: auto;
-  margin-top: 0.15rem;
+}
+
+/* 工具 header - 用更紧凑的标签样式 + 状态色 */
+.nt-chat__segment--tool_call .nt-chat__segment-label,
+.nt-chat__segment--tool_result .nt-chat__segment-label {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 0.78em;
+  color: rgba(255, 200, 50, 0.85);
+  letter-spacing: 0.02em;
+}
+
+.nt-chat__segment--tool_result .nt-chat__segment-label {
+  color: rgba(0, 255, 136, 0.85);
 }
 
 /* 进度 - 极简，仅左侧细线 */
