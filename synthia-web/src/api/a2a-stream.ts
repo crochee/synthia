@@ -165,6 +165,7 @@ export type SegmentType =
   | 'thinking'
   | 'tool_call'
   | 'tool_result'
+  | 'tool_block'
   | 'progress'
   | 'response_complete';
 

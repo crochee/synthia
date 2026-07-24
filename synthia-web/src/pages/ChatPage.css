@@ -193,7 +193,8 @@
 
 /* 工具 header - 用更紧凑的标签样式 + 状态色 */
 .nt-chat__segment--tool_call .nt-chat__segment-label,
-.nt-chat__segment--tool_result .nt-chat__segment-label {
+.nt-chat__segment--tool_result .nt-chat__segment-label,
+.nt-chat__segment--tool_block .nt-chat__segment-label {
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
   font-size: 0.78em;
   color: rgba(255, 200, 50, 0.85);
@@ -202,6 +203,76 @@
 
 .nt-chat__segment--tool_result .nt-chat__segment-label {
   color: rgba(0, 255, 136, 0.85);
+}
+
+/* tool_block - 整体块：单一 header + 内部两个子块（黄/绿） */
+.nt-chat__segment--tool_block {
+  border-left: 2px solid rgba(120, 120, 120, 0.5);
+  padding-left: 0.6rem;
+  margin: 0.3rem 0;
+}
+
+.nt-chat__tool-block-body {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  margin-top: 0.3rem;
+}
+
+.nt-chat__tool-block-label {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 0.7em;
+  margin-bottom: 0.2rem;
+  letter-spacing: 0.04em;
+}
+
+.nt-chat__tool-block-call .nt-chat__tool-block-label {
+  color: rgba(255, 200, 50, 0.85);
+}
+
+.nt-chat__tool-block-result .nt-chat__tool-block-label {
+  color: rgba(0, 255, 136, 0.85);
+}
+
+.nt-chat__tool-block-call {
+  background: rgba(255, 200, 50, 0.04);
+  border-left: 2px solid rgba(255, 200, 50, 0.55);
+  padding: 0.3rem 0.5rem;
+  border-radius: 3px;
+}
+
+.nt-chat__tool-block-result {
+  background: rgba(0, 255, 136, 0.04);
+  border-left: 2px solid rgba(0, 255, 136, 0.55);
+  padding: 0.3rem 0.5rem;
+  border-radius: 3px;
+}
+
+.nt-chat__tool-block-result--pending {
+  opacity: 0.55;
+  border-left-color: rgba(120, 120, 120, 0.4);
+}
+
+.nt-chat__tool-block-pre {
+  margin: 0;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 0.82em;
+  white-space: pre-wrap;
+  word-break: break-word;
+  color: #e8e8e8;
+  background: rgba(0, 0, 0, 0.25);
+  padding: 0.35rem 0.45rem;
+  border-radius: 3px;
+  max-height: 28em;
+  overflow-y: auto;
+}
+
+.nt-chat__tool-block-call .nt-chat__tool-block-pre {
+  color: #f0d68a;
+}
+
+.nt-chat__tool-block-result .nt-chat__tool-block-pre {
+  color: #aef0c5;
 }
 
 /* 进度 - 极简，仅左侧细线 */

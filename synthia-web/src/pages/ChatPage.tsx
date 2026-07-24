@@ -2,6 +2,7 @@ import {
   useState,
   useRef,
   useEffect,
+  useCallback,
   type FormEvent,
   type KeyboardEvent,
   type ReactNode,
@@ -238,6 +239,15 @@ interface MessageSegment {
   toolName?: string;
   iteration?: number;
   expanded?: boolean;
+  /** When type === 'tool_block': the request body of the call
+   *  (rendered as a yellow sub-block). */
+  callContent?: string;
+  /** When type === 'tool_block': the output of the call
+   *  (rendered as a green sub-block). */
+  resultContent?: string;
+  /** True while the tool is still executing — the call block
+   *  is rendered but the result block is hidden/placeholder. */
+  toolPending?: boolean;
 }
 
 interface Message {
@@ -279,18 +289,21 @@ function SegmentView({
 }) {
   // Thinking is expanded by default so users see the reasoning
   // as it streams in (the typewriter reveals it character by
-  // character). Tool calls and tool results stay collapsed and
-  // render as static dumps — the user expands them on demand
-  // to inspect the JSON, no need to animate that.
+  // character). Tool blocks stay collapsed — they're verbose
+  // JSON dumps that the user expands to inspect on demand.
   const defaultExpanded = segment.type === 'thinking';
   const [expanded, setExpanded] = useState(defaultExpanded);
 
   const isCollapsible =
-    segment.type === 'thinking' || segment.type === 'tool_call' || segment.type === 'tool_result';
+    segment.type === 'thinking' ||
+    segment.type === 'tool_call' ||
+    segment.type === 'tool_result' ||
+    segment.type === 'tool_block';
 
   // Tool segments skip the typewriter entirely; everything else
   // gets the animated reveal so the user can perceive streaming.
-  const isInstant = segment.type === 'tool_call' || segment.type === 'tool_result';
+  const isInstant =
+    segment.type === 'tool_call' || segment.type === 'tool_result' || segment.type === 'tool_block';
 
   // Pick the reveal speed. Text segments that are gated on prior
   // thinking pass `cps=0` so the typewriter loop spins but
@@ -321,6 +334,53 @@ function SegmentView({
         {revealed}
         {revealed.length < segment.content.length && (
           <span className="nt-chat__caret" aria-hidden="true" />
+        )}
+      </div>
+    );
+  }
+
+  // tool_block is a special combined view: a single header
+  // `工具 · <name>` that expands into two sub-blocks — the
+  // yellow call body (the JSON we sent) and the green result
+  // body (the JSON we got back). When the call is still in
+  // flight (`toolPending`), the result block shows a
+  // placeholder instead of being omitted so the user sees the
+  // call+result structure even mid-execution.
+  if (segment.type === 'tool_block') {
+    return (
+      <div className="nt-chat__segment nt-chat__segment--tool_block">
+        <button
+          className="nt-chat__segment-header"
+          onClick={() => setExpanded(!expanded)}
+          type="button"
+          aria-expanded={expanded}
+        >
+          <span className={`nt-chat__segment-icon ${expanded ? 'expanded' : ''}`}>▸</span>
+          <span className="nt-chat__segment-label">
+            {`工具${segment.toolName ? ` · ${segment.toolName}` : ''}`}
+            {segment.toolPending ? ' · 执行中…' : ''}
+          </span>
+        </button>
+        {expanded && (
+          <div className="nt-chat__tool-block-body">
+            {segment.callContent !== undefined && (
+              <div className="nt-chat__tool-block-call">
+                <div className="nt-chat__tool-block-label">请求</div>
+                <pre className="nt-chat__tool-block-pre">{segment.callContent}</pre>
+              </div>
+            )}
+            {segment.toolPending ? (
+              <div className="nt-chat__tool-block-result nt-chat__tool-block-result--pending">
+                <div className="nt-chat__tool-block-label">结果</div>
+                <pre className="nt-chat__tool-block-pre">等待执行结果…</pre>
+              </div>
+            ) : segment.resultContent !== undefined ? (
+              <div className="nt-chat__tool-block-result">
+                <div className="nt-chat__tool-block-label">结果</div>
+                <pre className="nt-chat__tool-block-pre">{segment.resultContent}</pre>
+              </div>
+            ) : null}
+          </div>
         )}
       </div>
     );
@@ -513,6 +573,73 @@ export function ChatPage() {
   // gate text segments on prior thinking so the final answer
   // never races ahead of its reasoning.
   const revealedSegmentsRef = useRef<Set<string>>(new Set());
+
+  /**
+   * Append a new segment to the assistant message, except for
+   * `tool_call` and `tool_result` which are merged into the
+   * previous open `tool_block` (or create a new tool_block when
+   * none exists). A tool_block renders as a single collapsible
+   * header (`工具 · <name>`) containing two sub-blocks: the
+   * yellow call body and the green result body.
+   */
+  const appendSegment = useCallback(
+    (
+      assistantId: string,
+      seg: Pick<MessageSegment, 'type' | 'content' | 'toolName' | 'iteration'>,
+    ) => {
+      setMessages((prev) =>
+        prev.map((m) => {
+          if (m.id !== assistantId) return m;
+          const segments = [...m.segments];
+          const last = segments[segments.length - 1];
+
+          if (seg.type === 'tool_call') {
+            // Open a new tool_block with the call content. Mark
+            // it pending so the result sub-block stays hidden
+            // until a matching tool_result arrives.
+            const block: MessageSegment = {
+              id: crypto.randomUUID(),
+              type: 'tool_block',
+              content: '',
+              toolName: seg.toolName,
+              callContent: seg.content,
+              toolPending: true,
+            };
+            segments.push(block);
+            return { ...m, segments };
+          }
+
+          if (seg.type === 'tool_result') {
+            // Attach to the most recent tool_block (regardless of
+            // tool name — the model usually matches, and a
+            // mismatch is rare enough that we don't need extra
+            // bookkeeping). If there is none, fall back to a
+            // standalone tool_result segment.
+            if (last && last.type === 'tool_block') {
+              last.resultContent = seg.content;
+              last.toolPending = false;
+              segments[segments.length - 1] = { ...last };
+            } else {
+              segments.push({
+                id: crypto.randomUUID(),
+                type: 'tool_result',
+                content: seg.content,
+                toolName: seg.toolName,
+              });
+            }
+            return { ...m, segments };
+          }
+
+          segments.push({
+            id: crypto.randomUUID(),
+            ...seg,
+          });
+          return { ...m, segments };
+        }),
+      );
+    },
+    [],
+  );
   const [, forceRevealTick] = useState(0);
 
   // Persist session metadata
@@ -647,19 +774,35 @@ export function ChatPage() {
           const { text, metadata } = extractFromMessage(statusMsg);
           if (text) {
             const segmentType: SegmentType = metadata?.segment_type || 'text';
-            const newSegment: MessageSegment = {
-              id: crypto.randomUUID(),
-              type: segmentType,
-              content: text,
-              toolName: metadata?.tool_name,
-              iteration: metadata?.iteration,
-            };
+            // tool_call / tool_result merge into the open
+            // tool_block via appendSegment; everything else
+            // appends as its own segment.
+            if (segmentType === 'tool_call' || segmentType === 'tool_result') {
+              appendSegment(assistantId, {
+                type: segmentType,
+                content: text,
+                toolName: metadata?.tool_name,
+              });
+            } else {
+              const newSegment: MessageSegment = {
+                id: crypto.randomUUID(),
+                type: segmentType,
+                content: text,
+                toolName: metadata?.tool_name,
+                iteration: metadata?.iteration,
+              };
+              setMessages((prev) =>
+                prev.map((m) =>
+                  m.id === assistantId
+                    ? { ...m, status: state, segments: [...m.segments, newSegment] }
+                    : m,
+                ),
+              );
+            }
+            // Update status separately so merging doesn't
+            // accidentally drop the statusUpdate info.
             setMessages((prev) =>
-              prev.map((m) =>
-                m.id === assistantId
-                  ? { ...m, status: state, segments: [...m.segments, newSegment] }
-                  : m,
-              ),
+              prev.map((m) => (m.id === assistantId ? { ...m, status: state } : m)),
             );
           }
         } else {
@@ -732,6 +875,15 @@ export function ChatPage() {
                 m.id === assistantId ? { ...m, segments: [...m.segments, ...additions] } : m,
               ),
             );
+          } else if (segmentType === 'tool_call' || segmentType === 'tool_result') {
+            // Tool events arrive as plain messages (the SDK
+            // doesn't always route tool results through
+            // artifactUpdate). Merge them via the same path.
+            appendSegment(assistantId, {
+              type: segmentType,
+              content: text,
+              toolName: metadata?.tool_name,
+            });
           } else {
             const newSegment: MessageSegment = {
               id: crypto.randomUUID(),
@@ -758,18 +910,28 @@ export function ChatPage() {
         );
         if (text) {
           const segmentType: SegmentType = metadata?.segment_type || 'text';
-          const newSegment: MessageSegment = {
-            id: crypto.randomUUID(),
-            type: segmentType,
-            content: text,
-            toolName: metadata?.tool_name,
-            iteration: metadata?.iteration,
-          };
-          setMessages((prev) =>
-            prev.map((m) =>
-              m.id === assistantId ? { ...m, segments: [...m.segments, newSegment] } : m,
-            ),
-          );
+          if (segmentType === 'tool_call' || segmentType === 'tool_result') {
+            // Merge into the open tool_block so the call+result
+            // pair renders as a single collapsible header.
+            appendSegment(assistantId, {
+              type: segmentType,
+              content: text,
+              toolName: metadata?.tool_name,
+            });
+          } else {
+            const newSegment: MessageSegment = {
+              id: crypto.randomUUID(),
+              type: segmentType,
+              content: text,
+              toolName: metadata?.tool_name,
+              iteration: metadata?.iteration,
+            };
+            setMessages((prev) =>
+              prev.map((m) =>
+                m.id === assistantId ? { ...m, segments: [...m.segments, newSegment] } : m,
+              ),
+            );
+          }
         }
         break;
       }
