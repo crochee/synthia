@@ -6,6 +6,7 @@ import { taskStateToJSON } from '@a2a-js/sdk';
 import {
   sendMessageStream,
   extractPartText,
+  extractFromMessage,
   extractPartWithMetadata,
   type A2AStreamEvent,
   type SegmentType,
@@ -210,10 +211,8 @@ export function ChatPage() {
         const state = normalizeTaskState(taskStateToJSON(raw));
         const statusMsg = event.statusUpdate.status.message;
 
-        if (statusMsg?.parts) {
-          const { text, metadata } = extractPartWithMetadata(
-            statusMsg.parts as unknown as ReadonlyArray<unknown>,
-          );
+        if (statusMsg) {
+          const { text, metadata } = extractFromMessage(statusMsg);
           if (text) {
             const segmentType: SegmentType = metadata?.segment_type || 'text';
             const newSegment: MessageSegment = {
@@ -241,9 +240,7 @@ export function ChatPage() {
 
       case 'message': {
         if (!event.message) return;
-        const { text, metadata } = extractPartWithMetadata(
-          event.message.parts as unknown as ReadonlyArray<unknown> | undefined,
-        );
+        const { text, metadata } = extractFromMessage(event.message);
         if (text) {
           const segmentType: SegmentType = metadata?.segment_type || 'text';
 

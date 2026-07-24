@@ -174,10 +174,17 @@ export interface PartWithMetadata {
   metadata?: SegmentMetadata;
 }
 
+// A2A Message interface (matches @a2a-js/sdk structure)
+interface A2AMessage {
+  parts?: ReadonlyArray<unknown>;
+  metadata?: SegmentMetadata;
+}
+
 export function extractPartWithMetadata(
   parts: ReadonlyArray<unknown> | undefined,
+  messageMetadata?: SegmentMetadata,
 ): PartWithMetadata {
-  if (!parts || parts.length === 0) return { text: '' };
+  if (!parts || parts.length === 0) return { text: '', metadata: messageMetadata };
 
   const firstPart = parts[0] as {
     content?: { $case?: string; value?: unknown };
@@ -187,7 +194,7 @@ export function extractPartWithMetadata(
   };
 
   let text = '';
-  let metadata: SegmentMetadata | undefined;
+  let metadata: SegmentMetadata | undefined = messageMetadata;
 
   if (firstPart.content?.$case === 'text' && typeof firstPart.content.value === 'string') {
     text = firstPart.content.value;
@@ -195,7 +202,7 @@ export function extractPartWithMetadata(
     text = firstPart.text;
   }
 
-  // 从 part 的 metadata 字段提取元数据
+  // 从 part 的 metadata 字段提取元数据（优先级高于 message metadata）
   if (firstPart.metadata) {
     metadata = firstPart.metadata;
   }
@@ -211,6 +218,11 @@ export function extractPartWithMetadata(
   }
 
   return { text, metadata };
+}
+
+// 从 Message 对象提取文本和 metadata
+export function extractFromMessage(message: A2AMessage): PartWithMetadata {
+  return extractPartWithMetadata(message.parts, message.metadata as SegmentMetadata | undefined);
 }
 
 /**
