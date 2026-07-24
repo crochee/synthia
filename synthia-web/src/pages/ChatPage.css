@@ -226,12 +226,14 @@
   font-size: 1em;
 }
 
-/* tool_block keeps the neutral accent for the header itself
- * (the colour-coded yellow/green lives on the inner sub-blocks),
- * but tool_call/tool_result standalone blocks use their type's
- * accent colour for the label. */
+/* tool_block header uses a bright cyan tint so it stands
+ * apart from the cool white body text and the warm amber
+ * thinking label. The colour-coded yellow/green lives on the
+ * inner sub-blocks (request/result), so the header stays
+ * neutral-but-not-white to avoid three nearly-identical
+ * greys in the same message. */
 .nt-chat__segment--tool_block .nt-chat__segment-label {
-  color: rgba(220, 220, 220, 0.95);
+  color: rgba(0, 221, 255, 0.95);
 }
 
 .nt-chat__segment--tool_call .nt-chat__segment-label {
