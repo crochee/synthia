@@ -145,21 +145,30 @@ class ThinkingParser {
         this.textTail += this.pendingCarry;
         this.pendingCarry = '';
         if (!this.textId) this.textId = crypto.randomUUID();
-        out.push({
-          id: this.textId,
-          type: 'text',
-          content: this.textTail,
-        });
+        // Skip empty / whitespace-only text segments: they
+        // produce a visible empty card with extra margins and
+        // clutter the segment list when the model emits a few
+        // newlines between thinking blocks.
+        if (this.textTail.trim().length > 0) {
+          out.push({
+            id: this.textId,
+            type: 'text',
+            content: this.textTail,
+          });
+        }
       }
       // Flush any plain text *inside* this chunk before the opener
       if (openIdx > 0) {
-        this.textTail += rest.slice(0, openIdx);
-        if (!this.textId) this.textId = crypto.randomUUID();
-        out.push({
-          id: this.textId,
-          type: 'text',
-          content: this.textTail,
-        });
+        const before = rest.slice(0, openIdx);
+        if (before.trim().length > 0) {
+          if (!this.textId) this.textId = crypto.randomUUID();
+          this.textTail += before;
+          out.push({
+            id: this.textId,
+            type: 'text',
+            content: this.textTail,
+          });
+        }
       }
       // Reset text accumulator — the segment is closed by the opener.
       this.textTail = '';
@@ -190,11 +199,15 @@ class ThinkingParser {
       if (!this.textId) this.textId = crypto.randomUUID();
       this.textTail += this.pendingCarry;
       this.pendingCarry = '';
-      out.push({
-        id: this.textId,
-        type: 'text',
-        content: this.textTail,
-      });
+      // Skip empty / whitespace-only residuals for the same
+      // reason as the in-stream flush path.
+      if (this.textTail.trim().length > 0) {
+        out.push({
+          id: this.textId,
+          type: 'text',
+          content: this.textTail,
+        });
+      }
       this.textTail = '';
       this.textId = null;
     }

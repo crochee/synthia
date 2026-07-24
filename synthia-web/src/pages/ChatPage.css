@@ -125,11 +125,12 @@
   margin: 0;
 }
 
-/* 普通文本 - 主色调：冷色调（亮白/淡青），保持纯色不斜体，
- * 让正文读起来最显眼。 */
+/* 普通文本 - 与用户输入保持一致：使用 --text-primary (灰白)
+ * 让 assistant 的最终答案读起来和用户自己输入的消息同色调，
+ * 强调"对话"而非"AI 输出"。思考/工具则保留各自的强调色。 */
 .nt-chat__segment--text,
 .nt-chat__segment--text_delta {
-  color: #f0fbff;
+  color: var(--text-primary);
   font-weight: 400;
 }
 
