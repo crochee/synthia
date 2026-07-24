@@ -27,77 +27,181 @@ const THINK_OPEN = '<think>';
 const THINK_CLOSE = '</think>';
 
 /**
- * Splits accumulated text into typed segments by sniffing
- * `<think>...</think>` markers (used by providers that emit
- * reasoning inline with content rather than in a dedicated field).
+ * Incremental parser for streaming text with embedded
+ * `<think>...</think>` markers. Tracks the *last* segment id
+ * produced for each type so that callers can append rather
+ * than create a new segment on every chunk.
  *
- * Returns: { output: segments to flush, carry: leftover to prepend
- * to next delta (incomplete marker across chunks). }
+ * State machine:
+ *   - `idle` outside any marker; plain text accumulates in `textTail`
+ *   - `in_think` between markers; content accumulates in `thinkTail`
+ *
+ * The carry window is `THINK_OPEN.length-1` for plain text (so a
+ * partial `<think>` opener is not flushed as text) and 0 inside a
+ * thinking segment (a partial `</think>` is harmless — the next
+ * delta will close it).
  */
-function splitThinking(buffer: string): { output: MessageSegment[]; carry: string } {
-  const output: MessageSegment[] = [];
-  let rest = buffer;
+class ThinkingParser {
+  private textId: string | null = null;
+  private thinkId: string | null = null;
+  private textTail = '';
+  private thinkTail = '';
+  private pendingCarry = '';
 
-  while (rest.length > 0) {
-    // Locate the next <think> opener
-    const openIdx = rest.indexOf(THINK_OPEN);
-    if (openIdx === -1) {
-      // No opener in this chunk — keep it as a pending text carry so
-      // a partial <think> can't be mis-detected as plain text. Use a
-      // safe carry window of THINK_OPEN.length-1 chars.
-      const safeCarry = Math.max(0, rest.length - (THINK_OPEN.length - 1));
-      const plain = rest.slice(0, safeCarry);
-      const carry = rest.slice(safeCarry);
-      if (plain) {
-        output.push({
-          id: crypto.randomUUID(),
-          type: 'text',
-          content: plain,
-        });
-      }
-      return { output, carry };
-    }
-
-    // Flush any plain text before <think>
-    if (openIdx > 0) {
-      output.push({
-        id: crypto.randomUUID(),
-        type: 'text',
-        content: rest.slice(0, openIdx),
-      });
-    }
-
-    // Find matching closer inside what remains
-    const afterOpen = openIdx + THINK_OPEN.length;
-    const closeIdx = rest.indexOf(THINK_CLOSE, afterOpen);
-    if (closeIdx === -1) {
-      // Thinking segment not yet closed; emit what we have as
-      // a partial thinking segment, and carry forward in case
-      // a `</think>` shows up in the next chunk.
-      const pending = rest.slice(afterOpen);
-      if (pending) {
-        output.push({
-          id: crypto.randomUUID(),
+  /**
+   * Feed one SSE delta into the parser. Returns the segments to
+   * upsert into the assistant message. Each returned segment
+   * either (a) replaces an existing segment by id (when the
+   * caller has appended to it) or (b) is a new segment to append.
+   * Callers append them in order to the message's segment list.
+   */
+  feed(delta: string): MessageSegment[] {
+    const out: MessageSegment[] = [];
+    let rest = delta;
+    while (rest.length > 0) {
+      if (this.thinkId !== null) {
+        // Inside a thinking segment: scan for closer.
+        const closeIdx = rest.indexOf(THINK_CLOSE);
+        if (closeIdx === -1) {
+          this.thinkTail += rest;
+          out.push({
+            id: this.thinkId,
+            type: 'thinking',
+            content: this.thinkTail,
+          });
+          return out;
+        }
+        this.thinkTail += rest.slice(0, closeIdx);
+        out.push({
+          id: this.thinkId,
           type: 'thinking',
-          content: pending,
+          content: this.thinkTail,
+        });
+        this.thinkId = null;
+        this.thinkTail = '';
+        rest = rest.slice(closeIdx + THINK_CLOSE.length);
+        continue;
+      }
+
+      // Idle: scan for <think>
+      const openIdx = rest.indexOf(THINK_OPEN);
+      if (openIdx === -1) {
+        // No opener in this chunk — keep all of `rest` in
+        // pendingCarry so a partial `<think>` straddling chunks
+        // is preserved (will be re-prepended on the next delta).
+        this.pendingCarry += rest;
+        // If pendingCarry is now safely larger than a partial
+        // opener would ever be, emit it as text.
+        if (this.pendingCarry.length >= THINK_OPEN.length) {
+          const safeLen = this.pendingCarry.length - (THINK_OPEN.length - 1);
+          const safe = this.pendingCarry.slice(0, safeLen);
+          const carry = this.pendingCarry.slice(safeLen);
+          if (safe) {
+            if (!this.textId) this.textId = crypto.randomUUID();
+            this.textTail += safe;
+            out.push({
+              id: this.textId,
+              type: 'text',
+              content: this.textTail,
+            });
+          }
+          this.pendingCarry = carry;
+        }
+        return out;
+      }
+
+      // Found <think> opener in this chunk.
+      // First flush any carry that has accumulated since the last delta
+      // (it sits *before* the opener).
+      if (this.pendingCarry.length > 0) {
+        this.textTail += this.pendingCarry;
+        this.pendingCarry = '';
+        if (!this.textId) this.textId = crypto.randomUUID();
+        out.push({
+          id: this.textId,
+          type: 'text',
+          content: this.textTail,
         });
       }
-      return { output, carry: '' };
-    }
+      // Flush any plain text *inside* this chunk before the opener
+      if (openIdx > 0) {
+        this.textTail += rest.slice(0, openIdx);
+        if (!this.textId) this.textId = crypto.randomUUID();
+        out.push({
+          id: this.textId,
+          type: 'text',
+          content: this.textTail,
+        });
+      }
+      // Reset text accumulator — the segment is closed by the opener.
+      this.textTail = '';
+      this.textId = null;
 
-    // Closed thinking segment
-    const thinkContent = rest.slice(afterOpen, closeIdx);
-    if (thinkContent) {
-      output.push({
+      // Enter thinking
+      this.thinkId = crypto.randomUUID();
+      this.thinkTail = '';
+      rest = rest.slice(openIdx + THINK_OPEN.length);
+    }
+    return out;
+  }
+
+  /** Replay any carry from the previous feed before processing a new delta. */
+  beginDelta(delta: string): MessageSegment[] {
+    const out = this.feed(delta);
+    return out;
+  }
+
+  /**
+   * Called when the stream ends. Flushes any carry/text
+   * accumulator that hasn't been emitted yet.
+   */
+  flush(): MessageSegment[] {
+    const out: MessageSegment[] = [];
+    if (this.pendingCarry) {
+      // No more deltas coming — emit the residual text.
+      if (!this.textId) this.textId = crypto.randomUUID();
+      this.textTail += this.pendingCarry;
+      this.pendingCarry = '';
+      out.push({
+        id: this.textId,
+        type: 'text',
+        content: this.textTail,
+      });
+      this.textTail = '';
+      this.textId = null;
+    }
+    return out;
+  }
+
+  /**
+   * Process the full content of a `LlmResponseComplete` message.
+   * The text_delta stream has already emitted the same content
+   * piecewise; we only want to pick up *new* `<think>…</think>`
+   * regions that the parser hasn't seen yet (e.g. because the
+   * second iteration's reasoning appears only in the final
+   * message). Plain-text portions are skipped — they're already
+   * represented by existing text segments.
+   */
+  feedForFinalize(content: string): MessageSegment[] {
+    const out: MessageSegment[] = [];
+    let rest = content;
+    // Walk only `<think>…</think>` regions; skip everything else.
+    while (rest.length > 0) {
+      const openIdx = rest.indexOf(THINK_OPEN);
+      if (openIdx === -1) return out;
+      const afterOpen = openIdx + THINK_OPEN.length;
+      const closeIdx = rest.indexOf(THINK_CLOSE, afterOpen);
+      if (closeIdx === -1) return out;
+      const thinkContent = rest.slice(afterOpen, closeIdx);
+      out.push({
         id: crypto.randomUUID(),
         type: 'thinking',
         content: thinkContent,
       });
+      rest = rest.slice(closeIdx + THINK_CLOSE.length);
     }
-    rest = rest.slice(closeIdx + THINK_CLOSE.length);
+    return out;
   }
-
-  return { output, carry: '' };
 }
 
 interface MessageSegment {
@@ -184,9 +288,13 @@ export function ChatPage() {
   const [input, setInput] = useState('');
   const [isStreaming, setIsStreaming] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
-  // Carry buffer for streaming text — preserves incomplete
-  // `<think>` openers/closers that may straddle two SSE chunks.
-  const textCarryRef = useRef<string>('');
+  // Per-stream parser that incrementally splits text deltas
+  // into text / thinking segments based on `<think>` markers.
+  const parserRef = useRef<ThinkingParser | null>(null);
+  // True once the first text_delta arrives — used to suppress
+  // duplicate LlmResponseComplete content (whose `text` is the
+  // accumulated stream output we've already rendered).
+  const sawTextDeltaRef = useRef(false);
 
   // Persist session metadata
   useEffect(() => {
@@ -243,7 +351,8 @@ export function ChatPage() {
     setIsStreaming(true);
 
     const assistantId = crypto.randomUUID();
-    textCarryRef.current = '';
+    parserRef.current = new ThinkingParser();
+    sawTextDeltaRef.current = false;
     setMessages((prev) => [
       ...prev,
       { id: assistantId, role: 'assistant', segments: [], status: 'working' },
@@ -252,6 +361,25 @@ export function ChatPage() {
     try {
       for await (const event of sendMessageStream(text, sessionId)) {
         applyStreamEvent(assistantId, event);
+      }
+      // Flush any remaining text the parser was holding
+      const flushUpdates = parserRef.current?.flush() ?? [];
+      if (flushUpdates.length > 0) {
+        setMessages((prev) =>
+          prev.map((m) => {
+            if (m.id !== assistantId) return m;
+            const next = [...m.segments];
+            for (const seg of flushUpdates) {
+              const idx = next.findIndex((s) => s.id === seg.id);
+              if (idx >= 0) {
+                next[idx] = seg;
+              } else {
+                next.push(seg);
+              }
+            }
+            return { ...m, segments: next };
+          }),
+        );
       }
     } catch (err) {
       const errorSegment: MessageSegment = {
@@ -329,19 +457,43 @@ export function ChatPage() {
           const segmentType: SegmentType = metadata?.segment_type || 'text';
 
           if (segmentType === 'text_delta') {
-            // Buffer the delta with previous carry so that a partial
-            // <think>/</think> marker spanning two chunks isn't lost.
-            const buffered = textCarryRef.current + text;
-            const { output, carry } = splitThinking(buffered);
-            textCarryRef.current = carry;
-
-            if (output.length === 0) return;
+            sawTextDeltaRef.current = true;
+            const parser = parserRef.current;
+            if (!parser) return;
+            const updates = parser.beginDelta(text);
+            if (updates.length === 0) return;
 
             setMessages((prev) =>
               prev.map((m) => {
                 if (m.id !== assistantId) return m;
-                return { ...m, segments: [...m.segments, ...output] };
+                // Upsert each segment by id — replaces existing
+                // segment with the same id, appends otherwise.
+                const next = [...m.segments];
+                for (const seg of updates) {
+                  const idx = next.findIndex((s) => s.id === seg.id);
+                  if (idx >= 0) {
+                    next[idx] = seg;
+                  } else {
+                    next.push(seg);
+                  }
+                }
+                return { ...m, segments: next };
               }),
+            );
+          } else if (segmentType === 'text' && sawTextDeltaRef.current) {
+            // LlmResponseComplete: text_delta already streamed the
+            // body, so the raw text would be a duplicate. Only pick
+            // up *new* `<think>…</think>` regions that didn't
+            // appear during streaming (e.g. a second-iteration
+            // reasoning that arrived only in the final message).
+            const parser = parserRef.current;
+            if (!parser) return;
+            const additions = parser.feedForFinalize(text);
+            if (additions.length === 0) return;
+            setMessages((prev) =>
+              prev.map((m) =>
+                m.id === assistantId ? { ...m, segments: [...m.segments, ...additions] } : m,
+              ),
             );
           } else {
             const newSegment: MessageSegment = {
