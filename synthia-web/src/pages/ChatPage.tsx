@@ -24,6 +24,85 @@ function normalizeTaskState(state: string): string {
   return stripped || 'unknown';
 }
 
+const THINK_OPEN = '<think>';
+const THINK_CLOSE = '</think>';
+
+/**
+ * Splits accumulated text into typed segments by sniffing
+ * `<think>...</think>` markers (used by providers that emit
+ * reasoning inline with content rather than in a dedicated field).
+ *
+ * Returns: { output: segments to flush, carry: leftover to prepend
+ * to next delta (incomplete marker across chunks). }
+ */
+function splitThinking(
+  buffer: string,
+): { output: MessageSegment[]; carry: string } {
+  const output: MessageSegment[] = [];
+  let rest = buffer;
+
+  while (rest.length > 0) {
+    // Locate the next <think> opener
+    const openIdx = rest.indexOf(THINK_OPEN);
+    if (openIdx === -1) {
+      // No opener in this chunk — keep it as a pending text carry so
+      // a partial <think> can't be mis-detected as plain text. Use a
+      // safe carry window of THINK_OPEN.length-1 chars.
+      const safeCarry = Math.max(0, rest.length - (THINK_OPEN.length - 1));
+      const plain = rest.slice(0, safeCarry);
+      const carry = rest.slice(safeCarry);
+      if (plain) {
+        output.push({
+          id: crypto.randomUUID(),
+          type: 'text',
+          content: plain,
+        });
+      }
+      return { output, carry };
+    }
+
+    // Flush any plain text before <think>
+    if (openIdx > 0) {
+      output.push({
+        id: crypto.randomUUID(),
+        type: 'text',
+        content: rest.slice(0, openIdx),
+      });
+    }
+
+    // Find matching closer inside what remains
+    const afterOpen = openIdx + THINK_OPEN.length;
+    const closeIdx = rest.indexOf(THINK_CLOSE, afterOpen);
+    if (closeIdx === -1) {
+      // Thinking segment not yet closed; emit what we have as
+      // a partial thinking segment, and carry forward in case
+      // a `</think>` shows up in the next chunk.
+      const pending = rest.slice(afterOpen);
+      if (pending) {
+        output.push({
+          id: crypto.randomUUID(),
+          type: 'thinking',
+          content: pending,
+        });
+      }
+      return { output, carry: '' };
+    }
+
+    // Closed thinking segment
+    const thinkContent = rest.slice(afterOpen, closeIdx);
+    if (thinkContent) {
+      output.push({
+        id: crypto.randomUUID(),
+        type: 'thinking',
+        content: thinkContent,
+      });
+    }
+    rest = rest.slice(closeIdx + THINK_CLOSE.length);
+  }
+
+  return { output, carry: '' };
+}
+
 interface MessageSegment {
   id: string;
   type: SegmentType;
@@ -104,6 +183,9 @@ export function ChatPage() {
   const [input, setInput] = useState('');
   const [isStreaming, setIsStreaming] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  // Carry buffer for streaming text — preserves incomplete
+  // `<think>` openers/closers that may straddle two SSE chunks.
+  const textCarryRef = useRef<string>('');
 
   // Persist session metadata
   useEffect(() => {
@@ -160,6 +242,7 @@ export function ChatPage() {
     setIsStreaming(true);
 
     const assistantId = crypto.randomUUID();
+    textCarryRef.current = '';
     setMessages((prev) => [
       ...prev,
       { id: assistantId, role: 'assistant', segments: [], status: 'working' },
@@ -245,30 +328,18 @@ export function ChatPage() {
           const segmentType: SegmentType = metadata?.segment_type || 'text';
 
           if (segmentType === 'text_delta') {
-            // Append to last text segment if exists
+            // Buffer the delta with previous carry so that a partial
+            // <think>/</think> marker spanning two chunks isn't lost.
+            const buffered = textCarryRef.current + text;
+            const { output, carry } = splitThinking(buffered);
+            textCarryRef.current = carry;
+
+            if (output.length === 0) return;
+
             setMessages((prev) =>
               prev.map((m) => {
                 if (m.id !== assistantId) return m;
-                const lastTextIdx = [...m.segments]
-                  .reverse()
-                  .findIndex((s) => s.type === 'text' || s.type === 'text_delta');
-                if (lastTextIdx === -1) {
-                  // No text segment, create new one
-                  return {
-                    ...m,
-                    segments: [
-                      ...m.segments,
-                      { id: crypto.randomUUID(), type: 'text_delta', content: text },
-                    ],
-                  };
-                }
-                const actualIdx = m.segments.length - 1 - lastTextIdx;
-                const newSegments = [...m.segments];
-                newSegments[actualIdx] = {
-                  ...newSegments[actualIdx],
-                  content: newSegments[actualIdx].content + text,
-                };
-                return { ...m, segments: newSegments };
+                return { ...m, segments: [...m.segments, ...output] };
               }),
             );
           } else {
