@@ -3,7 +3,13 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { Button } from '../components/ui/Button';
 import { Card } from '../components/ui/Card';
 import { taskStateToJSON } from '@a2a-js/sdk';
-import { sendMessageStream, type A2AStreamEvent } from '../api/a2a-stream';
+import {
+  sendMessageStream,
+  extractPartText,
+  extractPartWithMetadata,
+  type A2AStreamEvent,
+  type SegmentType,
+} from '../api/a2a-stream';
 import './ChatPage.css';
 
 /**
@@ -17,10 +23,19 @@ function normalizeTaskState(state: string): string {
   return stripped || 'unknown';
 }
 
+interface MessageSegment {
+  id: string;
+  type: SegmentType;
+  content: string;
+  toolName?: string;
+  iteration?: number;
+  expanded?: boolean;
+}
+
 interface Message {
   id: string;
   role: 'user' | 'assistant';
-  content: string;
+  segments: MessageSegment[];
   taskId?: string;
   status?: string;
 }
@@ -31,6 +46,36 @@ interface SessionMeta {
   id: string;
   title: string;
   createdAt: string;
+}
+
+function SegmentView({ segment }: { segment: MessageSegment }) {
+  const [expanded, setExpanded] = useState(segment.expanded ?? false);
+
+  const isCollapsible = segment.type === 'thinking' || segment.type === 'tool_call';
+
+  if (!isCollapsible) {
+    return (
+      <div className={`nt-chat__segment nt-chat__segment--${segment.type}`}>{segment.content}</div>
+    );
+  }
+
+  return (
+    <div className={`nt-chat__segment nt-chat__segment--${segment.type}`}>
+      <button
+        className="nt-chat__segment-header"
+        onClick={() => setExpanded(!expanded)}
+        type="button"
+      >
+        <span className={`nt-chat__segment-icon ${expanded ? 'expanded' : ''}`}>▶</span>
+        <span className="nt-chat__segment-label">
+          {segment.type === 'thinking'
+            ? `思考 (迭代 ${segment.iteration || 1})`
+            : `工具: ${segment.toolName || segment.content.slice(0, 30)}`}
+        </span>
+      </button>
+      {expanded && <div className="nt-chat__segment-content">{segment.content}</div>}
+    </div>
+  );
 }
 
 /**
@@ -78,8 +123,14 @@ export function ChatPage() {
   // Restore messages for the current session
   useEffect(() => {
     if (!sessionId) return;
+    let cancelled = false;
     const raw = localStorage.getItem(`synthia.messages.${sessionId}`);
-    setMessages(raw ? JSON.parse(raw) : []);
+    if (!cancelled) {
+      setMessages(raw ? JSON.parse(raw) : []);
+    }
+    return () => {
+      cancelled = true;
+    };
   }, [sessionId]);
 
   // Persist messages whenever they change
@@ -101,7 +152,7 @@ export function ChatPage() {
     const userMessage: Message = {
       id: crypto.randomUUID(),
       role: 'user',
-      content: text,
+      segments: [{ id: crypto.randomUUID(), type: 'text', content: text }],
     };
     setMessages((prev) => [...prev, userMessage]);
     setInput('');
@@ -110,7 +161,7 @@ export function ChatPage() {
     const assistantId = crypto.randomUUID();
     setMessages((prev) => [
       ...prev,
-      { id: assistantId, role: 'assistant', content: '', status: 'working' },
+      { id: assistantId, role: 'assistant', segments: [], status: 'working' },
     ]);
 
     try {
@@ -118,14 +169,15 @@ export function ChatPage() {
         applyStreamEvent(assistantId, event);
       }
     } catch (err) {
+      const errorSegment: MessageSegment = {
+        id: crypto.randomUUID(),
+        type: 'text',
+        content: `\n\n[error: ${(err as Error).message}]`,
+      };
       setMessages((prev) =>
         prev.map((m) =>
           m.id === assistantId
-            ? {
-                ...m,
-                content: m.content + `\n\n[error: ${(err as Error).message}]`,
-                status: 'failed',
-              }
+            ? { ...m, segments: [...m.segments, errorSegment], status: 'failed' }
             : m,
         ),
       );
@@ -136,14 +188,15 @@ export function ChatPage() {
 
   const applyStreamEvent = (assistantId: string, event: A2AStreamEvent) => {
     if (event.type === 'error') {
+      const errorSegment: MessageSegment = {
+        id: crypto.randomUUID(),
+        type: 'text',
+        content: `\n[error ${event.error!.code}: ${event.error!.message}]`,
+      };
       setMessages((prev) =>
         prev.map((m) =>
           m.id === assistantId
-            ? {
-                ...m,
-                content: m.content + `\n[error ${event.error!.code}: ${event.error!.message}]`,
-                status: 'failed',
-              }
+            ? { ...m, segments: [...m.segments, errorSegment], status: 'failed' }
             : m,
         ),
       );
@@ -155,62 +208,108 @@ export function ChatPage() {
         if (!event.statusUpdate) return;
         const raw = event.statusUpdate.status.state;
         const state = normalizeTaskState(taskStateToJSON(raw));
-        // Extract text from status message if present
         const statusMsg = event.statusUpdate.status.message;
-        const inline = (statusMsg?.parts ?? [])
-          .map((p) => {
-            // SDK v0.3.x uses kind: 'text' for text parts
-            if ((p as any).kind === 'text') {
-              return (p as any).text ?? '';
-            }
-            return '';
-          })
-          .join('');
-        setMessages((prev) =>
-          prev.map((m) =>
-            m.id === assistantId
-              ? {
-                  ...m,
-                  status: state,
-                  content: inline && inline !== m.content ? m.content + inline : m.content,
-                }
-              : m,
-          ),
-        );
+
+        if (statusMsg?.parts) {
+          const { text, metadata } = extractPartWithMetadata(
+            statusMsg.parts as unknown as ReadonlyArray<unknown>,
+          );
+          if (text) {
+            const segmentType: SegmentType = metadata?.segment_type || 'text';
+            const newSegment: MessageSegment = {
+              id: crypto.randomUUID(),
+              type: segmentType,
+              content: text,
+              toolName: metadata?.tool_name,
+              iteration: metadata?.iteration,
+            };
+            setMessages((prev) =>
+              prev.map((m) =>
+                m.id === assistantId
+                  ? { ...m, status: state, segments: [...m.segments, newSegment] }
+                  : m,
+              ),
+            );
+          }
+        } else {
+          setMessages((prev) =>
+            prev.map((m) => (m.id === assistantId ? { ...m, status: state } : m)),
+          );
+        }
         break;
       }
 
       case 'message': {
         if (!event.message) return;
-        const text = (event.message.parts ?? [])
-          .map((p) => {
-            if ((p as any).kind === 'text') {
-              return (p as any).text ?? '';
-            }
-            return '';
-          })
-          .join('');
+        const { text, metadata } = extractPartWithMetadata(
+          event.message.parts as unknown as ReadonlyArray<unknown> | undefined,
+        );
         if (text) {
-          setMessages((prev) =>
-            prev.map((m) => (m.id === assistantId ? { ...m, content: m.content + text } : m)),
-          );
+          const segmentType: SegmentType = metadata?.segment_type || 'text';
+
+          if (segmentType === 'text_delta') {
+            // Append to last text segment if exists
+            setMessages((prev) =>
+              prev.map((m) => {
+                if (m.id !== assistantId) return m;
+                const lastTextIdx = [...m.segments]
+                  .reverse()
+                  .findIndex((s) => s.type === 'text' || s.type === 'text_delta');
+                if (lastTextIdx === -1) {
+                  // No text segment, create new one
+                  return {
+                    ...m,
+                    segments: [
+                      ...m.segments,
+                      { id: crypto.randomUUID(), type: 'text_delta', content: text },
+                    ],
+                  };
+                }
+                const actualIdx = m.segments.length - 1 - lastTextIdx;
+                const newSegments = [...m.segments];
+                newSegments[actualIdx] = {
+                  ...newSegments[actualIdx],
+                  content: newSegments[actualIdx].content + text,
+                };
+                return { ...m, segments: newSegments };
+              }),
+            );
+          } else {
+            const newSegment: MessageSegment = {
+              id: crypto.randomUUID(),
+              type: segmentType,
+              content: text,
+              toolName: metadata?.tool_name,
+              iteration: metadata?.iteration,
+            };
+            setMessages((prev) =>
+              prev.map((m) =>
+                m.id === assistantId ? { ...m, segments: [...m.segments, newSegment] } : m,
+              ),
+            );
+          }
         }
         break;
       }
 
       case 'artifactUpdate': {
         if (!event.artifactUpdate) return;
-        const text = (event.artifactUpdate.artifact.parts ?? [])
-          .map((p) => {
-            if ((p as any).kind === 'text') {
-              return (p as any).text ?? '';
-            }
-            return '';
-          })
-          .join('');
+        const { text, metadata } = extractPartWithMetadata(
+          event.artifactUpdate.artifact.parts as unknown as ReadonlyArray<unknown> | undefined,
+        );
         if (text) {
+          const segmentType: SegmentType = metadata?.segment_type || 'text';
+          const newSegment: MessageSegment = {
+            id: crypto.randomUUID(),
+            type: segmentType,
+            content: text,
+            toolName: metadata?.tool_name,
+            iteration: metadata?.iteration,
+          };
           setMessages((prev) =>
-            prev.map((m) => (m.id === assistantId ? { ...m, content: m.content + text } : m)),
+            prev.map((m) =>
+              m.id === assistantId ? { ...m, segments: [...m.segments, newSegment] } : m,
+            ),
           );
         }
         break;
@@ -237,7 +336,12 @@ export function ChatPage() {
 
   return (
     <div className="nt-chat">
-      <div className="nt-chat__messages" data-testid="chat-messages">
+      <div
+        className="nt-chat__messages"
+        data-testid="chat-messages"
+        aria-live="polite"
+        aria-relevant="additions text"
+      >
         {messages.length === 0 && (
           <Card title="System" glow="green">
             <p>
@@ -261,7 +365,11 @@ export function ChatPage() {
                 <span className={`nt-chat__message-status status-${msg.status}`}>{msg.status}</span>
               )}
             </div>
-            <div className="nt-chat__message-content">{msg.content}</div>
+            <div className="nt-chat__message-content">
+              {msg.segments.map((segment) => (
+                <SegmentView key={segment.id} segment={segment} />
+              ))}
+            </div>
           </div>
         ))}
         <div ref={messagesEndRef} />
