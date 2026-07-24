@@ -159,7 +159,13 @@ export function extractPartText(parts: ReadonlyArray<unknown> | undefined): stri
 
 // 新增：消息片段类型
 export type SegmentType =
-  'text' | 'text_delta' | 'thinking' | 'tool_call' | 'tool_result' | 'progress';
+  | 'text'
+  | 'text_delta'
+  | 'thinking'
+  | 'tool_call'
+  | 'tool_result'
+  | 'progress'
+  | 'response_complete';
 
 export interface SegmentMetadata {
   segment_type?: SegmentType;

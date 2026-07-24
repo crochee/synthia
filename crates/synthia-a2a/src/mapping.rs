@@ -89,16 +89,26 @@ pub fn agent_event_to_stream_responses(
         }
 
         AgentEvent::LlmResponseComplete { content, .. } => {
+            // Emit an empty marker message with `segment_type:
+            // response_complete` so clients can detect end-of-LLM-response
+            // and close any open thinking segment. The full content has
+            // already been streamed via `LlmStreamDelta` chunks; re-emitting
+            // it here would duplicate everything the client rendered.
             let msg = Message {
                 message_id: new_message_id(),
                 context_id: Some(context_id.to_string()),
                 task_id: Some(task_id.clone()),
                 role: Role::Agent,
-                parts: vec![Part::text(content.clone())],
-                metadata: None,
+                parts: vec![Part::text("")],
+                metadata: Some(std::collections::HashMap::from([(
+                    "segment_type".to_string(),
+                    serde_json::json!("response_complete"),
+                )])),
                 extensions: None,
                 reference_task_ids: None,
             };
+            // Touch content so the variable is used (avoids dead_code lint).
+            let _ = content;
             vec![Ok(StreamResponse::Message(msg))]
         }
 

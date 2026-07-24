@@ -55,6 +55,25 @@ class ThinkingParser {
    * caller has appended to it) or (b) is a new segment to append.
    * Callers append them in order to the message's segment list.
    */
+  /**
+   * Force-close any in-flight thinking segment. Used by the
+   * `response_complete` marker when the provider emitted
+   * `<think>` but not `` — the dangling segment is
+   * returned so the caller can append it to the message.
+   * Returns null when no thinking segment is open.
+   */
+  forceCloseThinking(): MessageSegment | null {
+    if (this.thinkId === null) return null;
+    const segment: MessageSegment = {
+      id: this.thinkId,
+      type: 'thinking',
+      content: this.thinkTail,
+    };
+    this.thinkId = null;
+    this.thinkTail = '';
+    return segment;
+  }
+
   feed(delta: string): MessageSegment[] {
     const out: MessageSegment[] = [];
     let rest = delta;
@@ -453,8 +472,25 @@ export function ChatPage() {
       case 'message': {
         if (!event.message) return;
         const { text, metadata } = extractFromMessage(event.message);
-        if (text) {
+        if (text || metadata?.segment_type === 'response_complete') {
           const segmentType: SegmentType = metadata?.segment_type || 'text';
+
+          if (segmentType === 'response_complete') {
+            // Backend marker signalling the LLM has finished its
+            // current response iteration. Force-close any open
+            // thinking segment the streaming missed (provider
+            // emitted `<think>` but not ``). No content to emit.
+            const parser = parserRef.current;
+            const orphan = parser?.forceCloseThinking();
+            if (orphan) {
+              setMessages((prev) =>
+                prev.map((m) =>
+                  m.id === assistantId ? { ...m, segments: [...m.segments, orphan] } : m,
+                ),
+              );
+            }
+            return;
+          }
 
           if (segmentType === 'text_delta') {
             sawTextDeltaRef.current = true;
