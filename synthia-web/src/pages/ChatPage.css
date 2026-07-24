@@ -196,13 +196,36 @@
 .nt-chat__segment--tool_result .nt-chat__segment-label,
 .nt-chat__segment--tool_block .nt-chat__segment-label {
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-  font-size: 0.78em;
-  color: rgba(255, 200, 50, 0.85);
-  letter-spacing: 0.02em;
+  font-size: 0.92em;
+  font-weight: 500;
+  letter-spacing: 0.03em;
+}
+
+/* Header size for tool blocks — visibly larger than thinking
+ * so the user can spot the tool name at a glance. The icon
+ * gets the same bump to stay proportional. */
+.nt-chat__segment--tool_block .nt-chat__segment-header {
+  font-size: 0.92em;
+}
+
+.nt-chat__segment--tool_block .nt-chat__segment-icon {
+  font-size: 1em;
+}
+
+/* tool_block keeps the neutral accent for the header itself
+ * (the colour-coded yellow/green lives on the inner sub-blocks),
+ * but tool_call/tool_result standalone blocks use their type's
+ * accent colour for the label. */
+.nt-chat__segment--tool_block .nt-chat__segment-label {
+  color: rgba(220, 220, 220, 0.95);
+}
+
+.nt-chat__segment--tool_call .nt-chat__segment-label {
+  color: rgba(255, 200, 50, 0.95);
 }
 
 .nt-chat__segment--tool_result .nt-chat__segment-label {
-  color: rgba(0, 255, 136, 0.85);
+  color: rgba(0, 255, 136, 0.95);
 }
 
 /* tool_block - 整体块：单一 header + 内部两个子块（黄/绿） */
