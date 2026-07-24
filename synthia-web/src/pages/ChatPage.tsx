@@ -258,16 +258,22 @@ function SegmentView({
    *  typewriter snaps to the full content. */
   streaming: boolean;
 }) {
-  // Both thinking and tool_call default to collapsed so they
-  // don't dominate the viewport — user clicks to reveal.
-  const [expanded, setExpanded] = useState(segment.expanded ?? false);
+  // Thinking is expanded by default so users see the reasoning
+  // as it streams in (the typewriter reveals it character by
+  // character). Tool calls stay collapsed — the input/output
+  // is verbose and rarely the user's primary interest.
+  const defaultExpanded = segment.type === 'thinking';
+  const [expanded, setExpanded] = useState(defaultExpanded);
 
   const isCollapsible = segment.type === 'thinking' || segment.type === 'tool_call';
 
   // For plain text, reveal characters progressively so a
   // large chunk doesn't pop in instantly. useTypewriter returns
   // the prefix to render; the rest is still being drawn.
-  const revealed = useTypewriter(segment.id, segment.content, streaming);
+  // Thinking runs faster than final text — long reasoning
+  // shouldn't make the user wait as long for the answer.
+  const cps = segment.type === 'thinking' ? 180 : 120;
+  const revealed = useTypewriter(segment.id, segment.content, streaming, cps);
 
   if (!isCollapsible) {
     return (
@@ -296,7 +302,14 @@ function SegmentView({
         <span className={`nt-chat__segment-icon ${expanded ? 'expanded' : ''}`}>▸</span>
         <span className="nt-chat__segment-label">{label}</span>
       </button>
-      {expanded && <div className="nt-chat__segment-content">{segment.content}</div>}
+      {expanded && (
+        <div className="nt-chat__segment-content">
+          {revealed}
+          {revealed.length < segment.content.length && (
+            <span className="nt-chat__caret" aria-hidden="true" />
+          )}
+        </div>
+      )}
     </div>
   );
 }
@@ -306,17 +319,25 @@ function SegmentView({
  * visual rate, driven by `requestAnimationFrame`. Designed to make
  * one big SSE chunk feel like a smooth stream instead of a flash.
  *
+ * `charsPerSec` lets the caller tune the speed — text segments
+ * default to 120 chars/sec (natural reading pace); thinking is
+ * faster (180 cps) so a long reasoning trace doesn't keep the
+ * user waiting.
+ *
  * Returns the prefix that should be rendered right now. When the
  * stream is no longer active (caller passes `streaming=false`) and
  * the full content fits, we immediately return everything; otherwise
  * the loop continues until the revealed prefix catches up.
  */
-function useTypewriter(segmentId: string, content: string, streaming: boolean): string {
+function useTypewriter(
+  segmentId: string,
+  content: string,
+  streaming: boolean,
+  charsPerSec = 120,
+): string {
   const [revealed, setRevealed] = useState('');
   const revealedRef = useRef('');
   const contentRef = useRef('');
-  // Chars per second target. ~120 chars/sec reads naturally.
-  const CHARS_PER_SEC = 120;
 
   // Reset when the underlying segment identity changes (new
   // segment id from the parser).
@@ -349,9 +370,9 @@ function useTypewriter(segmentId: string, content: string, streaming: boolean): 
       const target = contentRef.current.length;
       const have = revealedRef.current.length;
       if (have < target) {
-        // Reveal `CHARS_PER_SEC * delta` characters per frame.
+        // Reveal `charsPerSec * delta` characters per frame.
         // Cap step so very long pauses don't snap.
-        const step = Math.min(target - have, Math.max(1, Math.round(CHARS_PER_SEC * delta)));
+        const step = Math.min(target - have, Math.max(1, Math.round(charsPerSec * delta)));
         const next = revealedRef.current + contentRef.current.slice(have, have + step);
         revealedRef.current = next;
         setRevealed(next);
@@ -367,7 +388,7 @@ function useTypewriter(segmentId: string, content: string, streaming: boolean): 
     };
     raf = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(raf);
-  }, [segmentId, streaming]);
+  }, [segmentId, streaming, charsPerSec]);
 
   // Auto-scroll the chat container while the typewriter is
   // animating, so newly-revealed text doesn't get clipped at
