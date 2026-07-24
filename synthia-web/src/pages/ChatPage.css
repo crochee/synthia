@@ -125,24 +125,38 @@
   margin: 0;
 }
 
-/* 普通文本 - 不加装饰，让内容是主体 */
+/* 普通文本 - 主色调：冷色调（亮白/淡青），保持纯色不斜体，
+ * 让正文读起来最显眼。 */
 .nt-chat__segment--text,
 .nt-chat__segment--text_delta {
-  /* 默认文本样式 - 无特殊样式 */
+  color: #f0fbff;
+  font-weight: 400;
 }
 
-/* 思考 - 默认折叠（点击展开）；展开后用浅灰显示 */
+/* 思考 - 暖琥珀色调，与正文冷色形成对照，明确区分为
+ * "元信息"而非正文。去掉 italic：字色已经够区分，
+ * 斜体在小字号下反而让可读性下降。 */
 .nt-chat__segment--thinking {
   margin: 0;
 }
 
 .nt-chat__segment--thinking .nt-chat__segment-content {
-  color: #8a8a8a;
+  color: #d9b173;
   font-size: 0.92em;
-  font-style: italic;
+  font-style: normal;
+  font-weight: 400;
   max-height: 16em;
   overflow-y: auto;
   margin-top: 0.15rem;
+}
+
+/* 思考 header 也跟着用琥珀色，让折叠状态和展开状态统一。 */
+.nt-chat__segment--thinking .nt-chat__segment-label {
+  color: rgba(217, 177, 115, 0.9);
+}
+
+.nt-chat__segment--thinking .nt-chat__segment-header:hover .nt-chat__segment-label {
+  color: rgba(217, 177, 115, 1);
 }
 
 /* 工具调用 - 终端代码块风格：深色背景 + 黄色左边框 */
