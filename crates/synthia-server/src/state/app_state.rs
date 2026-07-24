@@ -583,7 +583,7 @@ fn load_auth_config(workspace_root: &std::path::Path) -> AuthConfig {
 /// Lookup order:
 /// 1. `{workspace_root}/config.toml` (primary).
 /// 2. `{workspace_root}/.synthia/config.toml` (alternate location).
-/// 3. `CorsConfig::default()` (which allows `http://localhost:5173`).
+/// 3. `CorsConfig::default()` (empty lists → permissive by default).
 fn load_cors_config(workspace_root: &std::path::Path) -> CorsConfig {
     use crate::config::ServerConfig;
 

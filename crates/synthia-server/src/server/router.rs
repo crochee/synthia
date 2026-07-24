@@ -2,7 +2,7 @@ use std::{path::PathBuf, sync::Arc};
 
 use axum::{
     Router,
-    http::HeaderValue,
+    http::{HeaderName, HeaderValue, Method},
     routing::{delete, get, post},
 };
 use tower_http::cors::CorsLayer;
@@ -17,33 +17,53 @@ use crate::{
 };
 
 /// Build a CORS layer from server configuration.
+///
+/// Per-dimension semantics (independent):
+/// - `allowed_origins` empty → `Any`
+/// - `allowed_methods`  empty → `Any`
+/// - `allowed_headers`  empty → `Any`
+///
+/// Operators can opt into a fully locked-down policy by listing explicit
+/// values in all three lists.
 fn build_cors_layer(config: &CorsConfig) -> CorsLayer {
-    if !config.enabled {
-        return CorsLayer::new();
-    }
+    use tower_http::cors::{AllowHeaders, AllowMethods, AllowOrigin};
 
     let origins: Vec<HeaderValue> = config
         .allowed_origins
         .iter()
         .filter_map(|o| o.parse().ok())
         .collect();
-
-    let methods: Vec<axum::http::Method> = config
+    let methods: Vec<Method> = config
         .allowed_methods
         .iter()
         .filter_map(|m| m.parse().ok())
         .collect();
+    let headers: Vec<HeaderName> = config
+        .allowed_headers
+        .iter()
+        .filter_map(|h| h.parse().ok())
+        .collect();
+
+    let origin = if origins.is_empty() {
+        AllowOrigin::any()
+    } else {
+        AllowOrigin::list(origins)
+    };
+    let method = if methods.is_empty() {
+        AllowMethods::any()
+    } else {
+        AllowMethods::list(methods)
+    };
+    let header = if headers.is_empty() {
+        AllowHeaders::any()
+    } else {
+        AllowHeaders::list(headers)
+    };
 
     CorsLayer::new()
-        .allow_origin(origins)
-        .allow_methods(methods)
-        .allow_headers(
-            config
-                .allowed_headers
-                .iter()
-                .filter_map(|h| h.parse().ok())
-                .collect::<Vec<_>>(),
-        )
+        .allow_origin(origin)
+        .allow_methods(method)
+        .allow_headers(header)
 }
 
 pub async fn create_server(workspace_root: PathBuf) -> Router {

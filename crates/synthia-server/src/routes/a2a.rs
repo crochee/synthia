@@ -46,7 +46,8 @@ fn absolute_base_url(headers: &HeaderMap) -> String {
 /// `GET /.well-known/agent-card.json` — 返回 A2A AgentCard。
 ///
 /// A2A 协议发现端点，返回此 agent 的能力描述。
-/// 包含 CORS 头以支持跨域发现。
+/// 跨域头由顶层 `CorsLayer` 统一注入（默认允许全部 origin），本处理器
+/// 不再手动设置 CORS 响应头，避免与全局层冲突。
 ///
 /// `supportedInterfaces[].url` 字段使用请求的 Host 头构造绝对 URL，
 /// 这样 v1.0 SDK 的 `JsonRpcTransport` 可以直接 fetch。
@@ -66,28 +67,5 @@ pub async fn get_agent_card(
         crate::a2a::card_builder::collect_skills(&state).await,
     );
 
-    let mut resp_headers = HeaderMap::new();
-
-    // CORS headers for public discovery (mirrors a2a-server-lf behavior)
-    let origin = headers
-        .get(header::ORIGIN)
-        .and_then(|v| v.to_str().ok())
-        .unwrap_or("*");
-
-    if origin != "*" {
-        resp_headers.insert(
-            header::ACCESS_CONTROL_ALLOW_ORIGIN,
-            origin.parse().unwrap_or_else(|_| "*".parse().unwrap()),
-        );
-        resp_headers.insert(
-            header::ACCESS_CONTROL_ALLOW_CREDENTIALS,
-            "true".parse().unwrap(),
-        );
-        resp_headers.insert(header::VARY, "Origin".parse().unwrap());
-    } else {
-        resp_headers
-            .insert(header::ACCESS_CONTROL_ALLOW_ORIGIN, "*".parse().unwrap());
-    }
-
-    (StatusCode::OK, resp_headers, Json(card))
+    (StatusCode::OK, Json(card))
 }
