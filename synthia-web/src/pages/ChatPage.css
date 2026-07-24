@@ -254,3 +254,16 @@
     opacity: 0;
   }
 }
+
+/* Typewriter caret — blinks while a text segment is still
+ * being revealed (typed out), disappears once revealed length
+ * catches up to the full content. */
+.nt-chat__caret {
+  display: inline-block;
+  width: 0.5em;
+  height: 1em;
+  background: var(--accent-cyan);
+  margin-left: 0.1em;
+  vertical-align: text-bottom;
+  animation: nt-chat-cursor-blink 1s steps(2) infinite;
+}

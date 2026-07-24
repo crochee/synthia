@@ -248,16 +248,35 @@ interface SessionMeta {
   createdAt: string;
 }
 
-function SegmentView({ segment }: { segment: MessageSegment }) {
+function SegmentView({
+  segment,
+  streaming,
+}: {
+  segment: MessageSegment;
+  /** True when the parent message is still receiving chunks
+   *  (status === 'working' and isStreaming). When false the
+   *  typewriter snaps to the full content. */
+  streaming: boolean;
+}) {
   // Both thinking and tool_call default to collapsed so they
   // don't dominate the viewport — user clicks to reveal.
   const [expanded, setExpanded] = useState(segment.expanded ?? false);
 
   const isCollapsible = segment.type === 'thinking' || segment.type === 'tool_call';
 
+  // For plain text, reveal characters progressively so a
+  // large chunk doesn't pop in instantly. useTypewriter returns
+  // the prefix to render; the rest is still being drawn.
+  const revealed = useTypewriter(segment.id, segment.content, streaming);
+
   if (!isCollapsible) {
     return (
-      <div className={`nt-chat__segment nt-chat__segment--${segment.type}`}>{segment.content}</div>
+      <div className={`nt-chat__segment nt-chat__segment--${segment.type}`}>
+        {revealed}
+        {revealed.length < segment.content.length && (
+          <span className="nt-chat__caret" aria-hidden="true" />
+        )}
+      </div>
     );
   }
 
@@ -280,6 +299,86 @@ function SegmentView({ segment }: { segment: MessageSegment }) {
       {expanded && <div className="nt-chat__segment-content">{segment.content}</div>}
     </div>
   );
+}
+
+/**
+ * Reveals a growing string one character at a time at a constant
+ * visual rate, driven by `requestAnimationFrame`. Designed to make
+ * one big SSE chunk feel like a smooth stream instead of a flash.
+ *
+ * Returns the prefix that should be rendered right now. When the
+ * stream is no longer active (caller passes `streaming=false`) and
+ * the full content fits, we immediately return everything; otherwise
+ * the loop continues until the revealed prefix catches up.
+ */
+function useTypewriter(segmentId: string, content: string, streaming: boolean): string {
+  const [revealed, setRevealed] = useState('');
+  const revealedRef = useRef('');
+  const contentRef = useRef('');
+  // Chars per second target. ~120 chars/sec reads naturally.
+  const CHARS_PER_SEC = 120;
+
+  // Reset when the underlying segment identity changes (new
+  // segment id from the parser).
+  useEffect(() => {
+    revealedRef.current = '';
+    contentRef.current = '';
+    setRevealed('');
+  }, [segmentId]);
+
+  // Keep the latest content accessible from the RAF callback
+  // without restarting the loop on every chunk.
+  useEffect(() => {
+    contentRef.current = content;
+    // If new content arrived while the loop was idle (e.g. during
+    // a status-update that flushed everything synchronously), make
+    // sure we render at least up to whatever has been revealed.
+    if (revealedRef.current.length < content.length) {
+      // No-op: the RAF loop will catch up. But if the loop is
+      // not running we kick it.
+      setRevealed(revealedRef.current);
+    }
+  }, [content]);
+
+  useEffect(() => {
+    let raf = 0;
+    let last = performance.now();
+    const tick = (now: number) => {
+      const delta = (now - last) / 1000;
+      last = now;
+      const target = contentRef.current.length;
+      const have = revealedRef.current.length;
+      if (have < target) {
+        // Reveal `CHARS_PER_SEC * delta` characters per frame.
+        // Cap step so very long pauses don't snap.
+        const step = Math.min(target - have, Math.max(1, Math.round(CHARS_PER_SEC * delta)));
+        const next = revealedRef.current + contentRef.current.slice(have, have + step);
+        revealedRef.current = next;
+        setRevealed(next);
+        raf = requestAnimationFrame(tick);
+      } else if (!streaming) {
+        // Caught up and stream is done: stop the loop.
+        return;
+      } else {
+        // Caught up but stream still active: idle and wait for
+        // more content to arrive.
+        raf = requestAnimationFrame(tick);
+      }
+    };
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+  }, [segmentId, streaming]);
+
+  // Auto-scroll the chat container while the typewriter is
+  // animating, so newly-revealed text doesn't get clipped at
+  // the bottom of the viewport.
+  useEffect(() => {
+    if (!streaming) return;
+    const container = document.querySelector('.nt-chat__messages');
+    if (container) container.scrollTop = container.scrollHeight;
+  }, [revealed, streaming]);
+
+  return revealed;
 }
 
 /**
@@ -625,7 +724,11 @@ export function ChatPage() {
             </div>
             <div className="nt-chat__message-content">
               {msg.segments.map((segment) => (
-                <SegmentView key={segment.id} segment={segment} />
+                <SegmentView
+                  key={segment.id}
+                  segment={segment}
+                  streaming={isStreaming && msg.role === 'assistant' && msg.status === 'working'}
+                />
               ))}
             </div>
           </div>
