@@ -1,0 +1,21 @@
+[package]
+name = "test-support"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+synthia-core = { path = "../crates/synthia-core" }
+synthia-memory = { path = "../crates/synthia-memory" }
+synthia-skill = { path = "../crates/synthia-skill" }
+synthia-context = { path = "../crates/synthia-context" }
+synthia-hook = { path = "../crates/synthia-hook" }
+synthia-provider = { path = "../crates/synthia-provider" }
+synthia-tool = { path = "../crates/synthia-tool" }
+async-trait.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+anyhow.workspace = true
+tokio.workspace = true
+futures.workspace = true
+async-stream.workspace = true
+chrono.workspace = true

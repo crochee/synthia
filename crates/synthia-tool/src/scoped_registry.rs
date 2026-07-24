@@ -1,0 +1,310 @@
+//! Scoped tool registry with RAII cleanup.
+//!
+//! Provides per-session tool registration with automatic cleanup
+//! when the session ends via [`ScopeGuard`] drop.
+
+use std::sync::Arc;
+
+use dashmap::DashMap;
+use synthia_core::RegistryItem;
+use synthia_provider::types::ToolDefinition;
+
+use crate::{registry::ToolEntry, traits::Tool};
+
+/// Unique token identifying a scope.
+pub type Token = Arc<()>;
+
+/// A single scoped tool registration.
+pub struct ScopedRegistration {
+    /// Token identifying the scope this registration belongs to.
+    pub token: Token,
+    /// The registered tool.
+    pub tool: Arc<dyn Tool>,
+}
+
+/// A tool registry that supports per-session scoped registrations.
+///
+/// Scoped registrations are automatically cleaned up when the
+/// corresponding [`ScopeGuard`] is dropped.
+pub struct ScopedToolRegistry {
+    /// Scoped registrations keyed by tool name.
+    local: DashMap<String, Vec<ScopedRegistration>>,
+    /// The global registry tools snapshot for iteration.
+    global_tools: Vec<ToolEntry>,
+}
+
+impl ScopedToolRegistry {
+    /// Register tools in a scope. These tools override any global
+    /// tools with the same name until the returned [`ScopeGuard`]
+    /// is dropped.
+    pub fn register_scoped(
+        &self,
+        tools: Vec<(String, Arc<dyn Tool>)>,
+        token: Token,
+    ) {
+        for (name, tool) in tools {
+            self.local
+                .entry(name)
+                .or_default()
+                .push(ScopedRegistration {
+                    token: token.clone(),
+                    tool,
+                });
+        }
+    }
+
+    /// Materialize the effective tool set: global tools plus scoped
+    /// overrides, with last-wins semantics (most recent scoped
+    /// registration for each name wins).
+    pub fn materialize(&self) -> Vec<ToolDefinition> {
+        let mut result: Vec<ToolDefinition> = Vec::new();
+
+        // Collect global tools
+        for entry in &self.global_tools {
+            result.push(ToolDefinition::new(
+                entry.name().to_string(),
+                entry.description().to_string(),
+                entry.tool_instance().parameters(),
+            ));
+        }
+
+        // Apply scoped overrides (last-wins)
+        let mut seen: std::collections::HashMap<String, usize> =
+            std::collections::HashMap::new();
+        for (idx, def) in result.iter().enumerate() {
+            seen.insert(def.name.clone(), idx);
+        }
+
+        for entry in self.local.iter() {
+            let registrations = entry.value();
+            if let Some(last) = registrations.last() {
+                let name = last.tool.name();
+                let def = ToolDefinition::new(
+                    name.to_string(),
+                    last.tool.description().to_string(),
+                    last.tool.parameters(),
+                );
+                if let Some(idx) = seen.get(name) {
+                    result[*idx] = def;
+                } else {
+                    seen.insert(name.to_string(), result.len());
+                    result.push(def);
+                }
+            }
+        }
+
+        result
+    }
+
+    /// Create a new scoped registry from a snapshot of global tools.
+    ///
+    /// Returns the registry and a guard. When the guard is dropped,
+    /// all scoped registrations associated with it are removed.
+    pub fn create_scope(
+        global_tools: Vec<ToolEntry>,
+    ) -> (Arc<ScopedToolRegistry>, ScopeGuard) {
+        let registry = Arc::new(ScopedToolRegistry {
+            local: DashMap::new(),
+            global_tools,
+        });
+        let token: Token = Arc::new(());
+        let guard = ScopeGuard {
+            token: token.clone(),
+            registry: Arc::clone(&registry),
+        };
+        registry.register_scoped(vec![], token);
+        (registry, guard)
+    }
+}
+
+/// RAII guard that cleans up scoped registrations on drop.
+pub struct ScopeGuard {
+    /// Token identifying this scope.
+    token: Token,
+    /// Reference to the registry for cleanup.
+    registry: Arc<ScopedToolRegistry>,
+}
+
+impl Drop for ScopeGuard {
+    fn drop(&mut self) {
+        let keys_to_clean: Vec<String> = self
+            .registry
+            .local
+            .iter()
+            .filter(|entry| {
+                entry
+                    .value()
+                    .iter()
+                    .any(|r| Arc::ptr_eq(&r.token, &self.token))
+            })
+            .map(|entry| entry.key().clone())
+            .collect();
+
+        for key in keys_to_clean {
+            if let Some(mut regs) = self.registry.local.get_mut(&key) {
+                regs.retain(|r| !Arc::ptr_eq(&r.token, &self.token));
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Arc;
+
+    use async_trait::async_trait;
+
+    use crate::{
+        registry::ToolEntry,
+        scoped_registry::ScopedToolRegistry,
+        traits::Tool,
+        types::{ToolInput, ToolOutput},
+    };
+
+    struct TestTool {
+        name: String,
+        description: String,
+    }
+
+    impl TestTool {
+        fn new(name: &str, description: &str) -> Self {
+            Self {
+                name: name.to_string(),
+                description: description.to_string(),
+            }
+        }
+    }
+
+    #[async_trait]
+    impl Tool for TestTool {
+        fn name(&self) -> &str {
+            &self.name
+        }
+
+        fn description(&self) -> &str {
+            &self.description
+        }
+
+        fn parameters(&self) -> serde_json::Value {
+            serde_json::json!({})
+        }
+
+        async fn call(&self, _input: ToolInput) -> ToolOutput {
+            ToolOutput::text("ok")
+        }
+    }
+
+    fn make_entry(name: &str, description: &str) -> ToolEntry {
+        ToolEntry::new(Arc::new(TestTool::new(name, description)))
+    }
+
+    #[test]
+    fn test_scoped_registry_global_only() {
+        let global_tools =
+            vec![make_entry("tool1", "desc1"), make_entry("tool2", "desc2")];
+        let (registry, _guard) = ScopedToolRegistry::create_scope(global_tools);
+
+        let tools = registry.materialize();
+        assert_eq!(tools.len(), 2);
+    }
+
+    #[test]
+    fn test_scoped_registry_override() {
+        let global_tools =
+            vec![make_entry("test_tool", "original description")];
+
+        let (registry, guard) = ScopedToolRegistry::create_scope(global_tools);
+
+        // Verify original is present
+        let tools = registry.materialize();
+        assert_eq!(tools.len(), 1);
+        assert_eq!(tools[0].description, "original description");
+
+        // Override with scoped registration
+        registry.register_scoped(
+            vec![(
+                "test_tool".to_string(),
+                Arc::new(TestTool::new("test_tool", "scoped description")),
+            )],
+            guard.token.clone(),
+        );
+
+        let tools = registry.materialize();
+        assert_eq!(tools.len(), 1);
+        assert_eq!(tools[0].description, "scoped description");
+    }
+
+    #[test]
+    fn test_scope_guard_cleanup() {
+        let global_tools = vec![make_entry("test_tool", "original")];
+
+        let (registry, guard) = ScopedToolRegistry::create_scope(global_tools);
+
+        registry.register_scoped(
+            vec![(
+                "test_tool".to_string(),
+                Arc::new(TestTool::new("test_tool", "scoped")),
+            )],
+            guard.token.clone(),
+        );
+
+        assert_eq!(registry.materialize().len(), 1);
+
+        drop(guard);
+
+        // After dropping guard, scoped tools should be removed
+        let tools = registry.materialize();
+        assert_eq!(tools.len(), 1);
+        assert_eq!(tools[0].description, "original");
+    }
+
+    #[test]
+    fn test_multiple_scopes() {
+        let global_tools = vec![make_entry("tool_a", "global_a")];
+
+        let (registry, guard1) =
+            ScopedToolRegistry::create_scope(global_tools.clone());
+        let (_registry2, _guard2) =
+            ScopedToolRegistry::create_scope(global_tools);
+
+        registry.register_scoped(
+            vec![(
+                "tool_a".to_string(),
+                Arc::new(TestTool::new("tool_a", "scoped1")),
+            )],
+            guard1.token.clone(),
+        );
+
+        // guard2's scope should not affect registry
+        let tools = registry.materialize();
+        assert_eq!(tools.len(), 1);
+        assert_eq!(tools[0].description, "scoped1");
+
+        drop(guard1);
+
+        let tools = registry.materialize();
+        assert_eq!(tools.len(), 1);
+        assert_eq!(tools[0].description, "global_a");
+    }
+
+    #[test]
+    fn test_scoped_adds_new_tool() {
+        let global_tools = vec![make_entry("tool_a", "global_a")];
+
+        let (registry, guard) = ScopedToolRegistry::create_scope(global_tools);
+
+        // Add a completely new tool via scoped registration
+        registry.register_scoped(
+            vec![(
+                "tool_b".to_string(),
+                Arc::new(TestTool::new("tool_b", "new_tool")),
+            )],
+            guard.token.clone(),
+        );
+
+        let tools = registry.materialize();
+        assert_eq!(tools.len(), 2);
+        let tool_b = tools.iter().find(|t| t.name == "tool_b").unwrap();
+        assert_eq!(tool_b.description, "new_tool");
+    }
+}

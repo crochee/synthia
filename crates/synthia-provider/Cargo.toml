@@ -1,0 +1,45 @@
+[package]
+name = "synthia-provider"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+synthia-core = { path = "../synthia-core" }
+synthia-telemetry = { path = "../synthia-telemetry" }
+synthia-cache-mark = { path = "../synthia-cache-mark" }
+async-trait.workspace = true
+# `rc` feature enables `Serialize`/`Deserialize` for `Arc<T>` so that
+# `CompletionRequest`'s `Arc<Vec<T>>` fields derive serde impls that
+# produce/consume the same JSON array format as `Vec<T>`.
+serde = { workspace = true, features = ["rc"] }
+serde_json.workspace = true
+thiserror.workspace = true
+anyhow.workspace = true
+futures.workspace = true
+reqwest.workspace = true
+tokio.workspace = true
+tokio-util = { workspace = true, features = ["rt"] }
+parking_lot.workspace = true
+tracing.workspace = true
+uuid.workspace = true
+ulid.workspace = true
+chrono.workspace = true
+regex.workspace = true
+async-stream.workspace = true
+toml.workspace = true
+rand.workspace = true
+
+[features]
+default = []
+# Enable OpenTelemetry `llm.call` span creation at provider call sites.
+# When enabled, `AnthropicProvider::complete` / `OpenAICompatibleProvider::complete`
+# (and their `complete_with_stream` variants) emit a `llm.call` tracing span
+# with `gen_ai.*` semantic-convention attributes. No-op when disabled.
+otel = []
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["macros", "rt"] }
+tempfile.workspace = true
+wiremock.workspace = true
+futures.workspace = true
+tracing-subscriber.workspace = true

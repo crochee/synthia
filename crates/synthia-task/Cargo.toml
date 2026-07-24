@@ -1,0 +1,24 @@
+[package]
+name = "synthia-task"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+synthia-core = { path = "../synthia-core" }
+synthia-tool = { path = "../synthia-tool" }
+async-trait.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+anyhow.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+chrono.workspace = true
+uuid.workspace = true
+ulid.workspace = true
+futures.workspace = true
+parking_lot.workspace = true
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["macros", "rt", "process"] }
+tempfile.workspace = true

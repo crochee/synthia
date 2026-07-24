@@ -1,0 +1,21 @@
+[package]
+name = "synthia-tool-orchestrator"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+synthia-permission = { path = "../synthia-permission" }
+synthia-sandbox = { path = "../synthia-sandbox" }
+synthia-tool = { path = "../synthia-tool" }
+synthia-tool-exec-base = { path = "../synthia-tool-exec-base" }
+async-trait.workspace = true
+dashmap.workspace = true
+futures.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
+tokio-util.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true

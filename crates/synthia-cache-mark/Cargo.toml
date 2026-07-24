@@ -1,0 +1,8 @@
+[package]
+name = "synthia-cache-mark"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+serde.workspace = true
+ahash = "0.8"

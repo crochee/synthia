@@ -1,0 +1,41 @@
+[package]
+name = "synthia-cli"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+synthia-core = { path = "../synthia-core" }
+synthia-agent = { path = "../synthia-agent" }
+synthia-hook = { path = "../synthia-hook" }
+synthia-provider = { path = "../synthia-provider" }
+synthia-tool = { path = "../synthia-tool" }
+synthia-memory = { path = "../synthia-memory" }
+synthia-skill = { path = "../synthia-skill" }
+synthia-session = { path = "../synthia-session" }
+synthia-command = { path = "../synthia-command" }
+synthia-context = { path = "../synthia-context" }
+synthia-permission = { path = "../synthia-permission" }
+synthia-tool-orchestrator = { path = "../synthia-tool-orchestrator" }
+synthia-sandbox = { path = "../synthia-sandbox" }
+clap.workspace = true
+tokio.workspace = true
+tokio-util.workspace = true
+anyhow.workspace = true
+thiserror.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+rustyline.workspace = true
+crossterm.workspace = true
+futures.workspace = true
+parking_lot.workspace = true
+indicatif = "0.17"
+regex.workspace = true
+hex.workspace = true
+rand.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
+regex.workspace = true
+synthia-agent = { path = "../synthia-agent" }

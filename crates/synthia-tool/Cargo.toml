@@ -1,0 +1,41 @@
+[package]
+name = "synthia-tool"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+synthia-core = { path = "../synthia-core" }
+synthia-provider = { path = "../synthia-provider" }
+synthia-permission = { path = "../synthia-permission" }
+synthia-sandbox = { path = "../synthia-sandbox" }
+async-trait.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+anyhow.workspace = true
+tracing.workspace = true
+tokio.workspace = true
+tokio-util.workspace = true
+futures.workspace = true
+reqwest.workspace = true
+toml = "0.8"
+url = "2"
+chrono.workspace = true
+parking_lot.workspace = true
+dashmap.workspace = true
+priority-queue = "2"
+regex.workspace = true
+glob.workspace = true
+schemars = { version = "0.8", features = ["preserve_order"] }
+uuid = { version = "1", features = ["v4"] }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+libc = "0.2"
+
+[dev-dependencies]
+tempfile.workspace = true
+tracing-subscriber.workspace = true
+
+[features]
+default = []
+otel = []

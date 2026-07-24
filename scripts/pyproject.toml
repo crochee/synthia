@@ -1,0 +1,10 @@
+[project]
+name = "synthia-provider-tests"
+version = "0.1.0"
+description = "Provider protocol test scripts"
+requires-python = ">=3.10"
+dependencies = [
+    "openai>=1.0.0",
+    "anthropic>=0.40.0",
+    "pyyaml>=6.0",
+]

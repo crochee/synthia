@@ -1,0 +1,42 @@
+[package]
+name = "synthia-telemetry"
+version.workspace = true
+edition.workspace = true
+
+[features]
+# OpenTelemetry integration (default disabled). Enables OTLP tracing/metrics
+# exporters and the `init_otlp_tracing` pipeline. Without this feature the
+# crate compiles with zero OTel dependencies and `init_tracing` falls back to
+# console-only tracing.
+otel = [
+    "dep:opentelemetry",
+    "dep:opentelemetry-otlp",
+    "dep:tracing-opentelemetry",
+    "dep:opentelemetry_sdk",
+    "dep:opentelemetry-semantic-conventions",
+    "dep:tokio",
+    "opentelemetry-otlp/http-proto",
+    "opentelemetry-otlp/reqwest-client",
+    "opentelemetry-semantic-conventions/semconv_experimental",
+]
+
+[dependencies]
+synthia-core.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+thiserror.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+chrono.workspace = true
+uuid.workspace = true
+opentelemetry = { workspace = true, optional = true }
+opentelemetry-otlp = { workspace = true, optional = true }
+tracing-opentelemetry = { workspace = true, optional = true }
+opentelemetry_sdk = { version = "0.27", features = ["rt-tokio"], optional = true }
+opentelemetry-semantic-conventions = { version = "0.27", optional = true }
+tokio = { workspace = true, optional = true }
+sha2.workspace = true
+hex.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true

@@ -1,0 +1,26 @@
+[package]
+name = "synthia-job"
+version.workspace = true
+edition.workspace = true
+description = "Time wheel based job scheduler"
+
+[features]
+default = []
+
+[dependencies]
+# 使用工作空间依赖
+tokio.workspace = true
+tokio-util.workspace = true
+async-trait.workspace = true
+thiserror.workspace = true
+chrono.workspace = true
+tracing.workspace = true
+dashmap.workspace = true
+parking_lot = "0.12"
+
+# 仅本 crate 使用的依赖
+chrono-tz = "0.10"
+synthia-core = { path = "../synthia-core" }
+
+[dev-dependencies]
+tokio-test = "0.4"

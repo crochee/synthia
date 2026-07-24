@@ -1,0 +1,31 @@
+[package]
+name = "synthia-skill"
+version.workspace = true
+edition.workspace = true
+
+[features]
+default = []
+
+[dependencies]
+synthia-core = { path = "../synthia-core" }
+synthia-provider = { path = "../synthia-provider" }
+synthia-tool = { path = "../synthia-tool" }
+async-trait.workspace = true
+thiserror.workspace = true
+indexmap.workspace = true
+serde = { workspace = true, features = ["derive"] }
+serde_json.workspace = true
+serde_yaml = "0.9"
+ulid.workspace = true
+chrono.workspace = true
+tracing.workspace = true
+parking_lot = "0.12"
+tokio = { workspace = true, features = ["rt"] }
+zip = "2"
+notify = "7"
+tempfile = "3"
+sha2.workspace = true
+hex.workspace = true
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["macros", "rt"] }

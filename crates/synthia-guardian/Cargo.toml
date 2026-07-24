@@ -1,0 +1,37 @@
+[package]
+name = "synthia-guardian"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+tokio.workspace = true
+async-trait.workspace = true
+anyhow.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+serde_yaml.workspace = true
+tracing.workspace = true
+thiserror.workspace = true
+regex.workspace = true
+sha2 = "0.10"
+ahash = "0.8"
+chrono = { workspace = true, features = ["serde"] }
+toml.workspace = true
+tokio-util.workspace = true
+
+# Provider and model dependencies (for GuardianReviewer review logic)
+synthia-provider = { path = "../synthia-provider" }
+synthia-model-router = { path = "../synthia-model-router" }
+
+[features]
+default = []
+# Enable OpenTelemetry `guardian.check` span creation at the
+# `GuardianReviewer::check` entry. When enabled, `check` emits a
+# `guardian.check` tracing span with `guardian.decision` (allow /
+# deny / need_user_confirm) and `guardian.layer` (reviewer)
+# attributes. No-op (compile-time eliminated) when disabled.
+otel = []
+
+[dev-dependencies]
+synthia-core.workspace = true
+tracing-subscriber.workspace = true
