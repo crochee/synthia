@@ -119,3 +119,83 @@
   opacity: 0.5;
   cursor: not-allowed;
 }
+
+/* 分段容器 */
+.nt-chat__segment {
+  margin: 0.5rem 0;
+}
+
+.nt-chat__segment--text,
+.nt-chat__segment--text_delta {
+  /* 默认文本样式 - 无特殊样式 */
+}
+
+.nt-chat__segment--thinking {
+  background: #f5f5f5;
+  border-left: 3px solid #9e9e9e;
+  padding: 0.5rem;
+  border-radius: 4px;
+  font-style: italic;
+}
+
+.nt-chat__segment--tool_call {
+  background: #e3f2fd;
+  border-left: 3px solid #2196f3;
+  padding: 0.5rem;
+  border-radius: 4px;
+}
+
+.nt-chat__segment--tool_result {
+  background: #e8f5e9;
+  border-left: 3px solid #4caf50;
+  padding: 0.5rem;
+  border-radius: 4px;
+  font-family: monospace;
+  font-size: 0.9em;
+}
+
+.nt-chat__segment--progress {
+  background: #fff8e1;
+  border-left: 3px solid #ffc107;
+  padding: 0.5rem;
+  border-radius: 4px;
+}
+
+/* 可折叠分段头部 */
+.nt-chat__segment-header {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 0.25rem 0;
+  font-size: 0.85rem;
+  color: #666;
+  width: 100%;
+  text-align: left;
+}
+
+.nt-chat__segment-header:hover {
+  color: #333;
+}
+
+.nt-chat__segment-icon {
+  transition: transform 0.2s;
+  display: inline-block;
+}
+
+.nt-chat__segment-icon.expanded {
+  transform: rotate(90deg);
+}
+
+.nt-chat__segment-label {
+  font-weight: 500;
+}
+
+/* 分段内容 */
+.nt-chat__segment-content {
+  padding: 0.5rem 0 0.5rem 1.5rem;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
