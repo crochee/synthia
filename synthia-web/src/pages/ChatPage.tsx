@@ -16,6 +16,7 @@ import {
   extractPartWithMetadata,
   type A2AStreamEvent,
   type SegmentType,
+  type SegmentMetadata,
 } from '../api/a2a-stream';
 import './ChatPage.css';
 
@@ -284,7 +285,8 @@ function SegmentView({
   const defaultExpanded = segment.type === 'thinking';
   const [expanded, setExpanded] = useState(defaultExpanded);
 
-  const isCollapsible = segment.type === 'thinking' || segment.type === 'tool_call';
+  const isCollapsible =
+    segment.type === 'thinking' || segment.type === 'tool_call' || segment.type === 'tool_result';
 
   // Tool segments skip the typewriter entirely; everything else
   // gets the animated reveal so the user can perceive streaming.
@@ -327,7 +329,9 @@ function SegmentView({
   const label =
     segment.type === 'thinking'
       ? `思考${segment.iteration ? ` · 迭代 ${segment.iteration}` : ''}`
-      : `工具${segment.toolName ? ` · ${segment.toolName}` : ''}`;
+      : segment.type === 'tool_result'
+        ? `工具${segment.toolName ? ` · ${segment.toolName}` : ''} · 结果`
+        : `工具${segment.toolName ? ` · ${segment.toolName}` : ''}`;
 
   return (
     <div className={`nt-chat__segment nt-chat__segment--${segment.type}`}>
@@ -750,6 +754,7 @@ export function ChatPage() {
         if (!event.artifactUpdate) return;
         const { text, metadata } = extractPartWithMetadata(
           event.artifactUpdate.artifact.parts as unknown as ReadonlyArray<unknown> | undefined,
+          event.artifactUpdate.artifact.metadata as SegmentMetadata | undefined,
         );
         if (text) {
           const segmentType: SegmentType = metadata?.segment_type || 'text';

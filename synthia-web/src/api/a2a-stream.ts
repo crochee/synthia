@@ -51,6 +51,7 @@ export interface A2AStreamEvent {
       artifactId: string;
       name?: string;
       parts: Part[];
+      metadata?: SegmentMetadata;
     };
     append: boolean;
     lastChunk: boolean;
@@ -290,6 +291,7 @@ export async function* sendMessageStream(
                 artifactId: artifact.artifactId,
                 name: artifact.name,
                 parts: artifact.parts,
+                metadata: artifact.metadata as SegmentMetadata | undefined,
               },
               append: update.append,
               lastChunk: update.lastChunk,

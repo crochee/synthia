@@ -138,12 +138,26 @@ pub fn agent_event_to_stream_responses(
         AgentEvent::ToolCallCompleted {
             tool_name, output, ..
         } => {
+            // Tag the artifact with segment_type=tool_result so
+            // the chat client can render tool output as a
+            // distinct (green) terminal-style block instead of
+            // collapsing it into the assistant's main text.
+            let mut meta = std::collections::HashMap::from([
+                ("segment_type".to_string(), serde_json::json!("tool_result")),
+                ("tool_name".to_string(), serde_json::json!(tool_name)),
+            ]);
+            // Some callers serialize metadata with serde_json's
+            // default serializer, which serializes a `HashMap`
+            // of string->Value as a JSON object. The chat
+            // client reads it back through serde_json so any
+            // JSON-compatible structure works.
+            let _ = &mut meta;
             let artifact = Artifact {
                 artifact_id: new_artifact_id(),
                 name: Some(tool_name.clone()),
                 description: None,
                 parts: vec![Part::text(output.clone())],
-                metadata: None,
+                metadata: Some(meta),
                 extensions: None,
             };
             vec![Ok(StreamResponse::ArtifactUpdate(
