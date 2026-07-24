@@ -128,6 +128,92 @@ function buildSendRequest(text: string, sessionId?: string): SendMessageRequest 
 }
 
 /**
+ * Extract plain text from a list of A2A v1.0 `Part` objects.
+ *
+ * SDK v1.0 stores the actual content under `part.content.$case`
+ * (one of `text` / `raw` / `url` / `data`). Older v0.3.x drafts
+ * used `part.kind === 'text'` + `part.text`; that path no longer
+ * matches anything produced by the current server, so we look
+ * at the v1.0 shape first and fall back to the v0.3 shape for
+ * resilience against drift.
+ */
+export function extractPartText(parts: ReadonlyArray<unknown> | undefined): string {
+  if (!parts) return '';
+  return parts
+    .map((raw) => {
+      const p = raw as {
+        content?: { $case?: string; value?: unknown };
+        kind?: string;
+        text?: string;
+      };
+      if (p.content?.$case === 'text' && typeof p.content.value === 'string') {
+        return p.content.value;
+      }
+      if (p.kind === 'text' && typeof p.text === 'string') {
+        return p.text;
+      }
+      return '';
+    })
+    .join('');
+}
+
+// 新增：消息片段类型
+export type SegmentType =
+  'text' | 'text_delta' | 'thinking' | 'tool_call' | 'tool_result' | 'progress';
+
+export interface SegmentMetadata {
+  segment_type?: SegmentType;
+  tool_name?: string;
+  iteration?: number;
+  step?: number;
+  total?: number;
+}
+
+export interface PartWithMetadata {
+  text: string;
+  metadata?: SegmentMetadata;
+}
+
+export function extractPartWithMetadata(
+  parts: ReadonlyArray<unknown> | undefined,
+): PartWithMetadata {
+  if (!parts || parts.length === 0) return { text: '' };
+
+  const firstPart = parts[0] as {
+    content?: { $case?: string; value?: unknown };
+    kind?: string;
+    text?: string;
+    metadata?: SegmentMetadata;
+  };
+
+  let text = '';
+  let metadata: SegmentMetadata | undefined;
+
+  if (firstPart.content?.$case === 'text' && typeof firstPart.content.value === 'string') {
+    text = firstPart.content.value;
+  } else if (firstPart.kind === 'text' && typeof firstPart.text === 'string') {
+    text = firstPart.text;
+  }
+
+  // 从 part 的 metadata 字段提取元数据
+  if (firstPart.metadata) {
+    metadata = firstPart.metadata;
+  }
+
+  // 检查 parts[1] 是否包含 metadata（用于某些事件中 metadata 在第二个位置的情况）
+  if (parts.length > 1) {
+    const secondPart = parts[1] as {
+      metadata?: SegmentMetadata;
+    };
+    if (secondPart.metadata) {
+      metadata = secondPart.metadata;
+    }
+  }
+
+  return { text, metadata };
+}
+
+/**
  * Send a message and yield the resulting stream as `A2AStreamEvent`s.
  *
  * Uses the SDK's `sendMessageStream` (SendStreamingMessage JSON-RPC)
