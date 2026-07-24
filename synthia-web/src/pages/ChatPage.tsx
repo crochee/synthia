@@ -1,4 +1,11 @@
-import { useState, useRef, useEffect, type FormEvent, type KeyboardEvent } from 'react';
+import {
+  useState,
+  useRef,
+  useEffect,
+  type FormEvent,
+  type KeyboardEvent,
+  type ReactNode,
+} from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { Button } from '../components/ui/Button';
 import { Card } from '../components/ui/Card';
@@ -251,12 +258,23 @@ interface SessionMeta {
 function SegmentView({
   segment,
   streaming,
+  waitingForPriorThinking,
+  onRevealComplete,
 }: {
   segment: MessageSegment;
   /** True when the parent message is still receiving chunks
    *  (status === 'working' and isStreaming). When false the
    *  typewriter snaps to the full content. */
   streaming: boolean;
+  /** When true (and this is a text segment), don't reveal any
+   *  characters until every preceding thinking segment in the
+   *  same message has finished typing. Keeps the structure
+   *  reasoning -> final answer visible to the reader. */
+  waitingForPriorThinking: boolean;
+  /** Called once when the typewriter has revealed the full
+   *  content of this segment. Used by the parent to lift the
+   *  gate on subsequent text segments. */
+  onRevealComplete: (segmentId: string) => void;
 }) {
   // Thinking is expanded by default so users see the reasoning
   // as it streams in (the typewriter reveals it character by
@@ -267,13 +285,28 @@ function SegmentView({
 
   const isCollapsible = segment.type === 'thinking' || segment.type === 'tool_call';
 
-  // For plain text, reveal characters progressively so a
-  // large chunk doesn't pop in instantly. useTypewriter returns
-  // the prefix to render; the rest is still being drawn.
+  // Pick the reveal speed. Text segments that are gated on prior
+  // thinking pass `cps=0` so the typewriter loop spins but
+  // doesn't reveal anything; once the gate lifts, we switch to
+  // the real cps and the next frame starts typing.
+  //
   // Thinking runs faster than final text — long reasoning
   // shouldn't make the user wait as long for the answer.
-  const cps = segment.type === 'thinking' ? 180 : 120;
-  const revealed = useTypewriter(segment.id, segment.content, streaming, cps);
+  const baseCps = segment.type === 'thinking' ? 180 : 120;
+  const cps = waitingForPriorThinking ? 0 : baseCps;
+  const [revealed, done] = useTypewriter(segment.id, segment.content, streaming, cps);
+
+  // Fire the completion callback once when the segment has
+  // finished typing. Guarded with a ref so it never fires
+  // twice (useState done becomes true on each re-render).
+  const completedRef = useRef(false);
+  useEffect(() => {
+    if (done && !completedRef.current) {
+      completedRef.current = true;
+      onRevealComplete(segment.id);
+    }
+    if (!done) completedRef.current = false;
+  }, [done, segment.id, onRevealComplete]);
 
   if (!isCollapsible) {
     return (
@@ -322,20 +355,26 @@ function SegmentView({
  * `charsPerSec` lets the caller tune the speed — text segments
  * default to 120 chars/sec (natural reading pace); thinking is
  * faster (180 cps) so a long reasoning trace doesn't keep the
- * user waiting.
+ * user waiting. Passing `0` pauses the reveal entirely — used
+ * by the "wait for prior thinking to finish" gate so the final
+ * answer never appears before its reasoning.
  *
- * Returns the prefix that should be rendered right now. When the
- * stream is no longer active (caller passes `streaming=false`) and
- * the full content fits, we immediately return everything; otherwise
- * the loop continues until the revealed prefix catches up.
+ * Returns a tuple of:
+ *   - `revealed`: the prefix to render right now
+ *   - `done`: true once `revealed.length === content.length`
+ *
+ * The done flag lets the parent component coordinate siblings:
+ * a text segment can refuse to type until every preceding
+ * thinking segment reports done.
  */
 function useTypewriter(
   segmentId: string,
   content: string,
   streaming: boolean,
   charsPerSec = 120,
-): string {
+): [string, boolean] {
   const [revealed, setRevealed] = useState('');
+  const [done, setDone] = useState(false);
   const revealedRef = useRef('');
   const contentRef = useRef('');
 
@@ -345,6 +384,7 @@ function useTypewriter(
     revealedRef.current = '';
     contentRef.current = '';
     setRevealed('');
+    setDone(false);
   }, [segmentId]);
 
   // Keep the latest content accessible from the RAF callback
@@ -355,9 +395,10 @@ function useTypewriter(
     // a status-update that flushed everything synchronously), make
     // sure we render at least up to whatever has been revealed.
     if (revealedRef.current.length < content.length) {
-      // No-op: the RAF loop will catch up. But if the loop is
-      // not running we kick it.
       setRevealed(revealedRef.current);
+    }
+    if (content.length > 0 && revealedRef.current.length >= content.length) {
+      setDone(true);
     }
   }, [content]);
 
@@ -369,20 +410,25 @@ function useTypewriter(
       last = now;
       const target = contentRef.current.length;
       const have = revealedRef.current.length;
-      if (have < target) {
+      if (have < target && charsPerSec > 0) {
         // Reveal `charsPerSec * delta` characters per frame.
         // Cap step so very long pauses don't snap.
         const step = Math.min(target - have, Math.max(1, Math.round(charsPerSec * delta)));
         const next = revealedRef.current + contentRef.current.slice(have, have + step);
         revealedRef.current = next;
         setRevealed(next);
+        if (next.length >= target) setDone(true);
         raf = requestAnimationFrame(tick);
-      } else if (!streaming) {
-        // Caught up and stream is done: stop the loop.
-        return;
+      } else if (have >= target) {
+        // Caught up: stop typing but keep the RAF loop alive if
+        // streaming, so when more content arrives we restart.
+        if (!streaming) {
+          setDone(true);
+          return;
+        }
+        raf = requestAnimationFrame(tick);
       } else {
-        // Caught up but stream still active: idle and wait for
-        // more content to arrive.
+        // Paused (`charsPerSec === 0`). Wait for the gate to lift.
         raf = requestAnimationFrame(tick);
       }
     };
@@ -392,14 +438,16 @@ function useTypewriter(
 
   // Auto-scroll the chat container while the typewriter is
   // animating, so newly-revealed text doesn't get clipped at
-  // the bottom of the viewport.
+  // the bottom of the viewport. We also scroll once the segment
+  // finishes typing — that's when a longer text segment will
+  // suddenly grow in height (it had been revealed progressively
+  // but newlines hadn't expanded the container yet).
   useEffect(() => {
-    if (!streaming) return;
     const container = document.querySelector('.nt-chat__messages');
     if (container) container.scrollTop = container.scrollHeight;
-  }, [revealed, streaming]);
+  }, [revealed, done, streaming]);
 
-  return revealed;
+  return [revealed, done];
 }
 
 /**
@@ -434,6 +482,11 @@ export function ChatPage() {
   // duplicate LlmResponseComplete content (whose `text` is the
   // accumulated stream output we've already rendered).
   const sawTextDeltaRef = useRef(false);
+  // Set of segment ids whose typewriter has finished. Used to
+  // gate text segments on prior thinking so the final answer
+  // never races ahead of its reasoning.
+  const revealedSegmentsRef = useRef<Set<string>>(new Set());
+  const [, forceRevealTick] = useState(0);
 
   // Persist session metadata
   useEffect(() => {
@@ -492,6 +545,7 @@ export function ChatPage() {
     const assistantId = crypto.randomUUID();
     parserRef.current = new ThinkingParser();
     sawTextDeltaRef.current = false;
+    revealedSegmentsRef.current = new Set();
     setMessages((prev) => [
       ...prev,
       { id: assistantId, role: 'assistant', segments: [], status: 'working' },
@@ -744,13 +798,52 @@ export function ChatPage() {
               )}
             </div>
             <div className="nt-chat__message-content">
-              {msg.segments.map((segment) => (
-                <SegmentView
-                  key={segment.id}
-                  segment={segment}
-                  streaming={isStreaming && msg.role === 'assistant' && msg.status === 'working'}
-                />
-              ))}
+              {(() => {
+                // For each segment, decide if it should wait for
+                // prior thinking to finish typing before revealing.
+                // A segment is "gated" when:
+                //   - it is a plain-text segment, AND
+                //   - it is not the first segment in the message, AND
+                //   - any preceding thinking segment is still typing.
+                // This keeps the order: thinking -> thinking -> ... -> text.
+                let pendingThinkingAhead = 0;
+                const rendered: ReactNode[] = [];
+                msg.segments.forEach((segment, idx) => {
+                  const isText = segment.type === 'text';
+                  const hasPriorThinking = idx > 0; // simplification: any prior segment can hold the gate
+                  const waiting = isText && hasPriorThinking && pendingThinkingAhead > 0;
+                  if (segment.type === 'thinking') {
+                    // Count how many thinking segments are still
+                    // mid-reveal at this point. We iterate, so
+                    // we adjust *after* rendering: increment when
+                    // we see a non-done thinking, decrement when
+                    // a done flag arrives. Easier: count done vs
+                    // not-done by checking the ref.
+                    if (!revealedSegmentsRef.current.has(segment.id)) {
+                      pendingThinkingAhead += 1;
+                    }
+                  }
+                  rendered.push(
+                    <SegmentView
+                      key={segment.id}
+                      segment={segment}
+                      streaming={
+                        isStreaming && msg.role === 'assistant' && msg.status === 'working'
+                      }
+                      waitingForPriorThinking={waiting}
+                      onRevealComplete={(id) => {
+                        if (!revealedSegmentsRef.current.has(id)) {
+                          revealedSegmentsRef.current.add(id);
+                          // Nudge the parent to re-evaluate gates
+                          // for the next text segment.
+                          forceRevealTick((n) => n + 1);
+                        }
+                      }}
+                    />,
+                  );
+                });
+                return rendered;
+              })()}
             </div>
           </div>
         ))}
