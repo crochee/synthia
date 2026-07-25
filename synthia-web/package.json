@@ -12,6 +12,7 @@
     "test:ui": "playwright test tests/e2e/ui/",
     "test:integration": "playwright test tests/e2e/integration/",
     "test:agent": "playwright test tests/e2e/agent/",
+    "test:contract-closure": "playwright test --config=playwright.contract.config.ts",
     "test:report": "playwright show-report",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
@@ -21,7 +22,8 @@
   "dependencies": {
     "@a2a-js/sdk": "1.0.0",
     "react": "^18.3.1",
-    "react-dom": "^18.3.1"
+    "react-dom": "^18.3.1",
+    "yaml": "^2.9.0"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.5",

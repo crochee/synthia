@@ -10,10 +10,15 @@ export function TasksPage() {
   useEffect(() => {
     let cancelled = false;
     api
-      .get<TaskSummary[]>('/api/tasks')
-      .then((data) => {
+      .get<{ tasks: TaskSummary[]; count: number }>('/api/tasks')
+      .then((envelope) => {
         if (cancelled) return;
-        setTasks(Array.isArray(data) ? data : []);
+        // backend serialises `TaskListResponse { tasks: Vec<_>, count }` inside
+        // the api.client envelope unwrap, so the value here is `{tasks, count}`
+        // — not a bare array. Defensive fallback keeps the page rendering
+        // even if the server temporarily downgrades.
+        const list = Array.isArray(envelope?.tasks) ? envelope.tasks : [];
+        setTasks(list);
       })
       .catch((e: Error) => {
         if (cancelled) return;

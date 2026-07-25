@@ -1,0 +1,166 @@
+name: contract-closure
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+    branches: [master]
+  workflow_dispatch:
+
+concurrency:
+  group: contract-closure-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  contract-scan:
+    name: Scan backend router + frontend fetch calls
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    # Initially advisory: keep `continue-on-error: true` until §6 in tasks.md
+    # is reached. Tracking issue: openspec change
+    # `synthia-interface-contract-closure`.
+    continue-on-error: true
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install contract-closure tool deps
+        working-directory: contract-closure
+        run: npm install --no-audit --no-fund
+
+      - name: Run contract-scan
+        working-directory: contract-closure
+        run: npm run scan
+
+      - name: Run contract-report
+        working-directory: contract-closure
+        run: npm run report
+
+      - name: Upload contract artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: interface-contract-artifacts
+          path: |
+            docs/interface-contract/contract.yaml
+            docs/interface-contract/contract.json
+            docs/interface-contract/contract.md
+          retention-days: 7
+
+  contract-check:
+    name: Static dual-side contract check
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    needs: contract-scan
+    continue-on-error: true
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install contract-closure tool deps
+        working-directory: contract-closure
+        run: npm install --no-audit --no-fund
+
+      - name: Run contract-check
+        working-directory: contract-closure
+        run: npm run check
+
+  contract-unit-tests:
+    name: contract-closure unit tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    continue-on-error: true
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install contract-closure tool deps
+        working-directory: contract-closure
+        run: npm install --no-audit --no-fund
+
+      - name: Run unit tests
+        working-directory: contract-closure
+        run: npm test -- --reporter=basic
+
+  # `test-contract-closure-playwright` runs against the contract sub-suite only.
+  # The full Playwright suite in `e2e.yml` is the regression path; this is the
+  # contract-level wired-up check.
+  test-contract-closure-playwright:
+    name: Playwright contract-closure sub-suite
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    needs: contract-check
+    continue-on-error: true
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@nightly
+
+      - name: Cache Cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-contract-cargo-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Build backend
+        run: cargo build -p synthia-server
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install Playwright system deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libnss3 libnspr4 libatk1.0-0 libatk-bridge2.0-0 \
+            libcups2 libdrm2 libdbus-1-3 libxkbcommon0 libxcomposite1 \
+            libxdamage1 libxfixes3 libxrandr2 libgbm1 libxcb1 \
+            libpango-1.0-0 libcairo2 libasound2t64
+
+      - name: Install frontend dependencies
+        working-directory: synthia-web
+        run: npm ci
+
+      - name: Install Playwright browsers
+        working-directory: synthia-web
+        run: npx playwright install --with-deps chromium
+
+      - name: Run Playwright contract sub-suite (server already running on :8080)
+        working-directory: synthia-web
+        run: npx playwright test --config=playwright.contract.config.ts --reporter=github,html
+        env:
+          CI: 1
+
+      - name: Run contract-coverage (checks spec-file coverage vs contract.yaml)
+        working-directory: contract-closure
+        run: npm run coverage
+
+      - name: Upload Playwright report on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-contract-report
+          path: synthia-web/playwright-report
+          retention-days: 7

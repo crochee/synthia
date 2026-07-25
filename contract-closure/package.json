@@ -1,0 +1,23 @@
+{
+  "name": "synthia-contract-closure",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Synthia 双侧接口契约闭环工具 (contract-scan / contract-check / contract-report / contract-coverage)",
+  "type": "module",
+  "scripts": {
+    "scan": "tsx ./contract-scan.ts",
+    "check": "tsx ./contract-check.ts",
+    "report": "tsx ./contract-report.ts",
+    "coverage": "tsx ./contract-coverage.ts",
+    "test": "vitest run"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.6.0",
+    "vitest": "^2.1.0"
+  },
+  "dependencies": {
+    "yaml": "^2.5.0"
+  }
+}

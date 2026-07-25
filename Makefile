@@ -71,6 +71,32 @@ test-unit: ## Run only Rust library unit tests
 test-web: ## Run frontend unit tests
 	cd $(WEB_DIR) && npm test
 
+# --- Contract closure (双侧契约闭环) ---
+# contract-scan  : 把后端 router.rs 与前端 fetch 调用扫描成 contract.yaml
+# contract-check : 校验 contract.yaml 中无 frontend-only / backend-only diff；退出码非 0 = 不一致
+# contract-report: 把 contract.yaml 渲染为人类可读 contract.md
+# contract-coverage: 把 contract.yaml 列出的接口路径与 Playwright 契约集核对
+# test-contract-closure: 跑 contract-closure 自身的单元测试 + Playwright 契约集
+contract-scan: ## Scan backend router + frontend fetch calls into contract.yaml
+	cd contract-closure && npm install --silent && npm run scan
+
+contract-check: ## Check contract.yaml for frontend/backend dangling endpoints
+	cd contract-closure && npm install --silent && npm run check
+
+contract-report: ## Render contract.yaml into human-readable contract.md
+	cd contract-closure && npm install --silent && npm run report
+
+contract-coverage: contract-scan ## Verify Playwright contract set covers every entry in contract.yaml
+	cd contract-closure && npm install --silent && npm run coverage
+
+test-contract-closure: ## Run contract-closure scanner unit tests
+	cd contract-closure && npm install --silent && npm test
+
+test-contract-closure-playwright: ## Run Playwright sub-suite (assumes synthia-server reachable on :8080)
+	cd synthia-web && npx playwright test --config=playwright.contract.config.ts
+
+# --- end Contract closure ---
+
 test-e2e: ## Run E2E tests via Playwright (auto-installs browsers if missing)
 	@if ! command -v pacman >/dev/null 2>&1 && ! command -v apt-get >/dev/null 2>&1; then \
 	  echo "Unsupported distro: install Playwright deps manually, see https://playwright.dev/docs/browsers#linux"; \
