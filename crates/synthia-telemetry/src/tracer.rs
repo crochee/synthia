@@ -255,6 +255,10 @@ pub fn init_otlp_tracing(
 /// Initialize console-based tracing as a fallback.
 ///
 /// Uses `tracing_subscriber` with fmt layer to output traces to stdout.
+/// Span fields (notably `trace_id` / `span_id` set by the
+/// server's trace-context middleware) are included on every log
+/// line so operators can correlate logs with W3C TraceContext
+/// traces and metrics without a separate indexing step.
 pub fn init_console_tracing(config: &TelemetryConfig) -> Result<(), Error> {
     let filter = EnvFilter::try_new(&config.log_level).unwrap_or_else(|_| {
         EnvFilter::default().add_directive("info".parse().unwrap())

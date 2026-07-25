@@ -146,6 +146,15 @@ impl AgentExecutor for SynthiaExecutor {
 }
 
 /// 判断事件是否代表终端状态。
+///
+/// 仅 [`SystemEvent::SessionEnded`] 与 [`SystemEvent::SessionInterrupted`] 是
+/// 真正的终止事件 — 它们之后代理流程会停止并清理资源。
+///
+/// 历史上 `ModelDone` 也被视作终止事件,但它只是“当前 LLM 采样完成”,
+/// 并不代表 A2A 任务结束: 代理仍可能进行反思 / 自动压缩 /
+/// 子会话广播等步骤, 之后才会发出 `SessionEnded`。若在此处提前
+/// 断开 `broadcast::Receiver`, 随后到来的 `SessionEnded` 状态更新
+/// 会因 “无订阅者” 而丢失, 前端永远停留在 `working`。
 fn is_terminal_event(event: &synthia_agent::AgentEvent) -> bool {
     matches!(
         event,
@@ -153,7 +162,7 @@ fn is_terminal_event(event: &synthia_agent::AgentEvent) -> bool {
             synthia_agent::events::SystemEvent::SessionEnded { .. }
         ) | synthia_agent::AgentEvent::System(
             synthia_agent::events::SystemEvent::SessionInterrupted { .. }
-        ) | synthia_agent::AgentEvent::ModelDone(_)
+        )
     )
 }
 
@@ -192,7 +201,10 @@ mod tests {
     }
 
     #[test]
-    fn is_terminal_event_detects_model_done() {
+    fn is_terminal_event_does_not_detect_model_done() {
+        // ModelDone 表示“当前 LLM 采样完成”，并不代表 A2A 任务结束。
+        // 后续代理仍可能继续运行（反思 / 自动压缩等）并最终发出 SessionEnded，
+        // 因此 ModelDone 不应让执行器提前断开 broadcast::Receiver。
         let event = synthia_agent::AgentEvent::ModelDone(
             synthia_provider::SamplingResult {
                 text: "done".to_string(),
@@ -202,7 +214,7 @@ mod tests {
                 usage: synthia_provider::types::TokenUsage::default(),
             },
         );
-        assert!(is_terminal_event(&event));
+        assert!(!is_terminal_event(&event));
     }
 
     #[test]

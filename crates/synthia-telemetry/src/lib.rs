@@ -132,6 +132,11 @@ pub fn init_tracing(
 /// because `Box<dyn Layer<Registry>>` only implements `Layer<Registry>`, not
 /// `Layer<Layered<..., Registry>>`. `EnvFilter` and `fmt::layer()` implement
 /// `Layer<S>` for any `S: Subscriber`, so they compose on top.
+///
+/// The console layer is configured to emit span fields inline (e.g.
+/// `trace_id=... span_id=...`), which is the standard stitch point
+/// that lets log aggregators (Loki, ELK) correlate log lines with
+/// W3C TraceContext traces and with OpenTelemetry spans.
 fn init_console_with_file(
     config: &TelemetryConfig,
     file_layer: Box<dyn Layer<tracing_subscriber::Registry> + Send + Sync>,
@@ -142,7 +147,9 @@ fn init_console_with_file(
                 .add_directive("info".parse().unwrap())
         });
 
-    let console_layer = tracing_subscriber::fmt::layer();
+    let console_layer = tracing_subscriber::fmt::layer()
+        .with_target(true)
+        .with_span_events(tracing_subscriber::fmt::format::FmtSpan::NONE);
 
     tracing_subscriber::registry()
         .with(file_layer)

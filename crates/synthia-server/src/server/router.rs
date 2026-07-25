@@ -3,6 +3,7 @@ use std::{path::PathBuf, sync::Arc};
 use axum::{
     Router,
     http::{HeaderName, HeaderValue, Method},
+    middleware::from_fn,
     routing::{delete, get, post},
 };
 use tower_http::cors::CorsLayer;
@@ -10,7 +11,11 @@ use tower_http::cors::CorsLayer;
 use crate::{
     approval::{list_approvals, resolve_approval, ws_approvals_handler},
     config::server::CorsConfig,
-    middleware::{auth::AuthLayer, tracing::RequestTracingLayer},
+    middleware::{
+        auth::AuthLayer,
+        trace_context::trace_context_middleware,
+        tracing::RequestTracingLayer,
+    },
     routes,
     state::AppState,
 };
@@ -171,23 +176,56 @@ pub async fn create_router(state: Arc<AppState>) -> Router {
     let ws_routes =
         Router::new().route("/ws/approvals", get(ws_approvals_handler));
 
-    let protected = Router::new()
-        // --- Infrastructure management (flat /api/) ---
-        .nest("/api", api_routes)
-        .nest("/api/approvals", approval_routes)
+    // Public infrastructure endpoints.
+    //
+    // These are intentionally mounted OUTSIDE the protected router:
+    // - `/health` is a liveness probe hit by orchestrators (k8s,
+    //   load balancers) every second; emitting an access log /
+    //   traceparent on every probe floods the log pipeline and
+    //   burns trace ids.
+    // - `/.well-known/agent-card.json` is fetched *by external
+    //   agents / scanners* to discover the A2A interface; it has
+    //   no caller identity to authenticate and no per-request
+    //   work worth tracing.
+    //
+    // Skipping the AuthLayer, trace-context middleware, and
+    // access-log span keeps both endpoints predictable and cheap.
+    // The CORS layer is still applied so cross-origin browsers
+    // can still call them.
+    let public = Router::new()
         .route("/health", get(routes::health::health_check))
-        // --- A2A protocol: sole agent interaction interface ---
         .route(
             "/.well-known/agent-card.json",
             get(routes::a2a::get_agent_card),
         )
+        .layer(build_cors_layer(&state.cors_config));
+
+    let protected = Router::new()
+        // --- Infrastructure management (flat /api/) ---
+        .nest("/api", api_routes)
+        .nest("/api/approvals", approval_routes)
+        // --- A2A protocol: sole agent interaction interface ---
         .nest_service("/a2a", a2a_service.a2a_app())
-        .layer(AuthLayer::new(state.auth_config.clone()));
+        .layer(build_cors_layer(&state.cors_config))
+        .layer(AuthLayer::new(state.auth_config.clone()))
+        // Inner middleware: extracts the W3C `traceparent` header
+        // (or mints a fresh one), records `trace_id` / `span_id`
+        // on the surrounding span, then re-emits a `traceparent`
+        // on the response so the caller can stitch their side of
+        // the trace.
+        .layer(from_fn(trace_context_middleware))
+        // Outer middleware: creates the `http_request` span and
+        // emits an access log line for every response. Because
+        // axum layers compose with later layers wrapping earlier
+        // ones, adding `RequestTracingLayer` last makes it the
+        // outermost layer — so the trace-context middleware runs
+        // *inside* the span and the `trace_id` / `span_id` fields
+        // it records land on every log line emitted by handlers.
+        .layer(RequestTracingLayer);
 
     Router::new()
+        .merge(public)
         .merge(ws_routes)
         .merge(protected)
-        .layer(build_cors_layer(&state.cors_config))
-        .layer(RequestTracingLayer)
         .with_state(state)
 }

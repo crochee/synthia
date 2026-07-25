@@ -966,10 +966,12 @@ mod tests {
         // Include a Model(Text) delta so the persistence assertion is
         // exercising a real durable path.
         let events = vec![
-            AgentEvent::Model(ContentPart::Text(synthia_provider::TextContent {
-                text: "hi".to_string(),
-                cache_control: None,
-            })),
+            AgentEvent::Model(ContentPart::Text(
+                synthia_provider::TextContent {
+                    text: "hi".to_string(),
+                    cache_control: None,
+                },
+            )),
             AgentEvent::System(SystemEvent::SessionStarted {
                 session_id: "s1".to_string(),
             }),
@@ -1020,15 +1022,13 @@ mod tests {
         // Only the Model(Text) delta is durable; the two System events
         // are ephemeral and must not be persisted.
         assert!(!persisted.is_empty());
-        assert!(persisted
-            .iter()
-            .any(|e| e.event_type == "Model" || e.event_type == "model_text"));
-        assert!(persisted
-            .iter()
-            .all(|e| e.event_type != "SessionStarted"));
-        assert!(persisted
-            .iter()
-            .all(|e| e.event_type != "SessionEnded"));
+        assert!(
+            persisted.iter().any(
+                |e| e.event_type == "Model" || e.event_type == "model_text"
+            )
+        );
+        assert!(persisted.iter().all(|e| e.event_type != "SessionStarted"));
+        assert!(persisted.iter().all(|e| e.event_type != "SessionEnded"));
 
         let received =
             tokio::time::timeout(Duration::from_millis(200), rx.recv())
@@ -1039,10 +1039,7 @@ mod tests {
         // and emitted first by the factory); both System events still
         // arrive via the broadcast channel even though they are not
         // persisted.
-        assert!(matches!(
-            received,
-            AgentEvent::Model(ContentPart::Text(_))
-        ));
+        assert!(matches!(received, AgentEvent::Model(ContentPart::Text(_))));
     }
 
     #[tokio::test]
