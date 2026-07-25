@@ -73,6 +73,18 @@ impl SectionPriorities {
 /// Accumulates input from builders, state setters, and
 /// injectors, then produces a deterministic `Vec<Section>`
 /// (or a serialized system prompt) on demand.
+///
+/// # Deprecation
+///
+/// This struct is deprecated in favor of `FragmentRegistry::render_active()`.
+/// The Registry-First architecture uses `FragmentRegistry` for modular context
+/// injection. When `ExtensionRegistry` is available, fragment rendering replaces
+/// this assembler's system prompt path. See `ExtensionRegistry` for the new
+/// architecture.
+#[deprecated(
+    since = "0.1.0",
+    note = "Use FragmentRegistry::render_active() instead. See ExtensionRegistry for the Registry-First architecture."
+)]
 pub struct ContextAssembler {
     pub(super) system_prompt: Option<String>,
     pub(super) memories: Vec<String>,
@@ -88,4 +100,8 @@ pub struct ContextAssembler {
     pub(super) tool_results: Vec<String>,
     pub(super) conversation_messages: Vec<Message>,
     pub(super) priorities: SectionPriorities,
+    /// Pre-rendered fragment content from `FragmentRegistry::render_active()`.
+    /// When non-empty, these sections are included in the assembled output,
+    /// delegating context injection to the FragmentRegistry.
+    pub(super) rendered_fragments: Vec<(String, String)>,
 }

@@ -5,6 +5,15 @@ use std::sync::Arc;
 
 use synthia_command::CommandRegistry;
 use synthia_context::ContextAssembler;
+use synthia_core::tool::{
+    extension_registry::{
+        CommandStore,
+        ExtensionRegistry,
+        McpStore,
+        ProviderStore,
+    },
+    fragment::FragmentRegistry,
+};
 use synthia_hook::HookRegistry;
 use synthia_mcp::McpToolAdapter;
 use synthia_provider::{
@@ -28,7 +37,7 @@ pub struct ComponentAssembler {
     model_router: Option<ModelRouter>,
     mcp_server_configs: Vec<synthia_mcp::McpServerConfig>,
     steering_channel: Option<Box<dyn SteeringChannel>>,
-    provider_registry: Option<ProviderRegistry>,
+    provider_registry: Option<Arc<ProviderRegistry>>,
     provider: Option<Arc<dyn ModelProvider>>,
 }
 
@@ -105,7 +114,7 @@ impl ComponentAssembler {
         mut self,
         registry: ProviderRegistry,
     ) -> Self {
-        self.provider_registry = Some(registry);
+        self.provider_registry = Some(Arc::new(registry));
         self
     }
 
@@ -122,15 +131,47 @@ impl ComponentAssembler {
         model_router: Arc<ModelRouter>,
         tool_registry: ToolRegistry,
     ) -> Agent {
+        // Build an ExtensionRegistry with its own synthia-core ToolRegistry
+        // and a fresh FragmentRegistry. The legacy synthia-tool ToolRegistry
+        // (held in `Agent::tool_registry`) coexists during the migration
+        // period. The ExtensionRegistry provides the new Registry-First path
+        // for fragments, skills, and plugins; the legacy registry handles
+        // tool dispatch in the main loop.
+        let ext_tool_registry =
+            Arc::new(synthia_core::tool::registry::ToolRegistry::new());
+        let fragment_registry = Arc::new(FragmentRegistry::new());
+        let mut extension_registry =
+            ExtensionRegistry::new(ext_tool_registry, fragment_registry);
+
+        // Migrate provider_registry into ExtensionRegistry via the
+        // ProviderStore trait object. The Arc is shared between
+        // Agent::provider_registry and ExtensionRegistry so both
+        // paths access the same data during the migration period.
+        let provider_registry = self
+            .provider_registry
+            .unwrap_or_else(|| Arc::new(ProviderRegistry::default()));
+        extension_registry.set_provider_store(
+            Arc::clone(&provider_registry) as Arc<dyn ProviderStore>
+        );
+
+        // Migrate command_registry into ExtensionRegistry via the
+        // CommandStore trait object. The Arc is shared between
+        // Agent::command_registry and ExtensionRegistry so both
+        // paths access the same data during the migration period.
+        let command_registry = self.command_registry.unwrap_or_default();
+        extension_registry.set_command_store(
+            Arc::new(command_registry.clone()) as Arc<dyn CommandStore>,
+        );
+
         Agent {
             config: self.config,
-            provider_registry: self.provider_registry.unwrap_or_default(),
+            provider_registry,
             provider: self.provider.expect(
                 "ComponentAssembler: provider is required; call with_provider() before build()",
             ),
             tool_registry,
             hook_registry: Arc::new(self.hook_registry),
-            command_registry: self.command_registry.unwrap_or_default(),
+            command_registry: command_registry.clone(),
             session_manager,
             context_assembler,
             model_router,
@@ -143,6 +184,7 @@ impl ComponentAssembler {
             memory_event_sender: None,
             approval_service: None,
             sandbox_manager: None,
+            extension_registry: Some(extension_registry),
         }
     }
 
@@ -192,6 +234,7 @@ impl ComponentAssembler {
     /// Async build that performs MCP tool discovery and registers tools.
     pub async fn build_with_discovery(self) -> Agent {
         let tool_registry = self.tool_registry.unwrap_or_default();
+        let mut mcp_manager_arc: Option<Arc<synthia_mcp::McpManager>> = None;
 
         if !self.mcp_server_configs.is_empty() {
             let manager = Arc::new(synthia_mcp::McpManager::new());
@@ -234,6 +277,8 @@ impl ComponentAssembler {
                     tracing::warn!(error = %e, "MCP tool discovery failed");
                 }
             }
+
+            mcp_manager_arc = Some(manager);
         }
 
         info!(
@@ -268,11 +313,21 @@ impl ComponentAssembler {
             provider: self.provider,
         };
 
-        consumed.into_agent(
+        let mut agent = consumed.into_agent(
             session_manager,
             context_assembler,
             model_router,
             tool_registry,
-        )
+        );
+
+        // Migrate mcp_manager into Agent and ExtensionRegistry.
+        if let Some(manager) = mcp_manager_arc {
+            agent.mcp_manager = Some(manager.clone());
+            if let Some(ref mut ext_reg) = agent.extension_registry {
+                ext_reg.set_mcp_store(manager as Arc<dyn McpStore>);
+            }
+        }
+
+        agent
     }
 }

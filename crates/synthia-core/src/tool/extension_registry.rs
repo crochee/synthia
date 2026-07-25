@@ -6,6 +6,10 @@
 //! - InterceptorChain：横切拦截（在 synthia-agent crate 中）
 //! - SkillRegistry：技能组合（Phase 3）
 //! - PluginRegistry：第三方插件（Phase 3）
+//!
+//! Additionally holds a [`ProviderStore`] trait object for provider-registry
+//! access, allowing `Agent::provider_registry` to migrate into the unified
+//! extension bus without creating a circular dependency on `synthia-provider`.
 
 use std::sync::Arc;
 
@@ -17,6 +21,56 @@ use crate::tool::{
     registry::ToolRegistry,
     skill_registry::SkillRegistry,
 };
+
+// ---------------------------------------------------------------------------
+// ProviderStore trait
+// ---------------------------------------------------------------------------
+
+/// Trait for provider-registry access, implemented by the concrete
+/// `ProviderRegistry` in `synthia-provider`.
+///
+/// This abstraction allows `ExtensionRegistry` to hold a provider registry
+/// without depending on the `synthia-provider` crate. The concrete
+/// `ProviderRegistry` implements this trait via a blanket impl or explicit
+/// `impl ProviderStore for ProviderRegistry` in `synthia-provider`.
+pub trait ProviderStore: Send + Sync + 'static {
+    /// Number of registered providers.
+    fn provider_count(&self) -> usize;
+    /// Check if a provider with the given name is registered.
+    fn contains_provider(&self, name: &str) -> bool;
+    /// Check if the store is empty (no providers registered).
+    fn is_empty(&self) -> bool;
+}
+
+/// Trait for command-registry access, implemented by the concrete
+/// `CommandRegistry` in `synthia-command`.
+///
+/// This abstraction allows `ExtensionRegistry` to hold a command registry
+/// without depending on the `synthia-command` crate. The concrete
+/// `CommandRegistry` implements this trait in `synthia-command`.
+pub trait CommandStore: Send + Sync + 'static {
+    /// Number of registered commands.
+    fn command_count(&self) -> usize;
+    /// Check if a command with the given name is registered.
+    fn contains_command(&self, name: &str) -> bool;
+    /// Check if the store is empty (no commands registered).
+    fn is_empty(&self) -> bool;
+}
+
+/// Trait for MCP-manager access, implemented by the concrete
+/// `McpManager` in `synthia-mcp`.
+///
+/// This abstraction allows `ExtensionRegistry` to hold an MCP manager
+/// without depending on the `synthia-mcp` crate. The concrete
+/// `McpManager` implements this trait in `synthia-mcp`.
+pub trait McpStore: Send + Sync + 'static {
+    /// Number of active MCP connections.
+    fn connection_count(&self) -> usize;
+    /// Check if an MCP server with the given name is connected.
+    fn has_connection(&self, server_name: &str) -> bool;
+    /// Check if there are no connections and no registered configs.
+    fn is_empty(&self) -> bool;
+}
 
 /// 扩展注册中心运行状态。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -70,6 +124,9 @@ pub struct HealthCheckResult {
 /// - InterceptorChain：横切拦截（在 synthia-agent crate 中）
 /// - SkillRegistry：技能组合（Phase 3）
 /// - PluginRegistry：第三方插件（Phase 3）
+///
+/// Additionally holds a [`ProviderStore`] trait object so that
+/// `Agent::provider_registry` can migrate into this registry.
 pub struct ExtensionRegistry {
     /// 工具注册表
     tool_registry: Arc<ToolRegistry>,
@@ -79,6 +136,15 @@ pub struct ExtensionRegistry {
     skill_registry: Arc<SkillRegistry>,
     /// 插件注册表
     plugin_registry: Arc<PluginRegistry>,
+    /// Provider store — trait object for provider-registry access.
+    /// `None` until `set_provider_store()` is called during assembly.
+    provider_store: Option<Arc<dyn ProviderStore>>,
+    /// Command store — trait object for command-registry access.
+    /// `None` until `set_command_store()` is called during assembly.
+    command_store: Option<Arc<dyn CommandStore>>,
+    /// MCP store — trait object for MCP-manager access.
+    /// `None` until `set_mcp_store()` is called during assembly.
+    mcp_store: Option<Arc<dyn McpStore>>,
     /// 运行状态
     state: RwLock<ExtensionState>,
 }
@@ -95,6 +161,9 @@ impl Clone for ExtensionRegistry {
             fragment_registry: Arc::clone(&self.fragment_registry),
             skill_registry: Arc::clone(&self.skill_registry),
             plugin_registry: Arc::clone(&self.plugin_registry),
+            provider_store: self.provider_store.clone(),
+            command_store: self.command_store.clone(),
+            mcp_store: self.mcp_store.clone(),
             state: RwLock::new(state),
         }
     }
@@ -114,6 +183,9 @@ impl ExtensionRegistry {
             fragment_registry,
             skill_registry: Arc::new(SkillRegistry::new()),
             plugin_registry: Arc::new(PluginRegistry::new()),
+            provider_store: None,
+            command_store: None,
+            mcp_store: None,
             state: RwLock::new(ExtensionState::Running),
         }
     }
@@ -130,6 +202,9 @@ impl ExtensionRegistry {
             fragment_registry,
             skill_registry,
             plugin_registry,
+            provider_store: None,
+            command_store: None,
+            mcp_store: None,
             state: RwLock::new(ExtensionState::Running),
         }
     }
@@ -152,6 +227,36 @@ impl ExtensionRegistry {
     /// 获取插件注册表引用。
     pub fn plugin_registry(&self) -> &Arc<PluginRegistry> {
         &self.plugin_registry
+    }
+
+    /// 获取 provider store 引用（可能为 None）。
+    pub fn provider_store(&self) -> Option<&Arc<dyn ProviderStore>> {
+        self.provider_store.as_ref()
+    }
+
+    /// 设置 provider store。在 ComponentAssembler 构建 Agent 时调用。
+    pub fn set_provider_store(&mut self, store: Arc<dyn ProviderStore>) {
+        self.provider_store = Some(store);
+    }
+
+    /// 获取 command store 引用（可能为 None）。
+    pub fn command_store(&self) -> Option<&Arc<dyn CommandStore>> {
+        self.command_store.as_ref()
+    }
+
+    /// 设置 command store。在 ComponentAssembler 构建 Agent 时调用。
+    pub fn set_command_store(&mut self, store: Arc<dyn CommandStore>) {
+        self.command_store = Some(store);
+    }
+
+    /// 获取 MCP store 引用（可能为 None）。
+    pub fn mcp_store(&self) -> Option<&Arc<dyn McpStore>> {
+        self.mcp_store.as_ref()
+    }
+
+    /// 设置 MCP store。在 ComponentAssembler 构建 Agent 时调用。
+    pub fn set_mcp_store(&mut self, store: Arc<dyn McpStore>) {
+        self.mcp_store = Some(store);
     }
 
     /// 获取当前状态。

@@ -14,6 +14,7 @@
 use std::{collections::HashMap, sync::Arc, time::Duration};
 
 use rmcp::service::{RoleClient, RunningService};
+use synthia_core::tool::extension_registry::McpStore;
 use tokio::sync::RwLock;
 
 use crate::{
@@ -53,4 +54,31 @@ pub struct McpManager {
     pub cleanup_interval: Duration,
     /// Discovered tools cache for hybrid mode (server_id -> tools).
     pub(super) discovered_tools: RwLock<HashMap<String, Vec<ToolDefinition>>>,
+}
+
+impl McpStore for McpManager {
+    fn connection_count(&self) -> usize {
+        self.connections.try_read().map(|m| m.len()).unwrap_or(0)
+    }
+
+    fn has_connection(&self, server_name: &str) -> bool {
+        self.connections
+            .try_read()
+            .map(|m| m.contains_key(server_name))
+            .unwrap_or(false)
+    }
+
+    fn is_empty(&self) -> bool {
+        let conn_empty = self
+            .connections
+            .try_read()
+            .map(|m| m.is_empty())
+            .unwrap_or(true);
+        let config_empty = self
+            .configs
+            .try_read()
+            .map(|m| m.is_empty())
+            .unwrap_or(true);
+        conn_empty && config_empty
+    }
 }

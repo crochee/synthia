@@ -5,7 +5,11 @@ use std::{
 };
 
 use async_trait::async_trait;
-use synthia_core::{Error, registry::Registry};
+use synthia_core::{
+    Error,
+    registry::Registry,
+    tool::extension_registry::CommandStore,
+};
 
 use super::{
     definition::CommandDefinition,
@@ -15,13 +19,13 @@ use super::{
 use crate::{parser::parse_command, traits::CommandHandler, types::*};
 
 pub struct CommandRegistry {
-    commands: RwLock<HashMap<String, Arc<dyn CommandHandler>>>,
+    commands: Arc<RwLock<HashMap<String, Arc<dyn CommandHandler>>>>,
 }
 
 impl CommandRegistry {
     pub fn new() -> Self {
         Self {
-            commands: RwLock::new(HashMap::new()),
+            commands: Arc::new(RwLock::new(HashMap::new())),
         }
     }
 
@@ -166,6 +170,31 @@ impl Registry<CommandDefinition> for CommandRegistry {
                 .filter(|c| f.matches_command(c))
                 .collect()),
             None => Ok(commands),
+        }
+    }
+}
+
+impl CommandStore for CommandRegistry {
+    fn command_count(&self) -> usize {
+        self.len()
+    }
+
+    fn contains_command(&self, name: &str) -> bool {
+        self.contains(name)
+    }
+
+    fn is_empty(&self) -> bool {
+        self.is_empty()
+    }
+}
+
+impl Clone for CommandRegistry {
+    fn clone(&self) -> Self {
+        // Share the internal command map via Arc. This is safe because
+        // CommandRegistry uses interior mutability (RwLock), so clones
+        // share the same underlying data.
+        Self {
+            commands: Arc::clone(&self.commands),
         }
     }
 }

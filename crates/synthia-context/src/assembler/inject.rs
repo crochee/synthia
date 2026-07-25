@@ -61,4 +61,15 @@ impl ContextAssembler {
     pub fn add_message(&mut self, message: Message) {
         self.conversation_messages.push(message);
     }
+
+    /// Set pre-rendered fragment content from `FragmentRegistry::render_active()`.
+    ///
+    /// When non-empty, these fragments are included in the assembled output
+    /// as sections, delegating context injection to the FragmentRegistry.
+    /// This bridges the sync `ContextAssembler` with the async
+    /// `FragmentRegistry::render_active()` — the caller performs the async
+    /// rendering and passes the result here.
+    pub fn set_rendered_fragments(&mut self, fragments: Vec<(String, String)>) {
+        self.rendered_fragments = fragments;
+    }
 }

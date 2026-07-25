@@ -28,13 +28,26 @@ impl ContextAssembler {
     pub fn assemble_sections(&self) -> Vec<Section> {
         let mut sections = Vec::new();
 
-        // System prompt (highest priority)
-        if let Some(prompt) = &self.system_prompt {
+        // Rendered fragments from FragmentRegistry (highest priority,
+        // replaces legacy system prompt when available).
+        for (name, content) in &self.rendered_fragments {
             sections.push(Section::new(
-                "System Prompt",
-                prompt.clone(),
+                format!("Fragment: {}", name),
+                content.clone(),
                 self.priorities.system_prompt(),
             ));
+        }
+
+        // System prompt (highest priority) — skipped when fragments
+        // are present, as FragmentRegistry supersedes this path.
+        if self.rendered_fragments.is_empty() {
+            if let Some(prompt) = &self.system_prompt {
+                sections.push(Section::new(
+                    "System Prompt",
+                    prompt.clone(),
+                    self.priorities.system_prompt(),
+                ));
+            }
         }
 
         // Injected system prompts from injectors

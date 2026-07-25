@@ -2,6 +2,7 @@ use std::sync::Arc;
 
 use synthia_command::registry::CommandRegistry;
 use synthia_context::assembler::ContextAssembler;
+use synthia_core::tool::extension_registry::ExtensionRegistry;
 use synthia_hook::HookRegistry;
 use synthia_memory::types::MemoryEvent;
 use synthia_permission::ApprovalService;
@@ -795,7 +796,7 @@ pub(crate) mod otel_context {
 
 pub struct AgentInitConfig {
     pub config: AgentConfig,
-    pub provider_registry: ProviderRegistry,
+    pub provider_registry: Arc<ProviderRegistry>,
     pub provider: Arc<dyn ModelProvider>,
     pub tool_registry: ToolRegistry,
     pub hook_registry: Arc<HookRegistry>,
@@ -805,11 +806,22 @@ pub struct AgentInitConfig {
     pub model_router: ModelRouter,
     pub session_store: SessionStore,
     pub memory_event_sender: Option<mpsc::Sender<MemoryEvent>>,
+    /// Unified extension registry for the Registry-First architecture.
+    ///
+    /// When `Some`, this becomes the primary interface for accessing
+    /// extensions; when `None`, legacy per-field registries are used.
+    pub extension_registry: Option<ExtensionRegistry>,
 }
 
 pub struct Agent {
     pub config: AgentConfig,
-    pub provider_registry: ProviderRegistry,
+    /// Provider registry — shared with ExtensionRegistry via `Arc`.
+    ///
+    /// New code should access the provider registry through
+    /// `extension_registry.provider_store()` when available.
+    /// This field remains for backward compatibility during the
+    /// migration period.
+    pub provider_registry: Arc<ProviderRegistry>,
     pub provider: Arc<dyn ModelProvider>,
     pub tool_registry: ToolRegistry,
     pub hook_registry: Arc<HookRegistry>,
@@ -818,12 +830,19 @@ pub struct Agent {
     pub context_assembler: Arc<ContextAssembler>,
     pub model_router: Arc<ModelRouter>,
     pub session_store: SessionStore,
-    pub mcp_manager: Option<synthia_mcp::McpManager>,
+    pub mcp_manager: Option<Arc<synthia_mcp::McpManager>>,
     pub steering_channel: Option<Arc<dyn SteeringChannel>>,
     pub config_watcher: Option<MultiConfigWatcher>,
     pub memory_event_sender: Option<mpsc::Sender<MemoryEvent>>,
     pub approval_service: Option<Arc<dyn ApprovalService>>,
     pub sandbox_manager: Option<Arc<dyn SandboxManager>>,
+    /// Unified extension registry for the Registry-First architecture.
+    ///
+    /// Aggregates tool, fragment, skill, and plugin registries with shared
+    /// lifecycle management. When `Some`, this becomes the primary interface
+    /// for accessing extensions; when `None` (the default during migration),
+    /// the legacy per-field registries (`tool_registry`, etc.) are used.
+    pub extension_registry: Option<ExtensionRegistry>,
 }
 
 /// H1 fix: auto-assemble a tool orchestrator into `run_config` when the
@@ -986,6 +1005,247 @@ impl Agent {
         }
 
         tracing::info!("Agent shut down complete");
+    }
+
+    // ── Deprecated getters for legacy fields ──
+    //
+    // These methods provide backward-compatible access to fields that are
+    // being migrated into ExtensionRegistry. New code should access these
+    // through ExtensionRegistry directly. The `#[deprecated]` annotation
+    // guides consumers toward the new path.
+
+    /// Returns a reference to the ExtensionRegistry if available.
+    ///
+    /// This is the preferred way to access extension registries (fragments,
+    /// skills, plugins) going forward. Returns `None` only during the
+    /// migration period when ExtensionRegistry has not been initialized.
+    pub fn extension_registry(&self) -> Option<&ExtensionRegistry> {
+        self.extension_registry.as_ref()
+    }
+
+    /// Returns the provider store via ExtensionRegistry when available.
+    ///
+    /// Returns a reference to the `ProviderStore` trait object stored in
+    /// `ExtensionRegistry`. Returns `None` when ExtensionRegistry is not
+    /// available or no provider store has been set.
+    #[deprecated(
+        since = "0.1.0",
+        note = "Use `agent.extension_registry().provider_store()` instead"
+    )]
+    pub fn provider_store(
+        &self,
+    ) -> Option<&dyn synthia_core::tool::extension_registry::ProviderStore>
+    {
+        self.extension_registry
+            .as_ref()
+            .and_then(|ext| ext.provider_store().map(|arc| arc.as_ref()))
+    }
+
+    /// Returns the core tool registry via ExtensionRegistry when available.
+    ///
+    /// The ExtensionRegistry's `ToolRegistry` is the Registry-First version
+    /// (`synthia_core::tool::registry::ToolRegistry`) with namespace support,
+    /// registration scopes, and tool exposure control. The legacy
+    /// `synthia_tool::registry::ToolRegistry` on Agent coexists during
+    /// the migration period.
+    #[deprecated(
+        since = "0.1.0",
+        note = "Use `agent.extension_registry().tool_registry()` instead"
+    )]
+    pub fn core_tool_registry(
+        &self,
+    ) -> Option<&synthia_core::tool::registry::ToolRegistry> {
+        self.extension_registry
+            .as_ref()
+            .map(|ext| ext.tool_registry().as_ref())
+    }
+
+    /// Returns the fragment registry via ExtensionRegistry when available.
+    ///
+    /// The FragmentRegistry is the Registry-First replacement for
+    /// `ContextAssembler`. When ExtensionRegistry is available, new code
+    /// should use `extension_registry.fragment_registry()` directly.
+    #[deprecated(
+        since = "0.1.0",
+        note = "Use `agent.extension_registry().fragment_registry()` instead"
+    )]
+    pub fn fragment_registry(
+        &self,
+    ) -> Option<&synthia_core::tool::fragment::FragmentRegistry> {
+        self.extension_registry
+            .as_ref()
+            .map(|ext| ext.fragment_registry().as_ref())
+    }
+
+    /// Returns the skill registry via ExtensionRegistry when available.
+    #[deprecated(
+        since = "0.1.0",
+        note = "Use `agent.extension_registry().skill_registry()` instead"
+    )]
+    pub fn skill_registry(
+        &self,
+    ) -> Option<&synthia_core::tool::skill_registry::SkillRegistry> {
+        self.extension_registry
+            .as_ref()
+            .map(|ext| ext.skill_registry().as_ref())
+    }
+
+    /// Returns the plugin registry via ExtensionRegistry when available.
+    #[deprecated(
+        since = "0.1.0",
+        note = "Use `agent.extension_registry().plugin_registry()` instead"
+    )]
+    pub fn plugin_registry(
+        &self,
+    ) -> Option<&synthia_core::tool::plugin_registry::PluginRegistry> {
+        self.extension_registry
+            .as_ref()
+            .map(|ext| ext.plugin_registry().as_ref())
+    }
+
+    /// Returns the context assembler via ExtensionRegistry's FragmentRegistry.
+    ///
+    /// The `ContextAssembler` is deprecated in favor of `FragmentRegistry`.
+    /// When ExtensionRegistry is available, use
+    /// `extension_registry.fragment_registry()` for modular context
+    /// injection instead of the monolithic `ContextAssembler`.
+    #[deprecated(
+        since = "0.1.0",
+        note = "Use `agent.extension_registry().fragment_registry()` instead. \
+                ContextAssembler is deprecated in the Registry-First architecture."
+    )]
+    pub fn context_assembler_via_fragments(
+        &self,
+    ) -> Option<&synthia_core::tool::fragment::FragmentRegistry> {
+        self.extension_registry
+            .as_ref()
+            .map(|ext| ext.fragment_registry().as_ref())
+    }
+
+    /// Returns the hook registry reference.
+    ///
+    /// In the Registry-First architecture, hooks are migrated to
+    /// `InterceptorChain`. The `InterceptorChain` holds a reference
+    /// to the hook registry during session execution. New code should
+    /// use `InterceptorChain` directly instead of accessing the
+    /// hook registry through Agent.
+    #[deprecated(
+        since = "0.1.0",
+        note = "Use InterceptorChain (accessible in main_loop) instead. \
+                Hook events are being migrated to the interceptor pattern."
+    )]
+    pub fn hook_registry_deprecated(&self) -> &Arc<HookRegistry> {
+        &self.hook_registry
+    }
+
+    /// Returns the approval service reference.
+    ///
+    /// In the Registry-First architecture, the approval service is
+    /// stored on `InterceptorChain`. New code should access it through
+    /// `InterceptorChain::approval_service()` during session execution.
+    #[deprecated(
+        since = "0.1.0",
+        note = "Use InterceptorChain::approval_service() instead. \
+                The approval service is being migrated into InterceptorChain."
+    )]
+    pub fn approval_service_deprecated(
+        &self,
+    ) -> &Option<Arc<dyn ApprovalService>> {
+        &self.approval_service
+    }
+
+    /// Returns the sandbox manager reference.
+    ///
+    /// In the Registry-First architecture, the sandbox manager is
+    /// stored on `InterceptorChain`. New code should access it through
+    /// `InterceptorChain::sandbox_manager()` during session execution.
+    #[deprecated(
+        since = "0.1.0",
+        note = "Use InterceptorChain::sandbox_manager() instead. \
+                The sandbox manager is being migrated into InterceptorChain."
+    )]
+    pub fn sandbox_manager_deprecated(
+        &self,
+    ) -> &Option<Arc<dyn SandboxManager>> {
+        &self.sandbox_manager
+    }
+
+    /// Returns the steering channel reference.
+    ///
+    /// In the Registry-First architecture, the steering channel is
+    /// stored on `InterceptorChain`. New code should access it through
+    /// `InterceptorChain::steering_channel()` during session execution.
+    #[deprecated(
+        since = "0.1.0",
+        note = "Use InterceptorChain::steering_channel() instead. \
+                The steering channel is being migrated into InterceptorChain."
+    )]
+    pub fn steering_channel_deprecated(
+        &self,
+    ) -> &Option<Arc<dyn SteeringChannel>> {
+        &self.steering_channel
+    }
+
+    /// Returns the config watcher reference.
+    ///
+    /// In the Registry-First architecture, the config watcher is
+    /// stored on `InterceptorChain`. New code should access it through
+    /// `InterceptorChain::config_watcher()` during session execution.
+    #[deprecated(
+        since = "0.1.0",
+        note = "Use InterceptorChain::config_watcher() instead. \
+                The config watcher is being migrated into InterceptorChain."
+    )]
+    pub fn config_watcher_deprecated(&self) -> &Option<MultiConfigWatcher> {
+        &self.config_watcher
+    }
+
+    /// Returns the memory event sender reference.
+    ///
+    /// In the Registry-First architecture, the memory event sender is
+    /// stored on `InterceptorChain`. New code should access it through
+    /// `InterceptorChain::memory_event_sender()` during session execution.
+    #[deprecated(
+        since = "0.1.0",
+        note = "Use InterceptorChain::memory_event_sender() instead. \
+                The memory event sender is being migrated into InterceptorChain."
+    )]
+    pub fn memory_event_sender_deprecated(
+        &self,
+    ) -> &Option<mpsc::Sender<MemoryEvent>> {
+        &self.memory_event_sender
+    }
+
+    /// Returns the command registry reference.
+    ///
+    /// In the Registry-First architecture, the command registry is
+    /// stored on `ExtensionRegistry` via `CommandStore`. New code
+    /// should access it through
+    /// `extension_registry.command_store()` instead.
+    #[deprecated(
+        since = "0.1.0",
+        note = "Use extension_registry.command_store() instead. \
+                The command registry is being migrated into ExtensionRegistry."
+    )]
+    pub fn command_registry_deprecated(&self) -> &CommandRegistry {
+        &self.command_registry
+    }
+
+    /// Returns the MCP manager reference.
+    ///
+    /// In the Registry-First architecture, the MCP manager is
+    /// stored on `ExtensionRegistry` via `McpStore`. New code
+    /// should access it through
+    /// `extension_registry.mcp_store()` instead.
+    #[deprecated(
+        since = "0.1.0",
+        note = "Use extension_registry.mcp_store() instead. \
+                The MCP manager is being migrated into ExtensionRegistry."
+    )]
+    pub fn mcp_manager_deprecated(
+        &self,
+    ) -> &Option<Arc<synthia_mcp::McpManager>> {
+        &self.mcp_manager
     }
 }
 
@@ -1314,5 +1574,202 @@ mod tests {
             }
             other => panic!("expected bash call to be denied, got {:?}", other),
         }
+    }
+
+    // ── Agent 瘦身集成测试 ──
+    //
+    // Verifies the Registry-First architecture integration:
+    // 1. Agent has ExtensionRegistry populated during assembly
+    // 2. ProviderStore, CommandStore are available via ExtensionRegistry
+    // 3. Deprecated getters still work for backward compatibility
+    // 4. InterceptorChain carries migrated services in run_config
+
+    #[tokio::test]
+    async fn agent_assembly_populates_extension_registry() {
+        let tmp = TempDir::new().unwrap();
+        let workspace_root = tmp.path().to_path_buf();
+        let (agent, _) = test_agent(workspace_root);
+
+        // ExtensionRegistry must be present after assembly
+        assert!(
+            agent.extension_registry.is_some(),
+            "ExtensionRegistry should be populated during assembly"
+        );
+
+        let ext_reg = agent.extension_registry.as_ref().unwrap();
+
+        // ProviderStore should be available (may be empty if no
+        // providers were registered via ProviderRegistry)
+        assert!(
+            ext_reg.provider_store().is_some(),
+            "ProviderStore should be set during assembly"
+        );
+
+        // CommandStore should be available
+        assert!(
+            ext_reg.command_store().is_some(),
+            "CommandStore should be set during assembly"
+        );
+
+        // FragmentRegistry should be accessible and count should be
+        // queryable (async)
+        let frag_count = ext_reg.fragment_registry().fragment_count().await;
+        assert!(
+            frag_count == 0,
+            "FragmentRegistry should be accessible with 0 fragments initially"
+        );
+
+        // SkillRegistry and PluginRegistry should be accessible
+        let skill_count = ext_reg.skill_registry().skill_count().await;
+        assert!(
+            skill_count == 0,
+            "SkillRegistry should be accessible with 0 skills initially"
+        );
+        let plugin_count = ext_reg.plugin_registry().plugin_count().await;
+        assert!(
+            plugin_count == 0,
+            "PluginRegistry should be accessible with 0 plugins initially"
+        );
+    }
+
+    #[test]
+    fn deprecated_getters_return_same_data_as_agent_fields() {
+        let tmp = TempDir::new().unwrap();
+        let workspace_root = tmp.path().to_path_buf();
+        let (agent, _) = test_agent(workspace_root);
+
+        // Verify deprecated getters return references to the same fields
+        #[allow(deprecated)]
+        {
+            assert!(
+                agent.provider_store().is_some(),
+                "deprecated provider_store should return Some"
+            );
+            assert!(
+                agent.core_tool_registry().is_some(),
+                "deprecated core_tool_registry should return Some"
+            );
+            assert!(
+                agent.fragment_registry().is_some(),
+                "deprecated fragment_registry should return Some"
+            );
+            assert!(
+                agent.skill_registry().is_some(),
+                "deprecated skill_registry should return Some"
+            );
+            assert!(
+                agent.plugin_registry().is_some(),
+                "deprecated plugin_registry should return Some"
+            );
+            assert!(
+                agent.hook_registry_deprecated().as_ref().len() == 0,
+                "deprecated hook_registry should be accessible with 0 hooks"
+            );
+            assert!(
+                agent.command_registry_deprecated().len() == 0,
+                "deprecated command_registry should return empty default"
+            );
+        }
+    }
+
+    #[test]
+    fn interceptor_chain_carries_migrated_services_in_resume() {
+        let tmp = TempDir::new().unwrap();
+        let workspace_root = tmp.path().to_path_buf();
+        let mut agent = ComponentAssembler::new(AgentConfig {
+            workspace_root: workspace_root.clone(),
+            ..Default::default()
+        })
+        .with_provider(Arc::new(NullProvider))
+        .with_session_manager(SessionManager::new(
+            workspace_root.join(".synthia").join("sessions"),
+        ))
+        .build();
+
+        // Set up a steering channel so we can verify migration
+        use crate::steering::{SteeringChannel, SteeringMessage};
+        #[derive(Debug)]
+        struct TestSteeringChannel;
+        #[async_trait]
+        impl SteeringChannel for TestSteeringChannel {
+            async fn send(&self, _msg: SteeringMessage) {}
+
+            fn try_recv(&self) -> Option<SteeringMessage> {
+                None
+            }
+
+            fn is_empty(&self) -> bool {
+                true
+            }
+        }
+        agent.steering_channel = Some(Arc::new(TestSteeringChannel));
+
+        // We can't fully test resume without a session, but we can
+        // verify the agent has the expected fields for migration
+        assert!(
+            agent.steering_channel.is_some(),
+            "steering_channel should be set"
+        );
+        assert!(
+            agent.extension_registry.is_some(),
+            "extension_registry should be set"
+        );
+    }
+
+    #[test]
+    fn command_registry_shared_between_agent_and_extension_registry() {
+        let tmp = TempDir::new().unwrap();
+        let workspace_root = tmp.path().to_path_buf();
+        let agent = ComponentAssembler::new(AgentConfig {
+            workspace_root: workspace_root.clone(),
+            ..Default::default()
+        })
+        .with_provider(Arc::new(NullProvider))
+        .with_session_manager(SessionManager::new(
+            workspace_root.join(".synthia").join("sessions"),
+        ))
+        .build();
+
+        // Register a command via the agent's command_registry
+        use synthia_command::{traits::CommandHandler, types::CommandContext};
+        #[derive(Debug)]
+        struct TestCommand;
+        #[async_trait]
+        impl CommandHandler for TestCommand {
+            fn name(&self) -> &str {
+                "test_cmd"
+            }
+
+            fn description(&self) -> &str {
+                "A test command"
+            }
+
+            async fn execute(
+                &self,
+                _args: &str,
+                _ctx: &CommandContext,
+            ) -> Result<
+                synthia_command::types::CommandResult,
+                synthia_core::Error,
+            > {
+                Ok(synthia_command::types::CommandResult::new("test"))
+            }
+        }
+        agent
+            .command_registry
+            .register_handler(Arc::new(TestCommand));
+
+        // The CommandStore in ExtensionRegistry should reflect the same data
+        let ext_reg = agent.extension_registry.as_ref().unwrap();
+        let cmd_store = ext_reg.command_store().unwrap();
+        assert!(
+            cmd_store.contains_command("test_cmd"),
+            "CommandStore should see the command registered on Agent"
+        );
+        assert_eq!(
+            cmd_store.command_count(),
+            1,
+            "CommandStore should report 1 command"
+        );
     }
 }

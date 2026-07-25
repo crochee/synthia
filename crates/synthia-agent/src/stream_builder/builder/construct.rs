@@ -103,7 +103,14 @@ impl BuilderSteps {
             recovery: ErrorRecoveryCoordinator::new(5),
             reset: ResetCoordinator::new(),
             failure_tracker: ConsecutiveFailureTracker::new(),
-            steering_channel: config.steering_channel.clone(),
+            // Registry-First: prefer steering_channel from
+            // InterceptorChain when available; fall back to
+            // run_config field for legacy path.
+            steering_channel: config
+                .interceptor_chain
+                .as_ref()
+                .and_then(|c| c.steering_channel().cloned())
+                .or_else(|| config.steering_channel.clone()),
         }
     }
 }

@@ -38,15 +38,15 @@ pub enum RegistrationError {
 }
 
 /// Entry in the tool registry.
-struct ToolEntry {
+pub(crate) struct ToolEntry {
     #[expect(dead_code)]
     // used for provider identification; consumed by future deregistration
-    provider_id: String,
+    pub(crate) provider_id: String,
     /// Token that owns this registration — used for scoped unregistration.
-    provider_token: RegistrationToken,
-    tool: Arc<dyn Tool>,
-    identity: ToolIdentity,
-    provenance: ToolProvenance,
+    pub(crate) provider_token: RegistrationToken,
+    pub(crate) tool: Arc<dyn Tool>,
+    pub(crate) identity: ToolIdentity,
+    pub(crate) provenance: ToolProvenance,
 }
 
 /// Immutable materialization snapshot for stale detection.
@@ -109,17 +109,17 @@ impl Materialization {
 
 /// Unified tool registry.
 pub struct ToolRegistry {
-    inner: RwLock<ToolRegistryInner>,
+    pub(crate) inner: RwLock<ToolRegistryInner>,
     next_token: RwLock<u64>,
 }
 
-struct ToolRegistryInner {
+pub(crate) struct ToolRegistryInner {
     /// Tool name → entries (LIFO for non-core tools).
-    tools: HashMap<ToolName, Vec<ToolEntry>>,
+    pub(crate) tools: HashMap<ToolName, Vec<ToolEntry>>,
     /// Monotonic generation counter.
-    generation: ToolGeneration,
+    pub(crate) generation: ToolGeneration,
     /// Next registration token.
-    next_registration: u64,
+    pub(crate) next_registration: u64,
 }
 
 impl ToolRegistry {
@@ -383,6 +383,31 @@ impl ToolRegistry {
             tool_names,
             namespace: Some(namespace.to_string()),
         })
+    }
+
+    /// Create an empty session scope with a fresh registration token.
+    ///
+    /// Unlike [`register_scoped`](Self::register_scoped), this does not
+    /// register any tools immediately. The returned scope carries a unique
+    /// [`RegistrationToken`] that future code can associate with tools
+    /// registered during a session. When the scope is dropped, all tools
+    /// registered under its token are automatically unregistered from the
+    /// registry (or the cleanup is a no-op if the registry has already been
+    /// dropped).
+    pub fn create_session_scope(self: &Arc<Self>) -> RegistrationScope {
+        let token = {
+            let mut inner = self.inner.write();
+            let token = RegistrationToken(inner.next_registration);
+            inner.next_registration += 1;
+            token
+        };
+
+        RegistrationScope {
+            token,
+            registry: Arc::downgrade(self),
+            tool_names: Vec::new(),
+            namespace: None,
+        }
     }
 
     /// Return the number of registered tools (LIFO top-only count).
@@ -1303,5 +1328,72 @@ mod tests {
     fn exposure_default_is_direct() {
         // Verify that ToolExposure::default() is Direct
         assert_eq!(ToolExposure::default(), ToolExposure::Direct);
+    }
+
+    // ── create_session_scope tests ──────────────────────────────────────
+
+    #[test]
+    fn create_session_scope_returns_valid_token() {
+        let registry = Arc::new(ToolRegistry::new());
+        let scope = registry.create_session_scope();
+        // Token should be non-zero (first allocation)
+        assert_ne!(scope.token().0, 0);
+        // No tool names initially
+        assert!(scope.tool_names().is_empty());
+        // No namespace
+        assert!(scope.namespace().is_none());
+    }
+
+    #[test]
+    fn create_session_scope_drop_is_noop_when_no_tools_registered() {
+        let registry = Arc::new(ToolRegistry::new());
+        let tool_count_before = registry.tool_count();
+        {
+            let _scope = registry.create_session_scope();
+        }
+        // Tool count unchanged after scope drop (no tools were registered)
+        assert_eq!(registry.tool_count(), tool_count_before);
+    }
+
+    #[test]
+    fn create_session_scope_subsequent_tokens_are_monotonic() {
+        let registry = Arc::new(ToolRegistry::new());
+        let scope1 = registry.create_session_scope();
+        let scope2 = registry.create_session_scope();
+        assert!(
+            scope2.token().0 > scope1.token().0,
+            "tokens should be monotonically increasing"
+        );
+    }
+
+    #[tokio::test]
+    async fn create_session_scope_drop_does_not_affect_other_tools() {
+        let registry = Arc::new(ToolRegistry::new());
+
+        // Register a tool via a provider (uses its own token)
+        let provider: Arc<dyn ToolProvider> = Arc::new(SimpleProvider {
+            id: "persistent".to_string(),
+            tool_name: "persistent-tool".to_string(),
+        });
+        let _token = registry.register_provider(provider).await.unwrap();
+        assert!(registry.resolve_now("persistent-tool").is_some());
+
+        // Create and drop a session scope
+        {
+            let _scope = registry.create_session_scope();
+        }
+
+        // The provider-registered tool should still be present
+        assert!(registry.resolve_now("persistent-tool").is_some());
+    }
+
+    #[test]
+    fn create_session_scope_noop_when_registry_dropped_first() {
+        let registry = Arc::new(ToolRegistry::new());
+        let scope = registry.create_session_scope();
+        // Drop the registry first
+        drop(registry);
+        // Now drop the scope — should not panic (Weak::upgrade returns None)
+        drop(scope);
     }
 }

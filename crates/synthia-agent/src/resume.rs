@@ -94,9 +94,31 @@ impl Agent {
             tool_orchestrator: None,
             guardian_coordinator: None,
             extension_manager: None,
-            extension_registry: None,
+            extension_registry: self.extension_registry.clone(),
             rollout_tracker: None,
-            interceptor_chain: None,
+            interceptor_chain: {
+                // Build InterceptorChain with migrated services from Agent.
+                // During the migration period, Agent still holds the canonical
+                // fields; the InterceptorChain provides the new access path.
+                let mut chain = crate::interceptor::InterceptorChain::new();
+                if let Some(ref channel) = self.steering_channel {
+                    chain.set_steering_channel(Arc::clone(channel));
+                }
+                if let Some(ref watcher) = self.config_watcher {
+                    chain.set_config_watcher(watcher.clone());
+                }
+                if let Some(ref sender) = self.memory_event_sender {
+                    chain.set_memory_event_sender(sender.clone());
+                }
+                if let Some(ref service) = self.approval_service {
+                    chain.set_approval_service(Arc::clone(service));
+                }
+                if let Some(ref manager) = self.sandbox_manager {
+                    chain.set_sandbox_manager(Arc::clone(manager));
+                }
+                chain.set_hook_registry(Arc::clone(&self.hook_registry));
+                Some(Arc::new(chain))
+            },
             loop_services: std::sync::OnceLock::new(),
         };
 

@@ -1,6 +1,7 @@
 use std::time::{Duration, Instant};
 
 use synthia_context::traits::estimate_message_tokens;
+use synthia_core::tool::registry::RegistrationScope;
 use synthia_provider::types::Message;
 use synthia_telemetry::span_context::SpanContext;
 
@@ -36,6 +37,11 @@ pub struct LoopContext {
     /// Reset to 0 at the start of each iteration. Rate-limited to
     /// [`crate::steering::FORWARDED_RATE_LIMIT`] per turn.
     pub forwarded_this_turn: usize,
+    /// RAII scope that automatically unregisters any tools registered
+    /// during this session when the `LoopContext` is dropped. `None` when
+    /// the session was started without an `ExtensionRegistry` (and
+    /// therefore without an `Arc<ToolRegistry>` to create a scope from).
+    pub registration_scope: Option<RegistrationScope>,
 }
 
 impl LoopContext {
@@ -54,6 +60,7 @@ impl LoopContext {
             session_start: Some(Instant::now()),
             next_self_reflect_iteration: 5,
             forwarded_this_turn: 0,
+            registration_scope: None,
         }
     }
 
@@ -70,6 +77,14 @@ impl LoopContext {
     /// Sets the hard token limit used by `token_ratio()`.
     pub fn with_token_limit(mut self, limit: usize) -> Self {
         self.context_token_limit = Some(limit);
+        self
+    }
+
+    /// Attach a [`RegistrationScope`] so that tools registered during
+    /// this session are automatically unregistered when the
+    /// `LoopContext` is dropped.
+    pub fn with_registration_scope(mut self, scope: RegistrationScope) -> Self {
+        self.registration_scope = Some(scope);
         self
     }
 
@@ -103,6 +118,7 @@ impl LoopContext {
             // re-reflect.
             next_self_reflect_iteration: metadata.iteration.saturating_add(5),
             forwarded_this_turn: 0,
+            registration_scope: None,
         }
     }
 

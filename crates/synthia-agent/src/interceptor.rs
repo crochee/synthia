@@ -122,6 +122,24 @@ pub trait Interceptor: Send + Sync {
 /// 拦截器链 — 中间件模式。
 pub struct InterceptorChain {
     interceptors: Vec<Arc<dyn Interceptor>>,
+    /// Legacy hook registry, migrated from Agent. When set, hooks can be
+    /// dispatched through this reference. In the Registry-First architecture,
+    /// hooks are gradually replaced by interceptors; during the migration
+    /// period, both coexist.
+    hook_registry: Option<Arc<synthia_hook::HookRegistry>>,
+    /// Approval service, migrated from Agent. Used by ApprovalInterceptor
+    /// and tool orchestrator for permission checks.
+    approval_service: Option<Arc<dyn synthia_permission::ApprovalService>>,
+    /// Sandbox manager, migrated from Agent. Used by the tool orchestrator
+    /// for execution sandboxing.
+    sandbox_manager: Option<Arc<dyn synthia_sandbox::SandboxManager>>,
+    /// Steering channel, migrated from Agent. Used for mid-loop agent control.
+    steering_channel: Option<Arc<dyn crate::steering::SteeringChannel>>,
+    /// Config watcher, migrated from Agent. Monitors configuration file changes.
+    config_watcher: Option<crate::config_watcher::MultiConfigWatcher>,
+    /// Memory event sender, migrated from Agent. Sends memory events.
+    memory_event_sender:
+        Option<tokio::sync::mpsc::Sender<synthia_memory::types::MemoryEvent>>,
 }
 
 impl InterceptorChain {
@@ -129,7 +147,103 @@ impl InterceptorChain {
     pub fn new() -> Self {
         Self {
             interceptors: Vec::new(),
+            hook_registry: None,
+            approval_service: None,
+            sandbox_manager: None,
+            steering_channel: None,
+            config_watcher: None,
+            memory_event_sender: None,
         }
+    }
+
+    /// Set the hook registry reference. Called during Agent assembly
+    /// to migrate the hook_registry from Agent into InterceptorChain.
+    pub fn set_hook_registry(
+        &mut self,
+        registry: Arc<synthia_hook::HookRegistry>,
+    ) {
+        self.hook_registry = Some(registry);
+    }
+
+    /// Get the hook registry reference, if set.
+    pub fn hook_registry(&self) -> Option<&Arc<synthia_hook::HookRegistry>> {
+        self.hook_registry.as_ref()
+    }
+
+    /// Set the approval service. Migrated from Agent.
+    pub fn set_approval_service(
+        &mut self,
+        service: Arc<dyn synthia_permission::ApprovalService>,
+    ) {
+        self.approval_service = Some(service);
+    }
+
+    /// Get the approval service, if set.
+    pub fn approval_service(
+        &self,
+    ) -> Option<&Arc<dyn synthia_permission::ApprovalService>> {
+        self.approval_service.as_ref()
+    }
+
+    /// Set the sandbox manager. Migrated from Agent.
+    pub fn set_sandbox_manager(
+        &mut self,
+        manager: Arc<dyn synthia_sandbox::SandboxManager>,
+    ) {
+        self.sandbox_manager = Some(manager);
+    }
+
+    /// Get the sandbox manager, if set.
+    pub fn sandbox_manager(
+        &self,
+    ) -> Option<&Arc<dyn synthia_sandbox::SandboxManager>> {
+        self.sandbox_manager.as_ref()
+    }
+
+    /// Set the steering channel. Migrated from Agent.
+    pub fn set_steering_channel(
+        &mut self,
+        channel: Arc<dyn crate::steering::SteeringChannel>,
+    ) {
+        self.steering_channel = Some(channel);
+    }
+
+    /// Get the steering channel, if set.
+    pub fn steering_channel(
+        &self,
+    ) -> Option<&Arc<dyn crate::steering::SteeringChannel>> {
+        self.steering_channel.as_ref()
+    }
+
+    /// Set the config watcher. Migrated from Agent.
+    pub fn set_config_watcher(
+        &mut self,
+        watcher: crate::config_watcher::MultiConfigWatcher,
+    ) {
+        self.config_watcher = Some(watcher);
+    }
+
+    /// Get the config watcher, if set.
+    pub fn config_watcher(
+        &self,
+    ) -> Option<&crate::config_watcher::MultiConfigWatcher> {
+        self.config_watcher.as_ref()
+    }
+
+    /// Set the memory event sender. Migrated from Agent.
+    pub fn set_memory_event_sender(
+        &mut self,
+        sender: tokio::sync::mpsc::Sender<synthia_memory::types::MemoryEvent>,
+    ) {
+        self.memory_event_sender = Some(sender);
+    }
+
+    /// Get the memory event sender, if set.
+    pub fn memory_event_sender(
+        &self,
+    ) -> Option<&tokio::sync::mpsc::Sender<synthia_memory::types::MemoryEvent>>
+    {
+        self.memory_event_sender.as_ref()
     }
 
     /// 添加 interceptor。
@@ -208,6 +322,12 @@ impl Clone for InterceptorChain {
     fn clone(&self) -> Self {
         Self {
             interceptors: self.interceptors.clone(),
+            hook_registry: self.hook_registry.clone(),
+            approval_service: self.approval_service.clone(),
+            sandbox_manager: self.sandbox_manager.clone(),
+            steering_channel: self.steering_channel.clone(),
+            config_watcher: self.config_watcher.clone(),
+            memory_event_sender: self.memory_event_sender.clone(),
         }
     }
 }

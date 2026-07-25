@@ -85,3 +85,13 @@ impl Default for MultiConfigWatcher {
         Self::new()
     }
 }
+
+impl Clone for MultiConfigWatcher {
+    fn clone(&self) -> Self {
+        Self {
+            watchers: Arc::clone(&self.watchers),
+            callbacks: Arc::clone(&self.callbacks),
+            debounce_duration: self.debounce_duration,
+        }
+    }
+}

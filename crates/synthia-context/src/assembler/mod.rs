@@ -36,11 +36,19 @@
 //!
 //! Unit tests live in [`tests`].
 
+// Internal modules access deprecated fields of ContextAssembler
+// as part of the migration path to FragmentRegistry.
+#[allow(deprecated)]
 mod assemble;
+#[allow(deprecated)]
 mod construct;
+#[allow(deprecated)]
 mod inject;
+#[allow(deprecated)]
 mod pipeline;
+#[allow(deprecated)]
 mod trim;
+#[allow(deprecated)]
 mod types;
 
 #[cfg(test)]

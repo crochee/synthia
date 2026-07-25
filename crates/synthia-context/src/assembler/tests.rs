@@ -736,3 +736,97 @@ async fn test_protection_zone_trim_semantics_preserved() {
         );
     }
 }
+
+// ─── Fragment delegation integration tests ───────────────────────────
+//
+// Verify that ContextAssembler delegates to FragmentRegistry when
+// rendered fragments are set via `set_rendered_fragments()`.
+
+/// When `rendered_fragments` is empty, the system prompt is used as-is.
+#[allow(deprecated)]
+#[test]
+fn fragment_delegation_uses_system_prompt_when_no_fragments() {
+    let mut assembler = ContextAssembler::new(4096)
+        .with_system_prompt("legacy system prompt".to_string());
+    assembler.set_rendered_fragments(vec![]);
+
+    let prompt = assembler.build_system_prompt();
+    assert!(
+        prompt.contains("legacy system prompt"),
+        "expected legacy system prompt when no fragments are set"
+    );
+}
+
+/// When `rendered_fragments` is set, fragment content replaces the
+/// system prompt in the assembled output.
+#[allow(deprecated)]
+#[test]
+fn fragment_delegation_replaces_system_prompt() {
+    let mut assembler = ContextAssembler::new(4096)
+        .with_system_prompt("legacy system prompt".to_string());
+    assembler.set_rendered_fragments(vec![
+        (
+            "SystemPrompt".to_string(),
+            "fragment system prompt".to_string(),
+        ),
+        ("Environment".to_string(), "env info".to_string()),
+    ]);
+
+    let prompt = assembler.build_system_prompt();
+    assert!(
+        !prompt.contains("legacy system prompt"),
+        "legacy system prompt must be replaced when fragments are set"
+    );
+    assert!(
+        prompt.contains("fragment system prompt"),
+        "fragment content must appear in assembled prompt"
+    );
+    assert!(
+        prompt.contains("env info"),
+        "all fragment content must appear"
+    );
+}
+
+/// Verify that fragments appear as sections in `assemble_sections()`.
+#[allow(deprecated)]
+#[test]
+fn fragment_sections_appear_in_assemble_sections() {
+    let mut assembler = ContextAssembler::new(4096);
+    assembler.set_rendered_fragments(vec![
+        ("Frag1".to_string(), "content-1".to_string()),
+        ("Frag2".to_string(), "content-2".to_string()),
+    ]);
+
+    let sections = assembler.assemble_sections();
+    let frag_sections: Vec<_> = sections
+        .iter()
+        .filter(|s| s.title.starts_with("Fragment: "))
+        .collect();
+
+    assert_eq!(
+        frag_sections.len(),
+        2,
+        "expected 2 fragment sections, got {}",
+        frag_sections.len()
+    );
+    assert_eq!(frag_sections[0].title, "Fragment: Frag1");
+    assert_eq!(frag_sections[0].content, "content-1");
+    assert_eq!(frag_sections[1].title, "Fragment: Frag2");
+    assert_eq!(frag_sections[1].content, "content-2");
+}
+
+/// When both fragments and memories are present, both appear in output.
+#[allow(deprecated)]
+#[test]
+fn fragments_and_memories_coexist() {
+    let mut assembler = ContextAssembler::new(4096);
+    assembler.set_rendered_fragments(vec![(
+        "SystemPrompt".to_string(),
+        "sys".to_string(),
+    )]);
+    assembler.inject_memories(vec!["memory-1".to_string()]);
+
+    let prompt = assembler.build_system_prompt();
+    assert!(prompt.contains("sys"), "fragment content must appear");
+    assert!(prompt.contains("memory-1"), "memories must appear");
+}

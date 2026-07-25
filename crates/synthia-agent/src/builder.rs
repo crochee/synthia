@@ -12,7 +12,7 @@ use crate::{
 impl Agent {
     pub fn with_mcp_manager(
         mut self,
-        mcp_manager: synthia_mcp::McpManager,
+        mcp_manager: Arc<synthia_mcp::McpManager>,
     ) -> Self {
         self.mcp_manager = Some(mcp_manager);
         self

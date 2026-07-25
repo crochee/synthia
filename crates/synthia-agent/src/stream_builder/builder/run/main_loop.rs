@@ -102,10 +102,10 @@ impl StreamBuilder {
             config,
             context_assembler: _,
             session_store,
-            steering_channel: _,
+            steering_channel: _steering_channel_direct,
             session_input_queue,
             cancel_token,
-            memory_event_sender,
+            memory_event_sender: _memory_event_sender_direct,
             agent_control,
             fork_policy: _,
             // L4 auto-compaction provider, surfaced as a
@@ -134,6 +134,22 @@ impl StreamBuilder {
             interceptor_chain,
             loop_services,
         } = run_config;
+
+        // ── Registry-First service resolution ──
+        // When the InterceptorChain is available, prefer accessing
+        // migrated services through it (Registry-First path). Fall
+        // back to the direct run_config fields when the chain is
+        // absent (legacy path).
+        let memory_event_sender = interceptor_chain
+            .as_ref()
+            .and_then(|c| c.memory_event_sender().cloned())
+            .or(_memory_event_sender_direct);
+        let _steering_channel: Option<
+            Arc<dyn crate::steering::SteeringChannel>,
+        > = interceptor_chain
+            .as_ref()
+            .and_then(|c| c.steering_channel().cloned())
+            .or(_steering_channel_direct);
 
         let session_id_clone = session_id.clone();
 
@@ -189,6 +205,22 @@ impl StreamBuilder {
                 ),
                 None => LoopContext::new(session_id_clone.clone(), span_ctx),
             };
+
+            // ── RegistrationScope ──
+            // When an ExtensionRegistry is available, create a
+            // RegistrationScope from its ToolRegistry. Any tools
+            // registered during this session under the scope's token
+            // will be automatically unregistered when the LoopContext
+            // (and thus the scope) is dropped at session end.
+            if let Some(ref ext_reg) = extension_registry {
+                let scope = ext_reg.tool_registry().create_session_scope();
+                tracing::info!(
+                    session_id = %session_id_clone,
+                    token = scope.token().0,
+                    "Created session RegistrationScope"
+                );
+                ctx.registration_scope = Some(scope);
+            }
 
             // If resuming from checkpoint, restore state; otherwise seed with input message.
             // Only treat initial_state as "resume" if there are actual messages or iteration > 0.
@@ -894,64 +926,6 @@ impl StreamBuilder {
                         )
                         .await;
 
-                        // Record file changes in rollout tracker for
-                        // tools that modify files.
-                        if let Some(ref rollout) = rollout_tracker {
-                            for tool_call in &sampling.tool_calls {
-                                let (change_type, file_path) =
-                                    match tool_call.name.as_str() {
-                                        "write" => {
-                                            let p = tool_call
-                                                .input
-                                                .get("file_path")
-                                                .or_else(|| {
-                                                    tool_call.input.get("path")
-                                                })
-                                                .and_then(|v| v.as_str())
-                                                .unwrap_or("");
-                                            (ChangeType::Created, p)
-                                        }
-                                        "edit" | "multi_edit" => {
-                                            let p = tool_call
-                                                .input
-                                                .get("file_path")
-                                                .or_else(|| {
-                                                    tool_call.input.get("path")
-                                                })
-                                                .and_then(|v| v.as_str())
-                                                .unwrap_or("");
-                                            (ChangeType::Modified, p)
-                                        }
-                                        "apply_patch" => {
-                                            let p = tool_call
-                                                .input
-                                                .get("path")
-                                                .or_else(|| {
-                                                    tool_call
-                                                        .input
-                                                        .get("file_path")
-                                                })
-                                                .and_then(|v| v.as_str())
-                                                .unwrap_or("");
-                                            (ChangeType::Modified, p)
-                                        }
-                                        _ => continue,
-                                    };
-                                if !file_path.is_empty() {
-                                    rollout
-                                        .record_change(FileChange {
-                                            path: std::path::PathBuf::from(
-                                                file_path,
-                                            ),
-                                            change_type,
-                                            tool_name: tool_call.name.clone(),
-                                            iteration: ctx.iteration,
-                                        })
-                                        .await;
-                                }
-                            }
-                        }
-
                         // ── InterceptorChain BeforeTool dispatch ──
                         // When an interceptor chain is configured, dispatch
                         // BeforeTool events for each tool call. If any call
@@ -1041,6 +1015,68 @@ impl StreamBuilder {
                         match tool_outcome {
                             super::super::tool_execution::ToolExecuteOutcome::Continue { events } => {
                                 for ev in events { yield ev; }
+
+                                // Record file changes in rollout tracker for
+                                // tools that modify files. Only record for
+                                // tools that were not skipped by interceptors.
+                                if let Some(ref rollout) = rollout_tracker {
+                                    for tool_call in &sampling.tool_calls {
+                                        if skipped_tools.contains(&tool_call.name) {
+                                            continue;
+                                        }
+                                        let (change_type, file_path) =
+                                            match tool_call.name.as_str() {
+                                                "write" => {
+                                                    let p = tool_call
+                                                        .input
+                                                        .get("file_path")
+                                                        .or_else(|| {
+                                                            tool_call.input.get("path")
+                                                        })
+                                                        .and_then(|v| v.as_str())
+                                                        .unwrap_or("");
+                                                    (ChangeType::Created, p)
+                                                }
+                                                "edit" | "multi_edit" => {
+                                                    let p = tool_call
+                                                        .input
+                                                        .get("file_path")
+                                                        .or_else(|| {
+                                                            tool_call.input.get("path")
+                                                        })
+                                                        .and_then(|v| v.as_str())
+                                                        .unwrap_or("");
+                                                    (ChangeType::Modified, p)
+                                                }
+                                                "apply_patch" => {
+                                                    let p = tool_call
+                                                        .input
+                                                        .get("path")
+                                                        .or_else(|| {
+                                                            tool_call
+                                                                .input
+                                                                .get("file_path")
+                                                        })
+                                                        .and_then(|v| v.as_str())
+                                                        .unwrap_or("");
+                                                    (ChangeType::Modified, p)
+                                                }
+                                                _ => continue,
+                                            };
+                                        if !file_path.is_empty() {
+                                            rollout
+                                                .record_change(FileChange {
+                                                    path: std::path::PathBuf::from(
+                                                        file_path,
+                                                    ),
+                                                    change_type,
+                                                    tool_name: tool_call.name.clone(),
+                                                    iteration: ctx.iteration,
+                                                })
+                                                .await;
+                                        }
+                                    }
+                                }
 
                                 // ── InterceptorChain AfterTool dispatch ──
                                 // When an interceptor chain is configured,

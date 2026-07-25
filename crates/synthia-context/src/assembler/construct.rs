@@ -36,6 +36,7 @@ impl ContextAssembler {
             tool_results: Vec::new(),
             conversation_messages: Vec::new(),
             priorities: SectionPriorities::default(),
+            rendered_fragments: Vec::new(),
         }
     }
 

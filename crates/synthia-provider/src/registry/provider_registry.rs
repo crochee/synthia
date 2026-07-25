@@ -4,7 +4,11 @@ use std::{
 };
 
 use async_trait::async_trait;
-use synthia_core::{Error, registry::Registry};
+use synthia_core::{
+    Error,
+    registry::Registry,
+    tool::extension_registry::ProviderStore,
+};
 
 use super::types::{ProviderFilter, ProviderInfo};
 use crate::{
@@ -219,5 +223,19 @@ impl Registry<ProviderInfo> for ProviderRegistry {
             })
             .collect();
         Ok(result)
+    }
+}
+
+impl ProviderStore for ProviderRegistry {
+    fn provider_count(&self) -> usize {
+        self.len()
+    }
+
+    fn contains_provider(&self, name: &str) -> bool {
+        self.contains(name)
+    }
+
+    fn is_empty(&self) -> bool {
+        ProviderRegistry::is_empty(self)
     }
 }
