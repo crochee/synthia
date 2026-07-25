@@ -1,5 +1,5 @@
 version: 1
-generated_at: 2026-07-25T13:40:46.536Z
+generated_at: 2026-07-25T13:51:01.682Z
 endpoints:
   - id: DELETE /api/commands/{key}
     method: DELETE
@@ -7,7 +7,7 @@ endpoints:
     source: backend
     source_files:
       backend:
-        - /home/crochee/workspace/synthia/.worktrees/synthia-interface-contract-closure/crates/synthia-server/src/server/router.rs:152
+        - /home/crochee/workspace/synthia/crates/synthia-server/src/server/router.rs:152
       frontend: []
   - id: DELETE /api/jobs/{key}
     method: DELETE
@@ -15,7 +15,7 @@ endpoints:
     source: backend
     source_files:
       backend:
-        - /home/crochee/workspace/synthia/.worktrees/synthia-interface-contract-closure/crates/synthia-server/src/server/router.rs:122
+        - /home/crochee/workspace/synthia/crates/synthia-server/src/server/router.rs:122
       frontend: []
   - id: DELETE /api/mcp/servers/{key}
     method: DELETE
@@ -23,16 +23,16 @@ endpoints:
     source: both
     source_files:
       backend:
-        - /home/crochee/workspace/synthia/.worktrees/synthia-interface-contract-closure/crates/synthia-server/src/server/router.rs:140
+        - /home/crochee/workspace/synthia/crates/synthia-server/src/server/router.rs:140
       frontend:
-        - /home/crochee/workspace/synthia/.worktrees/synthia-interface-contract-closure/synthia-web/src/pages/McpPage.tsx:63
+        - /home/crochee/workspace/synthia/synthia-web/src/pages/McpPage.tsx:63
   - id: DELETE /api/providers/{key}
     method: DELETE
     path: /api/providers/{key}
     source: backend
     source_files:
       backend:
-        - /home/crochee/workspace/synthia/.worktrees/synthia-interface-contract-closure/crates/synthia-server/src/server/router.rs:100
+        - /home/crochee/workspace/synthia/crates/synthia-server/src/server/router.rs:100
       frontend: []
   - id: DELETE /api/skills/{key}
     method: DELETE
@@ -40,7 +40,7 @@ endpoints:
     source: backend
     source_files:
       backend:
-        - /home/crochee/workspace/synthia/.worktrees/synthia-interface-contract-closure/crates/synthia-server/src/server/router.rs:110
+        - /home/crochee/workspace/synthia/crates/synthia-server/src/server/router.rs:110
       frontend: []
   - id: DELETE /api/tools/{key}
     method: DELETE
@@ -48,7 +48,7 @@ endpoints:
     source: backend
     source_files:
       backend:
-        - /home/crochee/workspace/synthia/.worktrees/synthia-interface-contract-closure/crates/synthia-server/src/server/router.rs:148
+        - /home/crochee/workspace/synthia/crates/synthia-server/src/server/router.rs:148
       frontend: []
   - id: GET /.well-known/agent-card.json
     method: GET
@@ -56,7 +56,7 @@ endpoints:
     source: backend
     source_files:
       backend:
-        - /home/crochee/workspace/synthia/.worktrees/synthia-interface-contract-closure/crates/synthia-server/src/server/router.rs:197
+        - /home/crochee/workspace/synthia/crates/synthia-server/src/server/router.rs:197
       frontend: []
   - id: GET /api/approvals
     method: GET
@@ -64,7 +64,7 @@ endpoints:
     source: backend
     source_files:
       backend:
-        - /home/crochee/workspace/synthia/.worktrees/synthia-interface-contract-closure/crates/synthia-server/src/server/router.rs:164
+        - /home/crochee/workspace/synthia/crates/synthia-server/src/server/router.rs:164
       frontend: []
   - id: GET /api/commands
     method: GET
@@ -72,7 +72,7 @@ endpoints:
     source: backend
     source_files:
       backend:
-        - /home/crochee/workspace/synthia/.worktrees/synthia-interface-contract-closure/crates/synthia-server/src/server/router.rs:150
+        - /home/crochee/workspace/synthia/crates/synthia-server/src/server/router.rs:150
       frontend: []
   - id: GET /api/commands/{key}
     method: GET
@@ -80,7 +80,7 @@ endpoints:
     source: backend
     source_files:
       backend:
-        - /home/crochee/workspace/synthia/.worktrees/synthia-interface-contract-closure/crates/synthia-server/src/server/router.rs:151
+        - /home/crochee/workspace/synthia/crates/synthia-server/src/server/router.rs:151
       frontend: []
   - id: GET /api/jobs
     method: GET
@@ -88,7 +88,7 @@ endpoints:
     source: backend
     source_files:
       backend:
-        - /home/crochee/workspace/synthia/.worktrees/synthia-interface-contract-closure/crates/synthia-server/src/server/router.rs:118
+        - /home/crochee/workspace/synthia/crates/synthia-server/src/server/router.rs:118
       frontend: []
   - id: GET /api/mcp/servers
     method: GET
@@ -96,7 +96,7 @@ endpoints:
     source: backend
     source_files:
       backend:
-        - /home/crochee/workspace/synthia/.worktrees/synthia-interface-contract-closure/crates/synthia-server/src/server/router.rs:127
+        - /home/crochee/workspace/synthia/crates/synthia-server/src/server/router.rs:127
       frontend: []
   - id: GET /api/mcp/servers/{key}
     method: GET
@@ -104,7 +104,7 @@ endpoints:
     source: backend
     source_files:
       backend:
-        - /home/crochee/workspace/synthia/.worktrees/synthia-interface-contract-closure/crates/synthia-server/src/server/router.rs:132
+        - /home/crochee/workspace/synthia/crates/synthia-server/src/server/router.rs:132
       frontend: []
   - id: GET /api/memory/search
     method: GET
@@ -112,16 +112,16 @@ endpoints:
     source: both
     source_files:
       backend:
-        - /home/crochee/workspace/synthia/.worktrees/synthia-interface-contract-closure/crates/synthia-server/src/server/router.rs:116
+        - /home/crochee/workspace/synthia/crates/synthia-server/src/server/router.rs:116
       frontend:
-        - /home/crochee/workspace/synthia/.worktrees/synthia-interface-contract-closure/synthia-web/src/pages/MemoryPage.tsx:21
+        - /home/crochee/workspace/synthia/synthia-web/src/pages/MemoryPage.tsx:21
   - id: GET /api/models
     method: GET
     path: /api/models
     source: backend
     source_files:
       backend:
-        - /home/crochee/workspace/synthia/.worktrees/synthia-interface-contract-closure/crates/synthia-server/src/server/router.rs:91
+        - /home/crochee/workspace/synthia/crates/synthia-server/src/server/router.rs:91
       frontend: []
   - id: GET /api/providers
     method: GET
@@ -129,7 +129,7 @@ endpoints:
     source: backend
     source_files:
       backend:
-        - /home/crochee/workspace/synthia/.worktrees/synthia-interface-contract-closure/crates/synthia-server/src/server/router.rs:95
+        - /home/crochee/workspace/synthia/crates/synthia-server/src/server/router.rs:95
       frontend: []
   - id: GET /api/providers/{key}
     method: GET
@@ -137,7 +137,7 @@ endpoints:
     source: backend
     source_files:
       backend:
-        - /home/crochee/workspace/synthia/.worktrees/synthia-interface-contract-closure/crates/synthia-server/src/server/router.rs:100
+        - /home/crochee/workspace/synthia/crates/synthia-server/src/server/router.rs:100
       frontend: []
   - id: GET /api/settings
     method: GET
@@ -145,7 +145,7 @@ endpoints:
     source: backend
     source_files:
       backend:
-        - /home/crochee/workspace/synthia/.worktrees/synthia-interface-contract-closure/crates/synthia-server/src/server/router.rs:157
+        - /home/crochee/workspace/synthia/crates/synthia-server/src/server/router.rs:157
       frontend: []
   - id: GET /api/skills
     method: GET
@@ -153,7 +153,7 @@ endpoints:
     source: backend
     source_files:
       backend:
-        - /home/crochee/workspace/synthia/.worktrees/synthia-interface-contract-closure/crates/synthia-server/src/server/router.rs:106
+        - /home/crochee/workspace/synthia/crates/synthia-server/src/server/router.rs:106
       frontend: []
   - id: GET /api/skills/{key}
     method: GET
@@ -161,7 +161,7 @@ endpoints:
     source: backend
     source_files:
       backend:
-        - /home/crochee/workspace/synthia/.worktrees/synthia-interface-contract-closure/crates/synthia-server/src/server/router.rs:110
+        - /home/crochee/workspace/synthia/crates/synthia-server/src/server/router.rs:110
       frontend: []
   - id: GET /api/tasks
     method: GET
@@ -169,7 +169,7 @@ endpoints:
     source: backend
     source_files:
       backend:
-        - /home/crochee/workspace/synthia/.worktrees/synthia-interface-contract-closure/crates/synthia-server/src/server/router.rs:93
+        - /home/crochee/workspace/synthia/crates/synthia-server/src/server/router.rs:93
       frontend: []
   - id: GET /api/tools
     method: GET
@@ -177,7 +177,7 @@ endpoints:
     source: backend
     source_files:
       backend:
-        - /home/crochee/workspace/synthia/.worktrees/synthia-interface-contract-closure/crates/synthia-server/src/server/router.rs:145
+        - /home/crochee/workspace/synthia/crates/synthia-server/src/server/router.rs:145
       frontend: []
   - id: GET /api/tools/{key}
     method: GET
@@ -185,7 +185,7 @@ endpoints:
     source: backend
     source_files:
       backend:
-        - /home/crochee/workspace/synthia/.worktrees/synthia-interface-contract-closure/crates/synthia-server/src/server/router.rs:147
+        - /home/crochee/workspace/synthia/crates/synthia-server/src/server/router.rs:147
       frontend: []
   - id: GET /health
     method: GET
@@ -193,16 +193,16 @@ endpoints:
     source: both
     source_files:
       backend:
-        - /home/crochee/workspace/synthia/.worktrees/synthia-interface-contract-closure/crates/synthia-server/src/server/router.rs:196
+        - /home/crochee/workspace/synthia/crates/synthia-server/src/server/router.rs:196
       frontend:
-        - /home/crochee/workspace/synthia/.worktrees/synthia-interface-contract-closure/synthia-web/src/hooks/useServerHealth.ts:23
+        - /home/crochee/workspace/synthia/synthia-web/src/hooks/useServerHealth.ts:23
   - id: GET /ws/approvals
     method: GET
     path: /ws/approvals
     source: backend
     source_files:
       backend:
-        - /home/crochee/workspace/synthia/.worktrees/synthia-interface-contract-closure/crates/synthia-server/src/server/router.rs:177
+        - /home/crochee/workspace/synthia/crates/synthia-server/src/server/router.rs:177
       frontend: []
   - id: POST /api/approvals/{key}/resolve
     method: POST
@@ -210,7 +210,7 @@ endpoints:
     source: backend
     source_files:
       backend:
-        - /home/crochee/workspace/synthia/.worktrees/synthia-interface-contract-closure/crates/synthia-server/src/server/router.rs:165
+        - /home/crochee/workspace/synthia/crates/synthia-server/src/server/router.rs:165
       frontend: []
   - id: POST /api/jobs
     method: POST
@@ -218,7 +218,7 @@ endpoints:
     source: backend
     source_files:
       backend:
-        - /home/crochee/workspace/synthia/.worktrees/synthia-interface-contract-closure/crates/synthia-server/src/server/router.rs:118
+        - /home/crochee/workspace/synthia/crates/synthia-server/src/server/router.rs:118
       frontend: []
   - id: POST /api/jobs/{key}/execute
     method: POST
@@ -226,7 +226,7 @@ endpoints:
     source: backend
     source_files:
       backend:
-        - /home/crochee/workspace/synthia/.worktrees/synthia-interface-contract-closure/crates/synthia-server/src/server/router.rs:123
+        - /home/crochee/workspace/synthia/crates/synthia-server/src/server/router.rs:123
       frontend: []
   - id: POST /api/jobs/{key}/pause
     method: POST
@@ -234,16 +234,16 @@ endpoints:
     source: both
     source_files:
       backend:
-        - /home/crochee/workspace/synthia/.worktrees/synthia-interface-contract-closure/crates/synthia-server/src/server/router.rs:124
+        - /home/crochee/workspace/synthia/crates/synthia-server/src/server/router.rs:124
       frontend:
-        - /home/crochee/workspace/synthia/.worktrees/synthia-interface-contract-closure/synthia-web/src/pages/JobsPage.tsx:36
+        - /home/crochee/workspace/synthia/synthia-web/src/pages/JobsPage.tsx:36
   - id: POST /api/mcp
     method: POST
     path: /api/mcp
     source: backend
     source_files:
       backend:
-        - /home/crochee/workspace/synthia/.worktrees/synthia-interface-contract-closure/crates/synthia-server/src/server/router.rs:126
+        - /home/crochee/workspace/synthia/crates/synthia-server/src/server/router.rs:126
       frontend: []
   - id: POST /api/mcp/servers
     method: POST
@@ -251,16 +251,16 @@ endpoints:
     source: both
     source_files:
       backend:
-        - /home/crochee/workspace/synthia/.worktrees/synthia-interface-contract-closure/crates/synthia-server/src/server/router.rs:128
+        - /home/crochee/workspace/synthia/crates/synthia-server/src/server/router.rs:128
       frontend:
-        - /home/crochee/workspace/synthia/.worktrees/synthia-interface-contract-closure/synthia-web/src/pages/McpPage.tsx:46
+        - /home/crochee/workspace/synthia/synthia-web/src/pages/McpPage.tsx:46
   - id: POST /api/mcp/servers/{key}/discover
     method: POST
     path: /api/mcp/servers/{key}/discover
     source: backend
     source_files:
       backend:
-        - /home/crochee/workspace/synthia/.worktrees/synthia-interface-contract-closure/crates/synthia-server/src/server/router.rs:136
+        - /home/crochee/workspace/synthia/crates/synthia-server/src/server/router.rs:136
       frontend: []
   - id: POST /api/providers
     method: POST
@@ -268,7 +268,7 @@ endpoints:
     source: backend
     source_files:
       backend:
-        - /home/crochee/workspace/synthia/.worktrees/synthia-interface-contract-closure/crates/synthia-server/src/server/router.rs:95
+        - /home/crochee/workspace/synthia/crates/synthia-server/src/server/router.rs:95
       frontend: []
   - id: POST /api/skills
     method: POST
@@ -276,7 +276,7 @@ endpoints:
     source: backend
     source_files:
       backend:
-        - /home/crochee/workspace/synthia/.worktrees/synthia-interface-contract-closure/crates/synthia-server/src/server/router.rs:106
+        - /home/crochee/workspace/synthia/crates/synthia-server/src/server/router.rs:106
       frontend: []
   - id: POST /api/skills/reload
     method: POST
@@ -284,7 +284,7 @@ endpoints:
     source: backend
     source_files:
       backend:
-        - /home/crochee/workspace/synthia/.worktrees/synthia-interface-contract-closure/crates/synthia-server/src/server/router.rs:114
+        - /home/crochee/workspace/synthia/crates/synthia-server/src/server/router.rs:114
       frontend: []
   - id: POST /api/tools
     method: POST
@@ -292,7 +292,7 @@ endpoints:
     source: backend
     source_files:
       backend:
-        - /home/crochee/workspace/synthia/.worktrees/synthia-interface-contract-closure/crates/synthia-server/src/server/router.rs:146
+        - /home/crochee/workspace/synthia/crates/synthia-server/src/server/router.rs:146
       frontend: []
   - id: PUT /api/settings
     method: PUT
@@ -300,6 +300,6 @@ endpoints:
     source: both
     source_files:
       backend:
-        - /home/crochee/workspace/synthia/.worktrees/synthia-interface-contract-closure/crates/synthia-server/src/server/router.rs:157
+        - /home/crochee/workspace/synthia/crates/synthia-server/src/server/router.rs:157
       frontend:
-        - /home/crochee/workspace/synthia/.worktrees/synthia-interface-contract-closure/synthia-web/src/pages/SettingsPage.tsx:34
+        - /home/crochee/workspace/synthia/synthia-web/src/pages/SettingsPage.tsx:34
