@@ -18,7 +18,28 @@ function keyOf(e: { method: string; path: string }): string {
   return `${e.method} ${normalizePathKey(e.path)}`;
 }
 
-function mergeByKey(be: Endpoint[], fe: Endpoint[]): {
+/**
+ * Merge two sets of endpoints keyed by `<METHOD> <canonical-path>`.
+ *
+ * The merge is a *union* (not an intersection): if the backend and
+ * frontend disagree on `source_files`, the union keeps both sides.
+ * `status` (fix-card lifecycle marker) is preserved only when both
+ * sides agree; on disagreement the merged entry drops it (i.e. flips
+ * back to open) so CI does not silently keep a stale `closed` flag
+ * after a payload-shape regression on one side.
+ *
+ * `preserve` is an optional list of manually-curated entries (e.g. a
+ * fix-card endpoint that the scanner can't see because the route is
+ * mounted via `nest_service` or proxied through an external SDK).
+ * Each preserved entry is added to the union with `source: 'both'`
+ * unless its key collides with a scanner-derived entry (in which case
+ * the scanner-derived entry wins and its `status` is left untouched).
+ */
+function mergeByKey(
+  be: Endpoint[],
+  fe: Endpoint[],
+  preserve: Endpoint[] = [],
+): {
   endpoints: Endpoint[];
   frontend_only: Dangling[];
   backend_only: Dangling[];
@@ -47,6 +68,12 @@ function mergeByKey(be: Endpoint[], fe: Endpoint[]): {
         ...(existing.source_files.frontend ?? []),
         ...(e.source_files.frontend ?? []),
       ];
+      // Only preserve `status` when both sides agree; a disagreement
+      // (one open, one closed) means one side regressed and the fix
+      // card must be re-validated.
+      if (existing.status !== e.status) {
+        existing.status = undefined;
+      }
     } else {
       const canonicalPath = normalizePathKey(e.path);
       map.set(k, {
@@ -56,6 +83,26 @@ function mergeByKey(be: Endpoint[], fe: Endpoint[]): {
         source: 'frontend',
       });
     }
+  }
+  for (const e of preserve) {
+    const k = keyOf(e);
+    if (map.has(k)) {
+      // Scanner already knows this endpoint; copy any `status` marker
+      // from the manually-curated entry into the scanner-derived one
+      // so a previously-closed fix card stays closed.
+      const existing = map.get(k)!;
+      if (e.status && !existing.status) existing.status = e.status;
+      continue;
+    }
+    const canonicalPath = normalizePathKey(e.path);
+    map.set(k, {
+      ...e,
+      id: `${e.method} ${canonicalPath}`,
+      path: canonicalPath,
+      // Manually-curated entries are treated as `both` because the
+      // fix-card author asserts the endpoint exists on both sides.
+      source: 'both',
+    });
   }
 
   const endpoints: Endpoint[] = [];
@@ -88,8 +135,12 @@ function parseLoc(s: string): { file: string; line: number } {
   return { file: file ?? s, line: Number(lineStr ?? 0) };
 }
 
-export function unionEndpoints(be: Endpoint[], fe: Endpoint[]): ContractFile {
-  const { endpoints } = mergeByKey(be, fe);
+export function unionEndpoints(
+  be: Endpoint[],
+  fe: Endpoint[],
+  preserve: Endpoint[] = [],
+): ContractFile {
+  const { endpoints } = mergeByKey(be, fe, preserve);
   return {
     version: 1,
     generated_at: new Date().toISOString(),
@@ -97,8 +148,12 @@ export function unionEndpoints(be: Endpoint[], fe: Endpoint[]): ContractFile {
   };
 }
 
-export function checkContract(be: Endpoint[], fe: Endpoint[]): CheckResult {
-  const { endpoints, frontend_only, backend_only } = mergeByKey(be, fe);
+export function checkContract(
+  be: Endpoint[],
+  fe: Endpoint[],
+  preserve: Endpoint[] = [],
+): CheckResult {
+  const { endpoints, frontend_only, backend_only } = mergeByKey(be, fe, preserve);
   const paired = endpoints.filter((e) => e.source === 'both').length;
   return {
     ok: frontend_only.length === 0 && backend_only.length === 0,

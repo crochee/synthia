@@ -64,7 +64,8 @@
 }
 
 .status-submitted,
-.status-working {
+.status-working,
+.status-unspecified {
   color: var(--accent-yellow);
 }
 
@@ -72,13 +73,19 @@
   color: var(--accent-green);
 }
 
-.status-failed {
+.status-failed,
+.status-rejected {
   color: var(--accent-red);
 }
 
 .status-canceled,
-.status-input-required {
+.status-input-required,
+.status-auth-required {
   color: var(--accent-purple);
+}
+
+.status-unknown {
+  color: var(--text-secondary);
 }
 
 .nt-chat__message-content {

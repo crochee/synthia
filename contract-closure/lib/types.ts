@@ -11,7 +11,28 @@ export interface SseEventSpec {
   name: string;
   fields: string[];
   cadence_ms?: number;
+  /**
+   * Optional human note for the SSE event. Documents enum sets,
+   * unit conventions, or special-case behaviour (e.g. "downgrade
+   * unknown values to FAILED"). Not used by the scanner or check;
+   * purely advisory.
+   */
+  notes?: string;
 }
+
+/**
+ * Fix-card lifecycle marker for an endpoint.
+ *
+ * - `closed`: a fix card has been merged that aligns the two sides.
+ *   The fixture / Playwright spec asserts the contract is now sound.
+ * - `open` (default): no fix card has landed yet — the endpoint is a
+ *   known inconsistency waiting for triage.
+ *
+ * Marked optional so older `contract.yaml` files without a `status`
+ * key continue to parse; the scanner defaults to `undefined` (treated
+ * as open in reports).
+ */
+export type EndpointStatus = 'open' | 'closed';
 
 export interface Endpoint {
   id: string;
@@ -24,6 +45,7 @@ export interface Endpoint {
   };
   notes?: string;
   sse_events?: SseEventSpec[];
+  status?: EndpointStatus;
 }
 
 export interface ContractFile {

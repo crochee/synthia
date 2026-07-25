@@ -20,11 +20,13 @@
 //! for the canonical wire format.
 
 use a2a::{
+    Artifact,
     Message,
     Part,
     Role,
     StreamResponse,
     Task,
+    TaskArtifactUpdateEvent,
     TaskId,
     TaskState,
     TaskStatus,
@@ -65,7 +67,7 @@ pub fn agent_event_to_stream_responses(
                 task_id: task_id.clone(),
                 context_id: context_id.to_string(),
                 status: TaskStatus {
-                    state: TaskState::Working,
+                    state: normalize_task_state(TaskState::Working),
                     message: None,
                     timestamp: None,
                 },
@@ -74,7 +76,8 @@ pub fn agent_event_to_stream_responses(
         }
 
         AgentEvent::System(SystemEvent::SessionEnded { reason }) => {
-            let state = session_end_reason_to_task_state(reason);
+            let state =
+                normalize_task_state(session_end_reason_to_task_state(reason));
             vec![Ok(StreamResponse::StatusUpdate(TaskStatusUpdateEvent {
                 task_id: task_id.clone(),
                 context_id: context_id.to_string(),
@@ -92,7 +95,7 @@ pub fn agent_event_to_stream_responses(
                 task_id: task_id.clone(),
                 context_id: context_id.to_string(),
                 status: TaskStatus {
-                    state: TaskState::InputRequired,
+                    state: normalize_task_state(TaskState::InputRequired),
                     message: None,
                     timestamp: None,
                 },
@@ -189,11 +192,33 @@ pub fn agent_event_to_stream_responses(
         }
 
         AgentEvent::Model(part) => {
-            vec![Ok(StreamResponse::Message(message_with_data_part(
-                task_id,
-                context_id,
-                model_part_to_data_value(part),
-            )))]
+            let mut out =
+                vec![Ok(StreamResponse::Message(message_with_data_part(
+                    task_id,
+                    context_id,
+                    model_part_to_data_value(part),
+                )))];
+
+            // Fix card #004 — emit ArtifactUpdate alongside Message for
+            // tool results so the frontend receives `lastChunk` per the
+            // A2A protocol. Each ToolResult is an atomic artifact
+            // (no streaming chunk assembly), so `last_chunk` is always
+            // `Some(true)` and `append` is `Some(false)`.
+            if let ContentPart::ToolResult(tr) = part {
+                let artifact = tool_result_to_artifact(tr);
+                out.push(Ok(StreamResponse::ArtifactUpdate(
+                    TaskArtifactUpdateEvent {
+                        task_id: task_id.clone(),
+                        context_id: context_id.to_string(),
+                        artifact,
+                        append: Some(false),
+                        last_chunk: Some(true),
+                        metadata: None,
+                    },
+                )));
+            }
+
+            out
         }
 
         AgentEvent::Hook(hook) => {
@@ -238,6 +263,42 @@ fn session_end_reason_to_task_state(reason: &SessionEndReason) -> TaskState {
         SessionEndReason::GuardianBlocked => TaskState::Rejected,
         SessionEndReason::LoopDetected => TaskState::Failed,
         SessionEndReason::CircuitBreakerOpen => TaskState::Failed,
+    }
+}
+
+/// Normalize a [`TaskState`] to one guaranteed to be in the canonical
+/// `@a2a-js/sdk@1.0.0` enum set before it reaches the wire.
+///
+/// Per `docs/interface-contract/ARBITRATION.md` priority 2 (SDK
+/// types > Synthia stable spec) the wire `status.state` values
+/// must be a subset of the SDK enum:
+///
+///   TASK_STATE_UNSPECIFIED, TASK_STATE_SUBMITTED, TASK_STATE_WORKING,
+///   TASK_STATE_COMPLETED, TASK_STATE_FAILED, TASK_STATE_CANCELED,
+///   TASK_STATE_INPUT_REQUIRED, TASK_STATE_REJECTED,
+///   TASK_STATE_AUTH_REQUIRED.
+///
+/// `TaskState::Unspecified` is the only value we downgrade today:
+/// it is the proto3 sentinel for "no value set" and is never a
+/// useful state for a frontend reducer. Rather than emitting it
+/// (which would force every frontend to special-case the unknown
+/// shape), we drop to `Failed` with a `tracing::warn!` so the SSE
+/// stream stays alive. Any future SDK variant that the synthia
+/// fork does not yet recognise should hit the `_` arm and follow
+/// the same downgrade path.
+///
+/// Fix card #003 — `status-update` state enum alignment.
+fn normalize_task_state(state: TaskState) -> TaskState {
+    match state {
+        TaskState::Unspecified => {
+            tracing::warn!(
+                target: "synthia.a2a",
+                "downgrading TaskState::Unspecified to TaskState::Failed on the wire \
+                 (fix card #003); client reducers should treat this as terminal failure"
+            );
+            TaskState::Failed
+        }
+        other => other,
     }
 }
 
@@ -373,6 +434,51 @@ fn hook_event_to_data_value(hook: &HookEvent) -> serde_json::Value {
     }
 }
 
+/// Build an [`Artifact`] from a [`ToolResult`].
+///
+/// The artifact carries the tool result's text content as `Part::text`
+/// and the tool metadata (tool_use_id, is_error) in the artifact's
+/// `metadata` field so the frontend reducer can reconstruct the
+/// segment type (tool_call vs tool_result).
+///
+/// Fix card #004 — SSE `artifact-update` lastChunk alignment.
+fn tool_result_to_artifact(tr: &synthia_provider::ToolResult) -> Artifact {
+    let parts: Vec<Part> = tr
+        .content
+        .iter()
+        .filter_map(|c| {
+            if let synthia_provider::ContentPart::Text(tc) = c {
+                Some(Part::text(tc.text.clone()))
+            } else {
+                None
+            }
+        })
+        .collect();
+
+    let mut meta = std::collections::HashMap::new();
+    meta.insert(
+        "kind".to_string(),
+        serde_json::Value::String("tool_result".to_string()),
+    );
+    meta.insert(
+        "tool_use_id".to_string(),
+        serde_json::Value::String(tr.tool_use_id.clone()),
+    );
+    meta.insert(
+        "is_error".to_string(),
+        serde_json::Value::Bool(tr.is_error.unwrap_or(false)),
+    );
+
+    Artifact {
+        artifact_id: format!("artifact-{}", tr.tool_use_id),
+        name: None,
+        description: None,
+        parts,
+        metadata: Some(meta),
+        extensions: None,
+    }
+}
+
 /// Render a [`WarningKind`] as the wire `source` string.
 fn warning_kind_to_source(kind: &WarningKind) -> String {
     serde_json::to_value(kind)
@@ -396,6 +502,10 @@ pub fn extract_text_from_message(msg: &Message) -> Option<String> {
 }
 
 /// Build a final [`Task`] with the given state (used for the cancel path).
+///
+/// `state` is run through [`normalize_task_state`] before being put on
+/// the wire, so callers don't have to repeat the ARBITRATION.md
+/// priority-2 downgrade rule.
 pub fn task_with_state(
     task_id: TaskId,
     context_id: String,
@@ -406,7 +516,7 @@ pub fn task_with_state(
         id: task_id,
         context_id,
         status: TaskStatus {
-            state,
+            state: normalize_task_state(state),
             message,
             timestamp: None,
         },
@@ -929,5 +1039,74 @@ mod tests {
         );
         assert_eq!(task.id, "t1");
         assert_eq!(task.status.state, TaskState::Canceled);
+    }
+
+    #[test]
+    fn normalize_task_state_passes_through_canonical_variants() {
+        // Fix card #003 — every value in the @a2a-js/sdk@1.0.0
+        // enum set must pass through unchanged. If a future
+        // SDK version adds a new variant, this test breaks
+        // until we deliberately add it to the pass-through arm.
+        for state in [
+            TaskState::Submitted,
+            TaskState::Working,
+            TaskState::Completed,
+            TaskState::Failed,
+            TaskState::Canceled,
+            TaskState::InputRequired,
+            TaskState::Rejected,
+            TaskState::AuthRequired,
+        ] {
+            assert_eq!(normalize_task_state(state.clone()), state);
+        }
+    }
+
+    #[test]
+    fn normalize_task_state_downgrades_unspecified_to_failed() {
+        // The proto3 sentinel is never a useful frontend state;
+        // rather than emit TASK_STATE_UNSPECIFIED (which the
+        // reducer would have to special-case as "unknown"),
+        // downgrade to Failed so the SSE stream stays alive.
+        assert_eq!(
+            normalize_task_state(TaskState::Unspecified),
+            TaskState::Failed
+        );
+    }
+
+    #[test]
+    fn model_tool_result_emits_artifact_update_with_last_chunk() {
+        // Fix card #004 — ToolResult must emit ArtifactUpdate
+        // alongside the Message, with last_chunk = Some(true).
+        let (tid, cid) = test_ids();
+        let event = AgentEvent::Model(ContentPart::ToolResult(
+            ToolResult::new("u1", "file contents"),
+        ));
+        let results = agent_event_to_stream_responses(&event, &tid, &cid);
+        // Expect 2 responses: Message + ArtifactUpdate.
+        assert_eq!(
+            results.len(),
+            2,
+            "ToolResult should emit Message + ArtifactUpdate"
+        );
+
+        // First: Message with data part (existing behavior).
+        match results[0].as_ref().unwrap() {
+            StreamResponse::Message(msg) => {
+                let data = first_data_value(msg).expect("data part");
+                assert_eq!(data["kind"], "tool_result");
+            }
+            other => panic!("expected Message, got {other:?}"),
+        }
+
+        // Second: ArtifactUpdate with last_chunk = Some(true).
+        match results[1].as_ref().unwrap() {
+            StreamResponse::ArtifactUpdate(au) => {
+                assert_eq!(au.task_id, "task-1");
+                assert_eq!(au.last_chunk, Some(true));
+                assert_eq!(au.append, Some(false));
+                assert!(!au.artifact.parts.is_empty());
+            }
+            other => panic!("expected ArtifactUpdate, got {other:?}"),
+        }
     }
 }

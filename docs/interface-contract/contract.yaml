@@ -1,5 +1,5 @@
 version: 1
-generated_at: 2026-07-25T13:51:01.682Z
+generated_at: 2026-07-25T15:32:58.003Z
 endpoints:
   - id: DELETE /api/commands/{key}
     method: DELETE
@@ -7,7 +7,7 @@ endpoints:
     source: backend
     source_files:
       backend:
-        - /home/crochee/workspace/synthia/crates/synthia-server/src/server/router.rs:152
+        - /home/crochee/workspace/synthia/.worktrees/synthia-interface-contract-closure-cycle-2/crates/synthia-server/src/server/router.rs:152
       frontend: []
   - id: DELETE /api/jobs/{key}
     method: DELETE
@@ -15,7 +15,7 @@ endpoints:
     source: backend
     source_files:
       backend:
-        - /home/crochee/workspace/synthia/crates/synthia-server/src/server/router.rs:122
+        - /home/crochee/workspace/synthia/.worktrees/synthia-interface-contract-closure-cycle-2/crates/synthia-server/src/server/router.rs:122
       frontend: []
   - id: DELETE /api/mcp/servers/{key}
     method: DELETE
@@ -23,16 +23,16 @@ endpoints:
     source: both
     source_files:
       backend:
-        - /home/crochee/workspace/synthia/crates/synthia-server/src/server/router.rs:140
+        - /home/crochee/workspace/synthia/.worktrees/synthia-interface-contract-closure-cycle-2/crates/synthia-server/src/server/router.rs:140
       frontend:
-        - /home/crochee/workspace/synthia/synthia-web/src/pages/McpPage.tsx:63
+        - /home/crochee/workspace/synthia/.worktrees/synthia-interface-contract-closure-cycle-2/synthia-web/src/pages/McpPage.tsx:63
   - id: DELETE /api/providers/{key}
     method: DELETE
     path: /api/providers/{key}
     source: backend
     source_files:
       backend:
-        - /home/crochee/workspace/synthia/crates/synthia-server/src/server/router.rs:100
+        - /home/crochee/workspace/synthia/.worktrees/synthia-interface-contract-closure-cycle-2/crates/synthia-server/src/server/router.rs:100
       frontend: []
   - id: DELETE /api/skills/{key}
     method: DELETE
@@ -40,7 +40,7 @@ endpoints:
     source: backend
     source_files:
       backend:
-        - /home/crochee/workspace/synthia/crates/synthia-server/src/server/router.rs:110
+        - /home/crochee/workspace/synthia/.worktrees/synthia-interface-contract-closure-cycle-2/crates/synthia-server/src/server/router.rs:110
       frontend: []
   - id: DELETE /api/tools/{key}
     method: DELETE
@@ -48,7 +48,7 @@ endpoints:
     source: backend
     source_files:
       backend:
-        - /home/crochee/workspace/synthia/crates/synthia-server/src/server/router.rs:148
+        - /home/crochee/workspace/synthia/.worktrees/synthia-interface-contract-closure-cycle-2/crates/synthia-server/src/server/router.rs:148
       frontend: []
   - id: GET /.well-known/agent-card.json
     method: GET
@@ -56,15 +56,91 @@ endpoints:
     source: backend
     source_files:
       backend:
-        - /home/crochee/workspace/synthia/crates/synthia-server/src/server/router.rs:197
+        - /home/crochee/workspace/synthia/.worktrees/synthia-interface-contract-closure-cycle-2/crates/synthia-server/src/server/router.rs:197
       frontend: []
+  - id: GET /a2a/tasks/{key}:subscribe
+    method: GET
+    path: /a2a/tasks/{key}:subscribe
+    source: both
+    notes: |
+      Fix card #003. The SSE endpoint is served by the A2A REST
+      router mounted under `/a2a` via `nest_service` in
+      `crates/synthia-server/src/server/router.rs`; the scanner
+      cannot see it directly because the route table lives in the
+      `a2a-server-lf` crate. Wire events are emitted by
+      `crates/synthia-a2a/src/mapping.rs::agent_event_to_stream_responses`
+      as protojson `StreamResponse::StatusUpdate` payloads, then
+      serialised onto the SSE stream by `a2a_server::sse::sse_from_stream`.
+      Per `docs/interface-contract/ARBITRATION.md` priority 2
+      (`@a2a-js/sdk` types > Synthia stable spec) the wire shape is
+      fixed by the SDK's `TaskStatusUpdateEvent` proto; the enum
+      values for `status.state` are exactly:
+        TASK_STATE_UNSPECIFIED, TASK_STATE_SUBMITTED, TASK_STATE_WORKING,
+        TASK_STATE_COMPLETED, TASK_STATE_FAILED, TASK_STATE_CANCELED,
+        TASK_STATE_INPUT_REQUIRED, TASK_STATE_REJECTED,
+        TASK_STATE_AUTH_REQUIRED.
+      Any unknown state value reaching the wire is downgraded to
+      `TASK_STATE_FAILED` by the backend (with `tracing::warn!`)
+      so the SSE stream stays alive; the frontend reducer
+      (`synthia-web/src/pages/ChatPage.tsx::normalizeTaskState`)
+      logs `console.error` for unknown values but does not throw.
+      Fix card #008. Cadence: the Synthia internal SSE stream
+      (`/api/sessions/{id}/stream`) sends heartbeat comments
+      (`: ping`) every 15 seconds. The A2A SSE stream
+      (`tasks/{id}:subscribe`) is managed by `a2a-server-lf`
+      which does not currently emit heartbeats or `Retry-After`
+      headers. Reconnect logic: the `@a2a-js/sdk` client exposes
+      `resubscribeTask()`; the frontend should implement
+      exponential backoff on stream disconnect. The cadence
+      `max_idle_ms` is effectively 30000 (2× heartbeat interval)
+      for the internal stream; the A2A stream cadence is
+      SDK-dependent.
+    source_files:
+      backend:
+        - /home/crochee/workspace/synthia/.worktrees/synthia-interface-contract-closure-cycle-2/crates/synthia-a2a/src/mapping.rs:75
+        - /home/crochee/workspace/synthia/.worktrees/synthia-interface-contract-closure-cycle-2/crates/synthia-server/src/a2a/service.rs:39
+      frontend:
+        - /home/crochee/workspace/synthia/.worktrees/synthia-interface-contract-closure-cycle-2/synthia-web/src/api/a2a-stream.ts:338
+        - /home/crochee/workspace/synthia/.worktrees/synthia-interface-contract-closure-cycle-2/synthia-web/src/pages/ChatPage.tsx:849
+    sse_events:
+      - name: status-update
+        fields:
+          - taskId
+          - contextId
+          - status.state
+        notes: |
+          `status.state` is the `@a2a-js/sdk@1.0.0` `TaskState` enum
+          serialised via `taskStateToJSON` (string form, e.g.
+          `TASK_STATE_WORKING`). The full enum set is fixed by the
+          SDK and must not be silently truncated; see `notes` above.
+      - name: artifact-update
+        fields:
+          - taskId
+          - contextId
+          - artifact.artifactId
+          - artifact.parts
+          - lastChunk
+          - append
+        notes: |
+          Fix card #004. The `artifact-update` event carries an
+          `artifact` with its `artifactId`, `parts`, and metadata.
+          Per `@a2a-js/sdk@1.0.0` `TaskArtifactUpdateEvent`, the
+          `lastChunk` field (serialised from proto `last_chunk`)
+          indicates whether this is the final chunk of the artifact.
+          The backend sets `lastChunk: true` for atomic tool results
+          (no streaming chunk assembly); `append: false` means the
+          artifact is standalone, not appended to a previous one.
+          The frontend reducer reads `lastChunk` to decide when to
+          flush accumulated content. Missing `lastChunk` should be
+          treated as `true` (assume complete if absent).
+    status: closed
   - id: GET /api/approvals
     method: GET
     path: /api/approvals
     source: backend
     source_files:
       backend:
-        - /home/crochee/workspace/synthia/crates/synthia-server/src/server/router.rs:164
+        - /home/crochee/workspace/synthia/.worktrees/synthia-interface-contract-closure-cycle-2/crates/synthia-server/src/server/router.rs:164
       frontend: []
   - id: GET /api/commands
     method: GET
@@ -72,7 +148,7 @@ endpoints:
     source: backend
     source_files:
       backend:
-        - /home/crochee/workspace/synthia/crates/synthia-server/src/server/router.rs:150
+        - /home/crochee/workspace/synthia/.worktrees/synthia-interface-contract-closure-cycle-2/crates/synthia-server/src/server/router.rs:150
       frontend: []
   - id: GET /api/commands/{key}
     method: GET
@@ -80,7 +156,7 @@ endpoints:
     source: backend
     source_files:
       backend:
-        - /home/crochee/workspace/synthia/crates/synthia-server/src/server/router.rs:151
+        - /home/crochee/workspace/synthia/.worktrees/synthia-interface-contract-closure-cycle-2/crates/synthia-server/src/server/router.rs:151
       frontend: []
   - id: GET /api/jobs
     method: GET
@@ -88,7 +164,7 @@ endpoints:
     source: backend
     source_files:
       backend:
-        - /home/crochee/workspace/synthia/crates/synthia-server/src/server/router.rs:118
+        - /home/crochee/workspace/synthia/.worktrees/synthia-interface-contract-closure-cycle-2/crates/synthia-server/src/server/router.rs:118
       frontend: []
   - id: GET /api/mcp/servers
     method: GET
@@ -96,7 +172,7 @@ endpoints:
     source: backend
     source_files:
       backend:
-        - /home/crochee/workspace/synthia/crates/synthia-server/src/server/router.rs:127
+        - /home/crochee/workspace/synthia/.worktrees/synthia-interface-contract-closure-cycle-2/crates/synthia-server/src/server/router.rs:127
       frontend: []
   - id: GET /api/mcp/servers/{key}
     method: GET
@@ -104,7 +180,7 @@ endpoints:
     source: backend
     source_files:
       backend:
-        - /home/crochee/workspace/synthia/crates/synthia-server/src/server/router.rs:132
+        - /home/crochee/workspace/synthia/.worktrees/synthia-interface-contract-closure-cycle-2/crates/synthia-server/src/server/router.rs:132
       frontend: []
   - id: GET /api/memory/search
     method: GET
@@ -112,16 +188,16 @@ endpoints:
     source: both
     source_files:
       backend:
-        - /home/crochee/workspace/synthia/crates/synthia-server/src/server/router.rs:116
+        - /home/crochee/workspace/synthia/.worktrees/synthia-interface-contract-closure-cycle-2/crates/synthia-server/src/server/router.rs:116
       frontend:
-        - /home/crochee/workspace/synthia/synthia-web/src/pages/MemoryPage.tsx:21
+        - /home/crochee/workspace/synthia/.worktrees/synthia-interface-contract-closure-cycle-2/synthia-web/src/pages/MemoryPage.tsx:21
   - id: GET /api/models
     method: GET
     path: /api/models
     source: backend
     source_files:
       backend:
-        - /home/crochee/workspace/synthia/crates/synthia-server/src/server/router.rs:91
+        - /home/crochee/workspace/synthia/.worktrees/synthia-interface-contract-closure-cycle-2/crates/synthia-server/src/server/router.rs:91
       frontend: []
   - id: GET /api/providers
     method: GET
@@ -129,7 +205,7 @@ endpoints:
     source: backend
     source_files:
       backend:
-        - /home/crochee/workspace/synthia/crates/synthia-server/src/server/router.rs:95
+        - /home/crochee/workspace/synthia/.worktrees/synthia-interface-contract-closure-cycle-2/crates/synthia-server/src/server/router.rs:95
       frontend: []
   - id: GET /api/providers/{key}
     method: GET
@@ -137,7 +213,7 @@ endpoints:
     source: backend
     source_files:
       backend:
-        - /home/crochee/workspace/synthia/crates/synthia-server/src/server/router.rs:100
+        - /home/crochee/workspace/synthia/.worktrees/synthia-interface-contract-closure-cycle-2/crates/synthia-server/src/server/router.rs:100
       frontend: []
   - id: GET /api/settings
     method: GET
@@ -145,7 +221,7 @@ endpoints:
     source: backend
     source_files:
       backend:
-        - /home/crochee/workspace/synthia/crates/synthia-server/src/server/router.rs:157
+        - /home/crochee/workspace/synthia/.worktrees/synthia-interface-contract-closure-cycle-2/crates/synthia-server/src/server/router.rs:157
       frontend: []
   - id: GET /api/skills
     method: GET
@@ -153,7 +229,7 @@ endpoints:
     source: backend
     source_files:
       backend:
-        - /home/crochee/workspace/synthia/crates/synthia-server/src/server/router.rs:106
+        - /home/crochee/workspace/synthia/.worktrees/synthia-interface-contract-closure-cycle-2/crates/synthia-server/src/server/router.rs:106
       frontend: []
   - id: GET /api/skills/{key}
     method: GET
@@ -161,7 +237,7 @@ endpoints:
     source: backend
     source_files:
       backend:
-        - /home/crochee/workspace/synthia/crates/synthia-server/src/server/router.rs:110
+        - /home/crochee/workspace/synthia/.worktrees/synthia-interface-contract-closure-cycle-2/crates/synthia-server/src/server/router.rs:110
       frontend: []
   - id: GET /api/tasks
     method: GET
@@ -169,7 +245,7 @@ endpoints:
     source: backend
     source_files:
       backend:
-        - /home/crochee/workspace/synthia/crates/synthia-server/src/server/router.rs:93
+        - /home/crochee/workspace/synthia/.worktrees/synthia-interface-contract-closure-cycle-2/crates/synthia-server/src/server/router.rs:93
       frontend: []
   - id: GET /api/tools
     method: GET
@@ -177,7 +253,7 @@ endpoints:
     source: backend
     source_files:
       backend:
-        - /home/crochee/workspace/synthia/crates/synthia-server/src/server/router.rs:145
+        - /home/crochee/workspace/synthia/.worktrees/synthia-interface-contract-closure-cycle-2/crates/synthia-server/src/server/router.rs:145
       frontend: []
   - id: GET /api/tools/{key}
     method: GET
@@ -185,7 +261,7 @@ endpoints:
     source: backend
     source_files:
       backend:
-        - /home/crochee/workspace/synthia/crates/synthia-server/src/server/router.rs:147
+        - /home/crochee/workspace/synthia/.worktrees/synthia-interface-contract-closure-cycle-2/crates/synthia-server/src/server/router.rs:147
       frontend: []
   - id: GET /health
     method: GET
@@ -193,24 +269,68 @@ endpoints:
     source: both
     source_files:
       backend:
-        - /home/crochee/workspace/synthia/crates/synthia-server/src/server/router.rs:196
+        - /home/crochee/workspace/synthia/.worktrees/synthia-interface-contract-closure-cycle-2/crates/synthia-server/src/server/router.rs:196
       frontend:
-        - /home/crochee/workspace/synthia/synthia-web/src/hooks/useServerHealth.ts:23
+        - /home/crochee/workspace/synthia/.worktrees/synthia-interface-contract-closure-cycle-2/synthia-web/src/hooks/useServerHealth.ts:23
   - id: GET /ws/approvals
     method: GET
     path: /ws/approvals
     source: backend
     source_files:
       backend:
-        - /home/crochee/workspace/synthia/crates/synthia-server/src/server/router.rs:177
+        - /home/crochee/workspace/synthia/.worktrees/synthia-interface-contract-closure-cycle-2/crates/synthia-server/src/server/router.rs:177
       frontend: []
+  - id: message:send /a2a/message:send
+    method: message:send
+    path: /a2a/message:send
+    source: both
+    notes: |
+      Fix card #002. The REST endpoint is served by the A2A JSON-RPC
+      router mounted under `/a2a` via `nest_service` in
+      `crates/synthia-server/src/server/router.rs`; the scanner
+      cannot see it directly because the route table lives in the
+      `a2a-server-lf` crate. Frontend payload is built by
+      `synthia-web/src/api/a2a-client.ts` and `a2a-stream.ts` via
+      `Message.fromJSON({messageId, contextId, role, parts})`, all
+      camelCase per `@a2a-js/sdk@1.0.0`. Per ARBITRATION.md
+      priority 2 (SDK types > Synthia stable spec) the wire shape
+      is fixed; backend accepts both `messageId` and `message_id`
+      at deserialise time (see a2a-pb protojson serde).
+    source_files:
+      backend:
+        - /home/crochee/workspace/synthia/crates/synthia-server/src/server/router.rs:208
+      frontend:
+        - /home/crochee/workspace/synthia/synthia-web/src/api/a2a-client.ts:23
+        - /home/crochee/workspace/synthia/synthia-web/src/api/a2a-stream.ts:117
+    status: closed
+  - id: cancel /a2a/tasks/{key}:cancel
+    method: cancel
+    path: /a2a/tasks/{key}:cancel
+    source: both
+    notes: |
+      Fix card #006. The cancel endpoint is served by the A2A JSON-RPC
+      router mounted under `/a2a` via `nest_service` in
+      `crates/synthia-server/src/server/router.rs`; the scanner
+      cannot see it directly because the route table lives in the
+      `a2a-server-lf` crate. The handler (`a2a-server-lf::cancel_task`)
+      calls `SynthiaExecutor::cancel()` which issues
+      `SessionController::cancel()` and yields
+      `StreamResponse::Task(TaskState::Canceled)`. Terminal-state tasks
+      return `A2AError::task_not_cancelable`; non-existent tasks return
+      `A2AError::task_not_found`. The operation is idempotent: cancelling
+      an already-cancelled task returns the stored task unchanged.
+    source_files:
+      backend:
+        - /home/crochee/workspace/synthia/crates/synthia-server/src/a2a/executor.rs:121
+      frontend: []
+    status: closed
   - id: POST /api/approvals/{key}/resolve
     method: POST
     path: /api/approvals/{key}/resolve
     source: backend
     source_files:
       backend:
-        - /home/crochee/workspace/synthia/crates/synthia-server/src/server/router.rs:165
+        - /home/crochee/workspace/synthia/.worktrees/synthia-interface-contract-closure-cycle-2/crates/synthia-server/src/server/router.rs:165
       frontend: []
   - id: POST /api/jobs
     method: POST
@@ -218,7 +338,7 @@ endpoints:
     source: backend
     source_files:
       backend:
-        - /home/crochee/workspace/synthia/crates/synthia-server/src/server/router.rs:118
+        - /home/crochee/workspace/synthia/.worktrees/synthia-interface-contract-closure-cycle-2/crates/synthia-server/src/server/router.rs:118
       frontend: []
   - id: POST /api/jobs/{key}/execute
     method: POST
@@ -226,7 +346,7 @@ endpoints:
     source: backend
     source_files:
       backend:
-        - /home/crochee/workspace/synthia/crates/synthia-server/src/server/router.rs:123
+        - /home/crochee/workspace/synthia/.worktrees/synthia-interface-contract-closure-cycle-2/crates/synthia-server/src/server/router.rs:123
       frontend: []
   - id: POST /api/jobs/{key}/pause
     method: POST
@@ -234,16 +354,16 @@ endpoints:
     source: both
     source_files:
       backend:
-        - /home/crochee/workspace/synthia/crates/synthia-server/src/server/router.rs:124
+        - /home/crochee/workspace/synthia/.worktrees/synthia-interface-contract-closure-cycle-2/crates/synthia-server/src/server/router.rs:124
       frontend:
-        - /home/crochee/workspace/synthia/synthia-web/src/pages/JobsPage.tsx:36
+        - /home/crochee/workspace/synthia/.worktrees/synthia-interface-contract-closure-cycle-2/synthia-web/src/pages/JobsPage.tsx:36
   - id: POST /api/mcp
     method: POST
     path: /api/mcp
     source: backend
     source_files:
       backend:
-        - /home/crochee/workspace/synthia/crates/synthia-server/src/server/router.rs:126
+        - /home/crochee/workspace/synthia/.worktrees/synthia-interface-contract-closure-cycle-2/crates/synthia-server/src/server/router.rs:126
       frontend: []
   - id: POST /api/mcp/servers
     method: POST
@@ -251,16 +371,16 @@ endpoints:
     source: both
     source_files:
       backend:
-        - /home/crochee/workspace/synthia/crates/synthia-server/src/server/router.rs:128
+        - /home/crochee/workspace/synthia/.worktrees/synthia-interface-contract-closure-cycle-2/crates/synthia-server/src/server/router.rs:128
       frontend:
-        - /home/crochee/workspace/synthia/synthia-web/src/pages/McpPage.tsx:46
+        - /home/crochee/workspace/synthia/.worktrees/synthia-interface-contract-closure-cycle-2/synthia-web/src/pages/McpPage.tsx:46
   - id: POST /api/mcp/servers/{key}/discover
     method: POST
     path: /api/mcp/servers/{key}/discover
     source: backend
     source_files:
       backend:
-        - /home/crochee/workspace/synthia/crates/synthia-server/src/server/router.rs:136
+        - /home/crochee/workspace/synthia/.worktrees/synthia-interface-contract-closure-cycle-2/crates/synthia-server/src/server/router.rs:136
       frontend: []
   - id: POST /api/providers
     method: POST
@@ -268,7 +388,7 @@ endpoints:
     source: backend
     source_files:
       backend:
-        - /home/crochee/workspace/synthia/crates/synthia-server/src/server/router.rs:95
+        - /home/crochee/workspace/synthia/.worktrees/synthia-interface-contract-closure-cycle-2/crates/synthia-server/src/server/router.rs:95
       frontend: []
   - id: POST /api/skills
     method: POST
@@ -276,7 +396,7 @@ endpoints:
     source: backend
     source_files:
       backend:
-        - /home/crochee/workspace/synthia/crates/synthia-server/src/server/router.rs:106
+        - /home/crochee/workspace/synthia/.worktrees/synthia-interface-contract-closure-cycle-2/crates/synthia-server/src/server/router.rs:106
       frontend: []
   - id: POST /api/skills/reload
     method: POST
@@ -284,7 +404,7 @@ endpoints:
     source: backend
     source_files:
       backend:
-        - /home/crochee/workspace/synthia/crates/synthia-server/src/server/router.rs:114
+        - /home/crochee/workspace/synthia/.worktrees/synthia-interface-contract-closure-cycle-2/crates/synthia-server/src/server/router.rs:114
       frontend: []
   - id: POST /api/tools
     method: POST
@@ -292,7 +412,7 @@ endpoints:
     source: backend
     source_files:
       backend:
-        - /home/crochee/workspace/synthia/crates/synthia-server/src/server/router.rs:146
+        - /home/crochee/workspace/synthia/.worktrees/synthia-interface-contract-closure-cycle-2/crates/synthia-server/src/server/router.rs:146
       frontend: []
   - id: PUT /api/settings
     method: PUT
@@ -300,6 +420,6 @@ endpoints:
     source: both
     source_files:
       backend:
-        - /home/crochee/workspace/synthia/crates/synthia-server/src/server/router.rs:157
+        - /home/crochee/workspace/synthia/.worktrees/synthia-interface-contract-closure-cycle-2/crates/synthia-server/src/server/router.rs:157
       frontend:
-        - /home/crochee/workspace/synthia/synthia-web/src/pages/SettingsPage.tsx:34
+        - /home/crochee/workspace/synthia/.worktrees/synthia-interface-contract-closure-cycle-2/synthia-web/src/pages/SettingsPage.tsx:34

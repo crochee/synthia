@@ -24,12 +24,47 @@ import './ChatPage.css';
 /**
  * Map A2A TaskState enum names (TASK_STATE_*) to the CSS class
  * suffix used by nt-chat__message-status (.status-{suffix}).
- * Accepts both raw enum names (TASK_STATE_COMPLETED) and the
- * unprefixed lowercase form (completed) for resilience.
+ *
+ * Fix card #003 — `status-update` state enum alignment
+ * (cycle #2, ARBITRATION.md priority 2: SDK types win over Synthia
+ * stable spec). The canonical enum set is fixed by
+ * `@a2a-js/sdk@1.0.0` `TaskState` (see
+ * `synthia-web/node_modules/@a2a-js/sdk/dist/a2a-Ubve0YhO.d.ts`):
+ *
+ *   TASK_STATE_UNSPECIFIED, TASK_STATE_SUBMITTED, TASK_STATE_WORKING,
+ *   TASK_STATE_COMPLETED, TASK_STATE_FAILED, TASK_STATE_CANCELED,
+ *   TASK_STATE_INPUT_REQUIRED, TASK_STATE_REJECTED,
+ *   TASK_STATE_AUTH_REQUIRED.
+ *
+ * Each canonical value maps to a CSS class suffix that already
+ * exists on `.nt-chat__message-status`. Inputs that don't match
+ * any key are logged via `console.error` (NOT thrown — the SSE
+ * stream must stay alive so the rest of the response can still
+ * be rendered) and fall back to `'unknown'`, which the CSS sheet
+ * styles as a neutral status badge.
  */
+const TASK_STATE_MIGRATION: Record<string, string> = {
+  TASK_STATE_UNSPECIFIED: 'unspecified',
+  TASK_STATE_SUBMITTED: 'submitted',
+  TASK_STATE_WORKING: 'working',
+  TASK_STATE_COMPLETED: 'completed',
+  TASK_STATE_FAILED: 'failed',
+  TASK_STATE_CANCELED: 'canceled',
+  TASK_STATE_INPUT_REQUIRED: 'input-required',
+  TASK_STATE_REJECTED: 'rejected',
+  TASK_STATE_AUTH_REQUIRED: 'auth-required',
+};
+
 function normalizeTaskState(state: string): string {
-  const stripped = state.replace(/^TASK_STATE_/, '').toLowerCase();
-  return stripped || 'unknown';
+  if (Object.prototype.hasOwnProperty.call(TASK_STATE_MIGRATION, state)) {
+    return TASK_STATE_MIGRATION[state];
+  }
+  // Unrecognised value — do NOT throw; keep the SSE stream alive
+  // so the reducer can still process subsequent events. Surface
+  // the surprise via console.error so an unexpected enum from a
+  // future SDK bump is visible in DevTools.
+  console.error('[chat] unknown TaskState on wire:', state);
+  return 'unknown';
 }
 
 /**
