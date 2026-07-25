@@ -30,9 +30,11 @@ THEN the returned `ToolCallResult` SHALL have `tool_id: Some(id)` matching the r
 WHEN the request has `tool_id: None`
 THEN the result SHALL have `tool_id: None`
 
-### Requirement: Orchestrator populates ToolId from Materialization
+### Requirement: Orchestrator SHALL populate ToolId from Materialization
 
-WHEN the orchestrator resolves a tool via `ToolResolver` and the resolved tool has a `Materialization` with a `ToolId`
+The orchestrator SHALL populate `ToolId` on `ToolCallRequest` from the tool's `Materialization` when a `ToolIdResolver` is configured.
+
+WHEN `DefaultToolOrchestrator` resolves a tool via `ToolResolver` and the resolved tool has a `Materialization` with a `ToolId`
 THEN the orchestrator SHALL set `request.tool_id = Some(materialization.id)` before execution
 
 #### Scenario: Resolved tool has Materialization

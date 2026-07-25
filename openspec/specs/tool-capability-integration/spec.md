@@ -1,7 +1,8 @@
-# Spec: tool-capability-integration
+# tool-capability-integration Specification
 
-## ADDED Requirements
-
+## Purpose
+TBD - created by archiving change synthia-tool-orchestrator-permission. Update Purpose after archive.
+## Requirements
 ### Requirement: ToolCapabilities field in ToolExecutionContext
 
 `synthia-tool::ToolExecutionContext` SHALL have a `capabilities: Option<ToolCapabilities>` field.
@@ -17,7 +18,9 @@ WHEN a `ToolExecutionContext` is constructed with `capabilities: None`
 THEN `ctx.capabilities` SHALL return `None`
 AND the tool execution SHALL proceed without capability checks
 
-### Requirement: ToolAdapter populates capabilities from ToolContext
+### Requirement: ToolAdapter SHALL populate capabilities from ToolContext
+
+`ToolAdapter` SHALL populate the `capabilities` field on `ToolExecutionContext` from `synthia-core::ToolContext` when the `unified-registry` feature is enabled.
 
 WHEN `ToolAdapter::execute()` is called with the `unified-registry` feature enabled
 AND the source `synthia-core::ToolContext` has `capabilities` populated
@@ -47,3 +50,4 @@ THEN the orchestrator SHALL return a `ToolCallResult` with `is_error: true` and 
 
 WHEN `CapabilityBroker::allowed("command_invoke")` returns `true`
 THEN the orchestrator SHALL proceed with execution
+

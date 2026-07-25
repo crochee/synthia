@@ -1,7 +1,8 @@
-# Spec: wasm-sandbox-stub
+# wasm-sandbox-stub Specification
 
-## ADDED Requirements
-
+## Purpose
+TBD - created by archiving change synthia-tool-orchestrator-permission. Update Purpose after archive.
+## Requirements
 ### Requirement: SandboxAttempt::Wasm variant
 
 `SandboxAttempt` SHALL have a `Wasm { runtime: String }` variant.
@@ -17,7 +18,9 @@ AND SHALL return `ToolOutput::error("WASM sandbox not yet implemented: runtime={
 WHEN `SandboxAttempt::Wasm { runtime: "wasmtime".into() }` is serialized to JSON
 THEN the result SHALL be `{"Wasm":{"runtime":"wasmtime"}}`
 
-### Requirement: Plugin tools require Wasm sandbox (future)
+### Requirement: Plugin tools SHALL require Wasm sandbox (future)
+
+Plugin tools SHALL be executed in a WASM sandbox when the runtime is available. Until then, `SandboxAttempt::Wasm` SHALL return a clear error indicating the sandbox is unsupported.
 
 WHEN a tool has `ToolProvenance::Plugin` AND `SandboxAttempt::Wasm` is specified
 AND the WASM runtime is not yet implemented
@@ -28,3 +31,4 @@ THEN the tool execution SHALL fail with a clear error message
 WHEN a Plugin tool is configured with `SandboxAttempt::Wasm { runtime: "wasmtime".into() }`
 THEN `execute()` SHALL return `ToolOutput::error("WASM sandbox not yet implemented: runtime=wasmtime")`
 AND the tool SHALL NOT be executed in the host process
+
