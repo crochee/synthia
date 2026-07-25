@@ -90,7 +90,7 @@
 - [x] 10.4 写 `retrospective.md`：
   - 评估 5 个 promote-candidates（per-normalisation unit tests / fixture-before-parser / state-machine parsing / contract-coverage advisory semantics / A2A SDK type-checkpoints）— 每个独立 ADR-like 小节。
   - 决策 §6.1 是否在 cycle #3 升级 blocking（依据：未覆盖路径稳定为空 + 团队习惯建立）。
-- [ ] 10.5 `openspec archive synthia-interface-contract-closure-cycle-2`。
+- [x] 10.5 `openspec archive synthia-interface-contract-closure-cycle-2`。
 
 ## 11. 升级为 blocking（可选，cycle #3 触发）
 
