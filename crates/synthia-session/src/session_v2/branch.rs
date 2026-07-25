@@ -3,7 +3,11 @@
 
 use synthia_protocol::{MessageId, SessionId};
 
-use crate::{entry::SessionEntry, error::Result, manager::SessionManager};
+use crate::session_v2::{
+    entry::SessionEntry,
+    error::Result,
+    manager::SessionManager,
+};
 
 impl SessionManager {
     /// Move the leaf pointer back to `target`. Original messages remain in the tree.
@@ -54,7 +58,7 @@ impl SessionManager {
             .iter()
             .filter_map(|id| {
                 tree.entries
-                    .get(&crate::tree::MessageKey(*id))
+                    .get(&crate::session_v2::tree::MessageKey(*id))
                     .cloned()
                     .map(|e| (*id, e))
             })
@@ -67,7 +71,7 @@ mod tests {
     use chrono::Utc;
 
     use super::*;
-    use crate::{entry::SessionEntry, part::Part};
+    use crate::session_v2::{entry::SessionEntry, part::Part};
 
     #[tokio::test]
     async fn branch_moves_leaf() {
@@ -117,10 +121,9 @@ mod tests {
             .unwrap();
         {
             let tree = mgr.tree().await;
-            assert!(
-                tree.entries
-                    .contains_key(&crate::tree::MessageKey(summary_id))
-            );
+            assert!(tree.entries.contains_key(
+                &crate::session_v2::tree::MessageKey(summary_id)
+            ));
         }
         mgr.shutdown().await.unwrap();
     }
@@ -163,7 +166,7 @@ mod tests {
             id: m1,
             parent_message_id: None,
             role: "user".to_string(),
-            parts: vec![Part::Text(crate::part::TextPart {
+            parts: vec![Part::Text(crate::session_v2::part::TextPart {
                 text: "hello".to_string(),
                 synthetic: false,
             })],

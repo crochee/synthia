@@ -198,10 +198,14 @@ pub use store::{CheckpointData, SessionMetadata, Store};
 pub use token_budget::TokenBudgetMonitor;
 pub use types::*;
 
-// R3 (synthia-session-v2) re-exports — additive on top of the legacy surface.
-// New code should reach for these directly; legacy re-exports stay
-// until 0.3.0 so external crates that still import `synthia_session::Store`
-// etc. continue to compile.
+// R3 (synthia-session-v2) re-exports — the session_v2 module is available
+// via `synthia_session::session_v2::*`. We intentionally do NOT re-export
+// `session_v2::*` at the crate root because session_v2 defines `SessionError`
+// and `SessionManager` which would shadow the compile_fail doctests that
+// enforce the re-export policy (see above).
+//
+// Consumers that previously used `synthia_session_v2::Type` should now use
+// `synthia_session::session_v2::Type`.
 pub mod migration;
 pub use migration::*;
-pub use synthia_session_v2::*;
+pub mod session_v2;

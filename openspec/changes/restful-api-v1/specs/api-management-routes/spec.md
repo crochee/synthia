@@ -57,4 +57,77 @@ Providers SHALL be a read-only resource with only `GET /api/v1/providers` and `G
 ---
 
 ### Requirement: MCP JSON-RPC path separation
-MCP JSON-RPC endpoint SHALL be at `POST /api
+MCP JSON-RPC endpoint SHALL be at `POST /api/v1/mcp/rpc`. MCP REST management endpoints SHALL remain at `/api/v1/mcp/servers/*`.
+
+#### Scenario: JSON-RPC call
+- **WHEN** a JSON-RPC request is sent to `POST /api/v1/mcp/rpc`
+- **THEN** the system SHALL process it as a JSON-RPC request and return `{ "jsonrpc": "2.0", "id": N, "result": ... }`
+
+#### Scenario: REST list servers
+- **WHEN** `GET /api/v1/mcp/servers`
+- **THEN** the system SHALL return `List<McpServerInfo>`
+
+---
+
+### Requirement: Tasks detail endpoint
+The system SHALL provide `GET /api/v1/tasks/:id` returning full TaskDetail including history and artifacts, using A2A TaskState for status values.
+
+#### Scenario: Task detail
+- **WHEN** `GET /api/v1/tasks/task_abc`
+- **THEN** the system SHALL return `200` with TaskDetail including id, status (A2A TaskState), context_id, created_at, updated_at, history, artifacts
+
+#### Scenario: Task not found
+- **WHEN** `GET /api/v1/tasks/nonexistent`
+- **THEN** the system SHALL return `404 { "code": "not_found", "message": "Task 'nonexistent' not found" }`
+
+---
+
+### Requirement: Jobs pause and resume separation
+Jobs SHALL have separate `POST /api/v1/jobs/:key/pause` and `POST /api/v1/jobs/:key/resume` endpoints instead of a single toggle.
+
+#### Scenario: Pause job
+- **WHEN** `POST /api/v1/jobs/cleanup/pause`
+- **THEN** the system SHALL pause the job and return `200 { "key": "cleanup", "status": "paused" }`
+
+#### Scenario: Resume job
+- **WHEN** `POST /api/v1/jobs/cleanup/resume`
+- **THEN** the system SHALL resume the job and return `200 { "key": "cleanup", "status": "resumed" }`
+
+---
+
+### Requirement: MCP Server connection status
+McpServerInfo SHALL include `status` (ConnectionStatus: starting/connected/disconnected/error) and `pid` (Option<u32>) fields.
+
+#### Scenario: Connected MCP server
+- **WHEN** `GET /api/v1/mcp/servers/filesystem` and the server is connected
+- **THEN** the response SHALL include `{ "status": "connected", "pid": 12345 }`
+
+#### Scenario: Disconnected MCP server
+- **WHEN** `GET /api/v1/mcp/servers/filesystem` and the server is disconnected
+- **THEN** the response SHALL include `{ "status": "disconnected", "pid": null }`
+
+---
+
+### Requirement: API Key masking
+Settings responses SHALL mask api_key values, keeping the first 4 and last 3 characters with `***` in between. Empty or null api_key SHALL remain as-is.
+
+#### Scenario: Masked API key in response
+- **WHEN** `GET /api/v1/settings` and api_key is "sk-proj-abc123xyz"
+- **THEN** the response SHALL include `"api_key": "sk-p***xyz"`
+
+#### Scenario: Null API key
+- **WHEN** `GET /api/v1/settings` and api_key is null
+- **THEN** the response SHALL include `"api_key": null`
+
+#### Scenario: Short API key
+- **WHEN** `GET /api/v1/settings` and api_key is "abc" (less than 7 chars)
+- **THEN** the response SHALL include `"api_key": "***"`
+
+---
+
+### Requirement: MCP Server cascade delete
+Deleting an MCP server SHALL also unregister all tools that were registered from that server.
+
+#### Scenario: Delete server with registered tools
+- **WHEN** `DELETE /api/v1/mcp/servers/filesystem` and the server has registered tools ["read_file", "write_file"]
+- **THEN** the system SHALL unregister those tools and return HTTP 204

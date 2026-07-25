@@ -271,7 +271,7 @@ impl Store {
 // intact for `manager/`, `service.rs`, and `state_machine/` callers
 // until those callers are ported to v2.
 #[allow(deprecated)]
-pub use synthia_session_v2::{
+pub use crate::session_v2::{
     AgentPart,
     AttachmentRef,
     CURRENT_SESSION_VERSION,

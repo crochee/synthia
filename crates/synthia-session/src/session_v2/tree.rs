@@ -5,7 +5,7 @@ use std::collections::{BTreeMap, HashMap};
 use serde::{Deserialize, Serialize};
 use synthia_protocol::{MessageId, SessionId};
 
-use crate::entry::SessionEntry;
+use crate::session_v2::entry::SessionEntry;
 
 /// `Ord`-wrapper around `MessageId` for use as a `BTreeMap` key.
 ///

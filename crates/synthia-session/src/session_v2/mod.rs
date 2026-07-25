@@ -5,9 +5,7 @@
 //! - 14-variant `SessionEntry` (one per JSONL line, append-only)
 //! - `SessionTree` with `leaf` pointer + cached `paths_from_root`
 //!
-//! Round 2 of synthia-session-v2 (Change 3 of v3 architecture).
-
-#![deny(unsafe_code)]
+//! Merged from `synthia-session-v2` crate into `synthia-session::session_v2`.
 
 pub mod branch;
 pub mod entry;

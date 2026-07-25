@@ -5223,31 +5223,17 @@ dependencies = [
  "backoff",
  "chrono",
  "dashmap 5.5.3",
+ "pretty_assertions",
  "serde",
  "serde_json",
  "synthia-core",
+ "synthia-protocol",
  "synthia-provider",
- "synthia-session-v2",
  "tempfile",
  "thiserror 2.0.18",
  "tokio",
  "tracing",
  "uuid",
-]
-
-[[package]]
-name = "synthia-session-v2"
-version = "0.2.0"
-dependencies = [
- "chrono",
- "pretty_assertions",
- "serde",
- "serde_json",
- "synthia-protocol",
- "tempfile",
- "thiserror 2.0.18",
- "tokio",
- "tracing",
 ]
 
 [[package]]

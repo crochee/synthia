@@ -13,7 +13,7 @@ use synthia_protocol::MessageId;
 pub enum Part {
     Text(TextPart),
     Reasoning(ReasoningPart),
-    Tool(crate::tool_part::ToolPart),
+    Tool(crate::session_v2::tool_part::ToolPart),
     File(FilePart),
     StepStart(StepStartPart),
     StepFinish(StepFinishPart),

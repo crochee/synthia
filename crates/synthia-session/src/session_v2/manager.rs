@@ -10,7 +10,7 @@ use tokio::{
     task::JoinHandle,
 };
 
-use crate::{
+use crate::session_v2::{
     entry::SessionEntry,
     error::{Result, SessionError},
     tree::SessionTree,
@@ -107,7 +107,7 @@ mod tests {
     use synthia_protocol::{MessageId, SessionId};
 
     use super::*;
-    use crate::{entry::SessionEntry, part::Part};
+    use crate::session_v2::{entry::SessionEntry, part::Part};
 
     #[tokio::test]
     async fn open_close() {
@@ -127,7 +127,7 @@ mod tests {
             id: m1,
             parent_message_id: Some(MessageId::new()),
             role: "user".to_string(),
-            parts: vec![Part::Text(crate::part::TextPart {
+            parts: vec![Part::Text(crate::session_v2::part::TextPart {
                 text: "hi".to_string(),
                 synthetic: false,
             })],

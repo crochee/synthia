@@ -27,7 +27,6 @@ members = [
     "crates/synthia-message-proxy",
     "crates/synthia-cache-mark",
     "crates/synthia-protocol",
-    "crates/synthia-session-v2",
     "crates/synthia-service",
     "crates/synthia-event-v2",
     "crates/synthia-extension-v2",

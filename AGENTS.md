@@ -39,3 +39,6 @@ Key constraint: Do not proactively ask questions; explore the best path independ
 
 # 代码同步规范
 - 不主动push代码到远程仓库
+
+- find时不到万不得已，不使用find命令且是根目录下的文件
+- 搜索时，优先级应该是本地工作空间>HOME目录>其他目录

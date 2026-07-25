@@ -7,7 +7,7 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use synthia_protocol::{MessageId, W3cTraceContext};
 
-use crate::part::Part;
+use crate::session_v2::part::Part;
 
 /// Role of a message in a conversation.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
