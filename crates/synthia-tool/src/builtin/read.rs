@@ -1,42 +1,106 @@
+//! Agent-facing `read` tool.
+//!
+//! Reads a UTF-8 text file within the workspace, optionally restricted
+//! to a 1-based line range. The output is prefixed with right-aligned
+//! line numbers so the LLM can reference specific lines back. A UTF-8
+//! BOM at the start of the file is stripped before rendering.
+
+use std::path::{Path, PathBuf};
+
 use async_trait::async_trait;
-use serde_json::json;
-use tokio::io::AsyncReadExt;
-use tokio_util::sync::CancellationToken;
+use schemars_derive::JsonSchema;
+use serde::Deserialize;
 
 use crate::{
-    builtin::path::{check_path_safety, resolve_path},
     traits::Tool,
-    types::{ToolInput, ToolOutput},
+    types::{Context, ToolOutput},
 };
 
-/// UTF-8 BOM bytes.
 const UTF8_BOM: &[u8] = b"\xef\xbb\xbf";
 
-#[derive(Debug)]
+#[derive(Debug, Deserialize, JsonSchema)]
+#[schemars(extend("additionalProperties" = false))]
+struct ReadRequest {
+    #[schemars(
+        description = "Absolute path, or workspace-relative path, of the file to read."
+    )]
+    file_path: String,
+    #[serde(default)]
+    #[schemars(
+        range(min = 1),
+        description = "1-based line number to start reading from. Only provide when the file is too large to read at once."
+    )]
+    offset: Option<u64>,
+    #[serde(default)]
+    #[schemars(
+        range(min = 1),
+        description = "Number of lines to read. Only provide when the file is too large to read at once."
+    )]
+    limit: Option<u64>,
+}
+
+/// `read` — read a workspace file with optional line range.
+#[derive(Debug, Default)]
 pub struct ReadTool {
+    /// Paths the tool has already read this process. Diagnostic
+    /// only — useful for future "edit-after-read" enforcement.
     read_history: parking_lot::Mutex<Vec<String>>,
 }
 
 impl ReadTool {
     pub fn new() -> Self {
-        Self {
-            read_history: parking_lot::Mutex::new(Vec::new()),
-        }
+        Self::default()
     }
 
+    /// Record that a path was read. Exposed for tests and for callers
+    /// that want to track which files the agent has inspected.
     pub fn mark_read(&self, path: &str) {
         self.read_history.lock().push(path.to_string());
     }
+}
 
-    pub fn has_read(&self, path: &str) -> bool {
-        self.read_history.lock().iter().any(|p| p == path)
+pub(super) fn resolve_path(workspace_root: &Path, path: &str) -> PathBuf {
+    let p = PathBuf::from(path);
+    if p.is_absolute() {
+        p
+    } else {
+        workspace_root.join(p)
     }
 }
 
-impl Default for ReadTool {
-    fn default() -> Self {
-        Self::new()
+/// Canonicalize a path even if it (or some ancestor) does not exist on disk.
+/// This walks the path component-by-component, canonicalizing each existing
+/// prefix. For the non-existing tail, components are appended literally.
+///
+/// Returns the canonical path if it can be determined, otherwise the
+/// lexical-resolved path (which preserves `..` components for the
+/// `starts_with` check below to catch).
+fn safe_canonicalize(path: &Path) -> PathBuf {
+    let mut result = PathBuf::new();
+    for component in path.components() {
+        result.push(component.as_os_str());
+        // Try to canonicalize what we have so far; if it exists, replace
+        // `result` with its canonical form (which resolves any `..`).
+        if let Ok(canon) = result.canonicalize() {
+            result = canon;
+        }
     }
+    result
+}
+
+pub(super) fn check_path_safety(
+    workspace_root: &Path,
+    path: &str,
+) -> Option<String> {
+    let resolved = resolve_path(workspace_root, path);
+    let canonical_root = workspace_root
+        .canonicalize()
+        .unwrap_or_else(|_| workspace_root.to_path_buf());
+    let canonical_path = safe_canonicalize(&resolved);
+    if !canonical_path.starts_with(&canonical_root) {
+        return Some(format!("Path {path} is outside workspace"));
+    }
+    None
 }
 
 #[async_trait]
@@ -46,203 +110,43 @@ impl Tool for ReadTool {
     }
 
     fn description(&self) -> &str {
-        "Reads the contents of files"
+        "Reads a UTF-8 text file from the workspace. Returns lines \
+         prefixed with their 1-based line number; supports an optional \
+         `offset` (1-based start line) and `limit` (number of lines). \
+         A leading UTF-8 BOM is stripped automatically."
     }
 
     fn parameters(&self) -> serde_json::Value {
-        json!({
-            "type": "object",
-            "properties": {
-                "file_path": {
-                    "type": "string",
-                    "description": "The absolute path to the file to read."
-                },
-                "offset": {
-                    "type": "integer",
-                    "minimum": 1,
-                    "description": "The line number to start reading from (must be at least 1). Only provide if the file is too large to read at once."
-                },
-                "limit": {
-                    "type": "integer",
-                    "minimum": 1,
-                    "description": "The number of lines to read (must be at least 1, cannot be negative). Only provide if the file is too large to read at once."
-                }
-            },
-            "required": ["file_path"]
-        })
+        // Schema is generated from `ReadRequest` via `schemars`,
+        // so the type and the LLM-facing schema cannot drift —
+        // including `additionalProperties: false`, which is
+        // declared inline via `#[schemars(extend(...))]` on the
+        // struct.
+        serde_json::to_value(schemars::schema_for!(ReadRequest))
+            .expect("ReadRequest schema is always serializable")
     }
 
-    fn is_concurrency_safe(&self) -> bool {
-        // Read is pure — same input always produces same output,
-        // no shared mutable state (read_history is per-tool-instance).
-        true
-    }
-
-    async fn call_with_sandbox(
+    async fn call(
         &self,
-        input: ToolInput,
-        _sandbox_attempt: &synthia_sandbox::SandboxAttempt,
-        token: &CancellationToken,
+        input: serde_json::Value,
+        context: &Context,
     ) -> ToolOutput {
-        if token.is_cancelled() {
-            return ToolOutput::error("operation cancelled");
-        }
-
-        let workspace_root = &input.context.workspace_root;
-        let file_path = match input
-            .input
-            .get("file_path")
-            .and_then(|v| v.as_str())
-            .ok_or_else(|| "file_path is required".to_string())
-        {
-            Ok(p) => p,
-            Err(e) => return ToolOutput::error(e),
+        let request: ReadRequest = match serde_json::from_value(input) {
+            Ok(r) => r,
+            Err(e) => {
+                return ToolOutput::error(format!("Invalid arguments: {e}"));
+            }
         };
 
-        if let Some(err) = check_path_safety(workspace_root, file_path) {
+        let workspace_root = &context.workspace_root;
+        if let Some(err) = check_path_safety(workspace_root, &request.file_path)
+        {
             return ToolOutput::error(err);
         }
-        let resolved = resolve_path(workspace_root, file_path);
+        let resolved = resolve_path(workspace_root, &request.file_path);
 
-        if token.is_cancelled() {
-            return ToolOutput::error("operation cancelled");
-        }
-
-        let offset: Option<usize> = input
-            .input
-            .get("offset")
-            .and_then(|v| v.as_u64())
-            .map(|v| v as usize);
-
-        let limit: Option<usize> = input
-            .input
-            .get("limit")
-            .and_then(|v| v.as_u64())
-            .map(|v| v as usize);
-
-        // Read file in chunks to allow cooperative cancellation
-        const CHUNK_SIZE: usize = 64 * 1024;
-        let mut file = match tokio::fs::File::open(&resolved).await {
-            Ok(f) => f,
-            Err(e) => {
-                return ToolOutput::error(format!(
-                    "Failed to open file '{}': {}",
-                    resolved.display(),
-                    e
-                ));
-            }
-        };
-
-        if token.is_cancelled() {
-            return ToolOutput::error("operation cancelled");
-        }
-
-        let mut all_bytes = Vec::new();
-        let mut buffer = vec![0u8; CHUNK_SIZE];
-        loop {
-            tokio::task::yield_now().await;
-            if token.is_cancelled() {
-                return ToolOutput::error("operation cancelled");
-            }
-
-            let bytes_read = match file.read(&mut buffer).await {
-                Ok(0) => break,
-                Ok(n) => n,
-                Err(e) => {
-                    return ToolOutput::error(format!(
-                        "Failed to read file '{}': {}",
-                        resolved.display(),
-                        e
-                    ));
-                }
-            };
-            all_bytes.extend_from_slice(&buffer[..bytes_read]);
-        }
-
-        let bytes = if all_bytes.starts_with(UTF8_BOM) {
-            &all_bytes[UTF8_BOM.len()..]
-        } else {
-            &all_bytes[..]
-        };
-
-        if token.is_cancelled() {
-            return ToolOutput::error("operation cancelled");
-        }
-
-        let content = match String::from_utf8(bytes.to_vec()) {
-            Ok(c) => c,
-            Err(e) => {
-                return ToolOutput::error(format!(
-                    "File '{}' is not valid UTF-8: {}",
-                    resolved.display(),
-                    e
-                ));
-            }
-        };
-
-        self.mark_read(file_path);
-
-        if token.is_cancelled() {
-            return ToolOutput::error("operation cancelled");
-        }
-
-        let lines: Vec<&str> = content.lines().collect();
-        let total_lines = lines.len();
-
-        let start = offset.unwrap_or(1).saturating_sub(1);
-        let end = match (offset, limit) {
-            (Some(_), Some(l)) => start + l,
-            (Some(_), None) => lines.len(),
-            (None, Some(l)) => l,
-            (None, None) => lines.len(),
-        };
-
-        let selected_lines =
-            &lines[start.min(total_lines)..end.min(total_lines)];
-        let mut output = String::new();
-        for (i, line) in selected_lines.iter().enumerate() {
-            let line_num = start + i + 1;
-            output.push_str(&format!("{:>4} {}\n", line_num, line));
-        }
-
-        if output.is_empty() && selected_lines.is_empty() {
-            ToolOutput::text(format!(
-                "(file '{}' is empty)",
-                resolved.display()
-            ))
-        } else {
-            ToolOutput::text(output)
-        }
-    }
-
-    async fn call(&self, input: ToolInput) -> ToolOutput {
-        let workspace_root = &input.context.workspace_root;
-        let file_path = match input
-            .input
-            .get("file_path")
-            .and_then(|v| v.as_str())
-            .ok_or_else(|| "file_path is required".to_string())
-        {
-            Ok(p) => p,
-            Err(e) => return ToolOutput::error(e),
-        };
-
-        if let Some(err) = check_path_safety(workspace_root, file_path) {
-            return ToolOutput::error(err);
-        }
-        let resolved = resolve_path(workspace_root, file_path);
-
-        let offset: Option<usize> = input
-            .input
-            .get("offset")
-            .and_then(|v| v.as_u64())
-            .map(|v| v as usize);
-
-        let limit: Option<usize> = input
-            .input
-            .get("limit")
-            .and_then(|v| v.as_u64())
-            .map(|v| v as usize);
+        let offset = request.offset.map(|v| v as usize);
+        let limit = request.limit.map(|v| v as usize);
 
         let bytes = match tokio::fs::read(&resolved).await {
             Ok(b) => b,
@@ -272,7 +176,7 @@ impl Tool for ReadTool {
             }
         };
 
-        self.mark_read(file_path);
+        self.mark_read(&request.file_path);
 
         let lines: Vec<&str> = content.lines().collect();
         let total_lines = lines.len();
@@ -290,7 +194,7 @@ impl Tool for ReadTool {
         let mut output = String::new();
         for (i, line) in selected_lines.iter().enumerate() {
             let line_num = start + i + 1;
-            output.push_str(&format!("{:>4} {}\n", line_num, line));
+            output.push_str(&format!("{line_num:>4} {line}\n"));
         }
 
         if output.is_empty() && selected_lines.is_empty() {
@@ -308,76 +212,177 @@ impl Tool for ReadTool {
 mod tests {
     use std::path::PathBuf;
 
-    use super::*;
-    use crate::types::ToolExecutionContext;
+    use serde_json::json;
 
-    fn make_input(file_path: &str) -> ToolInput {
-        make_input_with_root(
-            std::path::PathBuf::from("/tmp"),
-            file_path,
-            None,
-            None,
-        )
+    use super::*;
+    use crate::types::Context;
+
+    fn make_context(root: PathBuf) -> Context {
+        Context::new("s1".to_string(), root)
     }
 
-    fn make_input_with_root(
-        workspace_root: PathBuf,
+    fn make_input(file_path: &str) -> serde_json::Value {
+        serde_json::json!({"file_path": file_path})
+    }
+
+    fn make_input_with_args(
         file_path: &str,
         offset: Option<usize>,
         limit: Option<usize>,
-    ) -> ToolInput {
-        let mut input = serde_json::Map::new();
-        input.insert("file_path".to_string(), json!(file_path));
+    ) -> serde_json::Value {
+        let mut map = serde_json::Map::new();
+        map.insert("file_path".to_string(), serde_json::json!(file_path));
         if let Some(o) = offset {
-            input.insert("offset".to_string(), json!(o));
+            map.insert("offset".to_string(), serde_json::json!(o));
         }
         if let Some(l) = limit {
-            input.insert("limit".to_string(), json!(l));
+            map.insert("limit".to_string(), serde_json::json!(l));
         }
-        ToolInput {
-            name: "read".to_string(),
-            input: serde_json::Value::Object(input),
-            context: ToolExecutionContext::new(
-                "s1".to_string(),
-                workspace_root,
-            ),
+        serde_json::Value::Object(map)
+    }
+
+    fn first_text(out: &ToolOutput) -> String {
+        out.content
+            .iter()
+            .find_map(|c| c.text().map(str::to_string))
+            .unwrap_or_default()
+    }
+
+    // ---- Tool metadata --------------------------------------------
+
+    #[tokio::test]
+    async fn tool_uses_agent_facing_name() {
+        let tool = ReadTool::new();
+        assert_eq!(tool.name(), "read");
+    }
+
+    /// Pin the JSON-Schema shape for `read` so future drift in
+    /// either the schema or the typed `ReadRequest` is caught by a
+    /// failing test rather than silent runtime confusion.
+    #[test]
+    fn parameters_schema_is_self_consistent() {
+        let tool = ReadTool::new();
+        let params = tool.parameters();
+        assert_eq!(params["type"], "object");
+
+        let mut required: Vec<&str> = params["required"]
+            .as_array()
+            .expect("required")
+            .iter()
+            .filter_map(|v| v.as_str())
+            .collect();
+        required.sort_unstable();
+        assert_eq!(required, vec!["file_path"]);
+
+        let props = params["properties"].as_object().expect("properties");
+
+        let file_path = &props["file_path"];
+        assert_eq!(file_path["type"], "string");
+        assert!(
+            file_path["description"].as_str().is_some(),
+            "file_path must carry a description"
+        );
+
+        for key in ["offset", "limit"] {
+            let p = &props[key];
+            // `Option<u64>` → schemars generates `{"type": ["integer",
+            // "null"]}` (nullable pattern). Accept either the
+            // single-type or nullable-array form so the test isn't
+            // tied to schemars' exact emission.
+            let ty = &p["type"];
+            let ty_ok = ty == "integer"
+                || ty.as_array().is_some_and(|arr| {
+                    arr.iter().any(|v| v == "integer")
+                        && arr.iter().any(|v| v == "null")
+                });
+            assert!(
+                ty_ok,
+                "{key} type should be integer or [integer, null], got: {ty}"
+            );
+            assert_eq!(p["minimum"].as_f64(), Some(1.0));
+            assert!(
+                p["description"].as_str().is_some(),
+                "{key} must carry a description"
+            );
+            assert!(!required.contains(&key), "{key} must not be in required");
         }
+
+        assert_eq!(
+            params["additionalProperties"], false,
+            "additional fields must be rejected to match serde_json::from_value"
+        );
     }
 
     #[tokio::test]
-    async fn test_read_existing_file() {
+    async fn missing_file_path_argument_returns_error() {
+        let dir = tempfile::tempdir().unwrap();
+        let tool = ReadTool::new();
+        let out = tool
+            .call(
+                json!({"offset": 1}),
+                &make_context(dir.path().to_path_buf()),
+            )
+            .await;
+        assert!(out.is_error.unwrap_or(false));
+    }
+
+    #[tokio::test]
+    async fn wrong_offset_type_returns_error() {
+        let dir = tempfile::tempdir().unwrap();
+        let tool = ReadTool::new();
+        let out = tool
+            .call(
+                json!({"file_path": "x.txt", "offset": "not-a-number"}),
+                &make_context(dir.path().to_path_buf()),
+            )
+            .await;
+        assert!(out.is_error.unwrap_or(false));
+    }
+
+    // ---- Read behavior --------------------------------------------
+
+    #[tokio::test]
+    async fn reads_existing_file() {
         let dir = tempfile::tempdir().unwrap();
         let p = dir.path().join("hello.txt");
         std::fs::write(&p, "line 1\nline 2\nline 3\n").unwrap();
         let tool = ReadTool::new();
-        let out = tool.call(make_input(p.to_str().unwrap())).await;
-        let text = out.content.iter().find_map(|c| c.text()).unwrap();
+        let out = tool
+            .call(
+                make_input(p.to_str().unwrap()),
+                &make_context(dir.path().to_path_buf()),
+            )
+            .await;
+        let text = first_text(&out);
         assert!(text.contains("line 1"));
         assert!(text.contains("line 3"));
     }
 
     #[tokio::test]
-    async fn test_read_missing_file() {
+    async fn missing_file_returns_error() {
         let tool = ReadTool::new();
-        let out = tool.call(make_input("/nonexistent/path.txt")).await;
+        let out = tool
+            .call(
+                make_input("/nonexistent/path.txt"),
+                &make_context(PathBuf::from("/tmp")),
+            )
+            .await;
         assert!(out.is_error.unwrap_or(false));
     }
 
     #[tokio::test]
-    async fn test_read_line_range() {
+    async fn line_range_filters_output() {
         let dir = tempfile::tempdir().unwrap();
         let p = dir.path().join("lines.txt");
         std::fs::write(&p, "a\nb\nc\nd\ne\n").unwrap();
         let tool = ReadTool::new();
         let out = tool
-            .call(make_input_with_root(
-                dir.path().to_path_buf(),
-                "lines.txt",
-                Some(2),
-                Some(3),
-            ))
+            .call(
+                make_input_with_args("lines.txt", Some(2), Some(3)),
+                &make_context(dir.path().to_path_buf()),
+            )
             .await;
-        let text = out.content.iter().find_map(|c| c.text()).unwrap();
+        let text = first_text(&out);
         assert!(text.contains("   2 b"));
         assert!(text.contains("   3 c"));
         assert!(text.contains("   4 d"));
@@ -386,7 +391,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_read_utf8_bom_stripped() {
+    async fn utf8_bom_stripped() {
         let dir = tempfile::tempdir().unwrap();
         let p = dir.path().join("bom.txt");
         let mut bytes = Vec::from(UTF8_BOM);
@@ -394,37 +399,75 @@ mod tests {
         std::fs::write(&p, &bytes).unwrap();
         let tool = ReadTool::new();
         let out = tool
-            .call(make_input_with_root(
-                dir.path().to_path_buf(),
-                "bom.txt",
-                None,
-                None,
-            ))
+            .call(
+                make_input_with_args("bom.txt", None, None),
+                &make_context(dir.path().to_path_buf()),
+            )
             .await;
-        let text = out.content.iter().find_map(|c| c.text()).unwrap();
+        let text = first_text(&out);
         assert!(text.contains("hello world"));
-        assert!(!text.contains("\u{feff}"));
+        assert!(!text.contains('\u{feff}'));
     }
 
     #[tokio::test]
-    async fn test_read_path_traversal_blocked() {
+    async fn path_traversal_blocked() {
         let dir = tempfile::tempdir().unwrap();
         let tool = ReadTool::new();
         let out = tool
-            .call(make_input_with_root(
-                dir.path().to_path_buf(),
-                "../../../etc/passwd",
-                None,
-                None,
-            ))
+            .call(
+                make_input_with_args("../../../etc/passwd", None, None),
+                &make_context(dir.path().to_path_buf()),
+            )
             .await;
         assert!(out.is_error.unwrap_or(false));
     }
 
-    #[test]
-    fn test_read_is_concurrency_safe() {
-        // Read is pure — parallel invocations on different files are safe.
+    #[tokio::test]
+    async fn empty_file_renders_placeholder() {
+        let dir = tempfile::tempdir().unwrap();
+        let p = dir.path().join("empty.txt");
+        std::fs::write(&p, "").unwrap();
         let tool = ReadTool::new();
-        assert!(tool.is_concurrency_safe());
+        let out = tool
+            .call(
+                make_input(p.to_str().unwrap()),
+                &make_context(dir.path().to_path_buf()),
+            )
+            .await;
+        let text = first_text(&out);
+        assert!(
+            text.contains("is empty"),
+            "expected empty-file placeholder, got: {text}"
+        );
+    }
+
+    // ---- Path resolution helpers ----------------------------------
+
+    #[test]
+    fn resolve_relative_joins_workspace_root() {
+        let root = Path::new("/workspace");
+        let resolved = resolve_path(root, "src/lib.rs");
+        assert_eq!(resolved, PathBuf::from("/workspace/src/lib.rs"));
+    }
+
+    #[test]
+    fn resolve_absolute_passes_through() {
+        let root = Path::new("/workspace");
+        let resolved = resolve_path(root, "/other/file.txt");
+        assert_eq!(resolved, PathBuf::from("/other/file.txt"));
+    }
+
+    #[test]
+    fn check_path_safety_allows_files_inside_workspace() {
+        let dir = tempfile::tempdir().unwrap();
+        assert!(check_path_safety(dir.path(), "file.txt").is_none());
+    }
+
+    #[test]
+    fn check_path_safety_blocks_traversal() {
+        let dir = tempfile::tempdir().unwrap();
+        let result = check_path_safety(dir.path(), "../../../etc/passwd");
+        assert!(result.is_some());
+        assert!(result.unwrap().contains("outside workspace"));
     }
 }

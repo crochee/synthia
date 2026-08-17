@@ -11,8 +11,6 @@ import { loadEndpoints, onlyBackend } from './_helpers/list-endpoints-from-yaml'
  * can be called on a running task.
  */
 
-const SERVER_BASE = process.env.SYNTHIA_SERVER_URL ?? 'http://localhost:8080';
-
 test.describe('contract-closure cancel /a2a/tasks/{key}:cancel', () => {
   test.beforeAll(async () => {
     await assertServerUp();
@@ -20,15 +18,11 @@ test.describe('contract-closure cancel /a2a/tasks/{key}:cancel', () => {
 
   test('contract.yaml has the cancel entry', async () => {
     const eps = onlyBackend(loadEndpoints());
-    const target = eps.find(
-      (e) => e.id === 'cancel /a2a/tasks/{key}:cancel',
-    );
+    const target = eps.find((e) => e.id === 'cancel /a2a/tasks/{key}:cancel');
     expect(target, 'cancel entry must exist in contract.yaml').toBeDefined();
   });
 
-  test('cancelling a non-existent task returns error', async ({
-    request,
-  }) => {
+  test('cancelling a non-existent task returns error', async ({ request }) => {
     const eps = onlyBackend(loadEndpoints());
     test.skip(
       !eps.find((e) => e.id === 'cancel /a2a/tasks/{key}:cancel'),
@@ -53,8 +47,7 @@ test.describe('contract-closure cancel /a2a/tasks/{key}:cancel', () => {
     const body = await resp.json().catch(() => null);
     expect(body, 'response must be valid JSON').toBeTruthy();
     // JSON-RPC error or HTTP error — both are acceptable.
-    const hasError =
-      body?.error !== undefined || resp.status() >= 400;
+    const hasError = body?.error !== undefined || resp.status() >= 400;
     expect(hasError, 'non-existent task cancel must return error').toBe(true);
   });
 });

@@ -1,12 +1,26 @@
 {
   "version": 1,
-  "generated_at": "2026-07-25T15:32:58.003Z",
+  "generated_at": "2026-07-26T10:52:37.942Z",
   "endpoints": [
+    {
+      "id": "cancel /a2a/tasks/{key}:cancel",
+      "method": "cancel",
+      "path": "/a2a/tasks/{key}:cancel",
+      "source": "both",
+      "notes": "Fix card #006. The cancel endpoint is served by the A2A JSON-RPC\nrouter mounted under `/a2a` via `nest_service` in\n`crates/synthia-server/src/server/router.rs`; the scanner\ncannot see it directly because the route table lives in the\n`a2a-server-lf` crate. The handler (`a2a-server-lf::cancel_task`)\ncalls `SynthiaExecutor::cancel()` which issues\n`SessionController::cancel()` and yields\n`StreamResponse::Task(TaskState::Canceled)`. Terminal-state tasks\nreturn `A2AError::task_not_cancelable`; non-existent tasks return\n`A2AError::task_not_found`. The operation is idempotent: cancelling\nan already-cancelled task returns the stored task unchanged.\n",
+      "source_files": {
+        "backend": [
+          "/home/crochee/workspace/synthia/crates/synthia-server/src/a2a/executor.rs:121"
+        ],
+        "frontend": []
+      },
+      "status": "closed"
+    },
     {
       "id": "DELETE /api/commands/{key}",
       "method": "DELETE",
       "path": "/api/commands/{key}",
-      "source": "backend",
+      "source": "both",
       "source_files": {
         "backend": [
           "/home/crochee/workspace/synthia/.worktrees/synthia-interface-contract-closure-cycle-2/crates/synthia-server/src/server/router.rs:152"
@@ -18,7 +32,7 @@
       "id": "DELETE /api/jobs/{key}",
       "method": "DELETE",
       "path": "/api/jobs/{key}",
-      "source": "backend",
+      "source": "both",
       "source_files": {
         "backend": [
           "/home/crochee/workspace/synthia/.worktrees/synthia-interface-contract-closure-cycle-2/crates/synthia-server/src/server/router.rs:122"
@@ -44,7 +58,7 @@
       "id": "DELETE /api/providers/{key}",
       "method": "DELETE",
       "path": "/api/providers/{key}",
-      "source": "backend",
+      "source": "both",
       "source_files": {
         "backend": [
           "/home/crochee/workspace/synthia/.worktrees/synthia-interface-contract-closure-cycle-2/crates/synthia-server/src/server/router.rs:100"
@@ -56,7 +70,7 @@
       "id": "DELETE /api/skills/{key}",
       "method": "DELETE",
       "path": "/api/skills/{key}",
-      "source": "backend",
+      "source": "both",
       "source_files": {
         "backend": [
           "/home/crochee/workspace/synthia/.worktrees/synthia-interface-contract-closure-cycle-2/crates/synthia-server/src/server/router.rs:110"
@@ -68,10 +82,72 @@
       "id": "DELETE /api/tools/{key}",
       "method": "DELETE",
       "path": "/api/tools/{key}",
-      "source": "backend",
+      "source": "both",
       "source_files": {
         "backend": [
           "/home/crochee/workspace/synthia/.worktrees/synthia-interface-contract-closure-cycle-2/crates/synthia-server/src/server/router.rs:148"
+        ],
+        "frontend": []
+      }
+    },
+    {
+      "id": "DELETE /api/v1/commands/{key}",
+      "method": "DELETE",
+      "path": "/api/v1/commands/{key}",
+      "source": "backend",
+      "source_files": {
+        "backend": [
+          "/home/crochee/workspace/synthia/crates/synthia-server/src/server/router.rs:147"
+        ],
+        "frontend": []
+      }
+    },
+    {
+      "id": "DELETE /api/v1/jobs/{key}",
+      "method": "DELETE",
+      "path": "/api/v1/jobs/{key}",
+      "source": "backend",
+      "source_files": {
+        "backend": [
+          "/home/crochee/workspace/synthia/crates/synthia-server/src/server/router.rs:119"
+        ],
+        "frontend": []
+      }
+    },
+    {
+      "id": "DELETE /api/v1/mcp/servers/{key}",
+      "method": "DELETE",
+      "path": "/api/v1/mcp/servers/{key}",
+      "source": "both",
+      "source_files": {
+        "backend": [
+          "/home/crochee/workspace/synthia/crates/synthia-server/src/server/router.rs:130"
+        ],
+        "frontend": [
+          "/home/crochee/workspace/synthia/synthia-web/src/pages/McpPage.tsx:61"
+        ]
+      }
+    },
+    {
+      "id": "DELETE /api/v1/skills/{key}",
+      "method": "DELETE",
+      "path": "/api/v1/skills/{key}",
+      "source": "backend",
+      "source_files": {
+        "backend": [
+          "/home/crochee/workspace/synthia/crates/synthia-server/src/server/router.rs:105"
+        ],
+        "frontend": []
+      }
+    },
+    {
+      "id": "DELETE /api/v1/tools/{key}",
+      "method": "DELETE",
+      "path": "/api/v1/tools/{key}",
+      "source": "backend",
+      "source_files": {
+        "backend": [
+          "/home/crochee/workspace/synthia/crates/synthia-server/src/server/router.rs:143"
         ],
         "frontend": []
       }
@@ -83,7 +159,7 @@
       "source": "backend",
       "source_files": {
         "backend": [
-          "/home/crochee/workspace/synthia/.worktrees/synthia-interface-contract-closure-cycle-2/crates/synthia-server/src/server/router.rs:197"
+          "/home/crochee/workspace/synthia/crates/synthia-server/src/server/router.rs:192"
         ],
         "frontend": []
       }
@@ -93,10 +169,10 @@
       "method": "GET",
       "path": "/a2a/tasks/{key}:subscribe",
       "source": "both",
-      "notes": "Fix card #003. The SSE endpoint is served by the A2A REST\nrouter mounted under `/a2a` via `nest_service` in\n`crates/synthia-server/src/server/router.rs`; the scanner\ncannot see it directly because the route table lives in the\n`a2a-server-lf` crate. Wire events are emitted by\n`crates/synthia-a2a/src/mapping.rs::agent_event_to_stream_responses`\nas protojson `StreamResponse::StatusUpdate` payloads, then\nserialised onto the SSE stream by `a2a_server::sse::sse_from_stream`.\nPer `docs/interface-contract/ARBITRATION.md` priority 2\n(`@a2a-js/sdk` types > Synthia stable spec) the wire shape is\nfixed by the SDK's `TaskStatusUpdateEvent` proto; the enum\nvalues for `status.state` are exactly:\n  TASK_STATE_UNSPECIFIED, TASK_STATE_SUBMITTED, TASK_STATE_WORKING,\n  TASK_STATE_COMPLETED, TASK_STATE_FAILED, TASK_STATE_CANCELED,\n  TASK_STATE_INPUT_REQUIRED, TASK_STATE_REJECTED,\n  TASK_STATE_AUTH_REQUIRED.\nAny unknown state value reaching the wire is downgraded to\n`TASK_STATE_FAILED` by the backend (with `tracing::warn!`)\nso the SSE stream stays alive; the frontend reducer\n(`synthia-web/src/pages/ChatPage.tsx::normalizeTaskState`)\nlogs `console.error` for unknown values but does not throw.\n",
+      "notes": "Fix card #003. The SSE endpoint is served by the A2A REST\nrouter mounted under `/a2a` via `nest_service` in\n`crates/synthia-server/src/server/router.rs`; the scanner\ncannot see it directly because the route table lives in the\n`a2a-server-lf` crate. Wire events are emitted by\n`crates/synthia-server/src/a2a/mapping.rs::agent_event_to_stream_responses`\nas protojson `StreamResponse::StatusUpdate` payloads, then\nserialised onto the SSE stream by `a2a_server::sse::sse_from_stream`.\nPer `docs/interface-contract/ARBITRATION.md` priority 2\n(`@a2a-js/sdk` types > Synthia stable spec) the wire shape is\nfixed by the SDK's `TaskStatusUpdateEvent` proto; the enum\nvalues for `status.state` are exactly:\n  TASK_STATE_UNSPECIFIED, TASK_STATE_SUBMITTED, TASK_STATE_WORKING,\n  TASK_STATE_COMPLETED, TASK_STATE_FAILED, TASK_STATE_CANCELED,\n  TASK_STATE_INPUT_REQUIRED, TASK_STATE_REJECTED,\n  TASK_STATE_AUTH_REQUIRED.\nAny unknown state value reaching the wire is downgraded to\n`TASK_STATE_FAILED` by the backend (with `tracing::warn!`)\nso the SSE stream stays alive; the frontend reducer\n(`synthia-web/src/pages/ChatPage.tsx::normalizeTaskState`)\nlogs `console.error` for unknown values but does not throw.\nFix card #008. Cadence: the Synthia internal SSE stream\n(`/api/sessions/{id}/stream`) sends heartbeat comments\n(`: ping`) every 15 seconds. The A2A SSE stream\n(`tasks/{id}:subscribe`) is managed by `a2a-server-lf`\nwhich does not currently emit heartbeats or `Retry-After`\nheaders. Reconnect logic: the `@a2a-js/sdk` client exposes\n`resubscribeTask()`; the frontend should implement\nexponential backoff on stream disconnect. The cadence\n`max_idle_ms` is effectively 30000 (2× heartbeat interval)\nfor the internal stream; the A2A stream cadence is\nSDK-dependent.\n",
       "source_files": {
         "backend": [
-          "/home/crochee/workspace/synthia/.worktrees/synthia-interface-contract-closure-cycle-2/crates/synthia-a2a/src/mapping.rs:75",
+          "/home/crochee/workspace/synthia/.worktrees/synthia-interface-contract-closure-cycle-2/crates/synthia-server/src/a2a/mapping.rs:75",
           "/home/crochee/workspace/synthia/.worktrees/synthia-interface-contract-closure-cycle-2/crates/synthia-server/src/a2a/service.rs:39"
         ],
         "frontend": [
@@ -113,6 +189,18 @@
             "status.state"
           ],
           "notes": "`status.state` is the `@a2a-js/sdk@1.0.0` `TaskState` enum\nserialised via `taskStateToJSON` (string form, e.g.\n`TASK_STATE_WORKING`). The full enum set is fixed by the\nSDK and must not be silently truncated; see `notes` above.\n"
+        },
+        {
+          "name": "artifact-update",
+          "fields": [
+            "taskId",
+            "contextId",
+            "artifact.artifactId",
+            "artifact.parts",
+            "lastChunk",
+            "append"
+          ],
+          "notes": "Fix card #004. The `artifact-update` event carries an\n`artifact` with its `artifactId`, `parts`, and metadata.\nPer `@a2a-js/sdk@1.0.0` `TaskArtifactUpdateEvent`, the\n`lastChunk` field (serialised from proto `last_chunk`)\nindicates whether this is the final chunk of the artifact.\nThe backend sets `lastChunk: true` for atomic tool results\n(no streaming chunk assembly); `append: false` means the\nartifact is standalone, not appended to a previous one.\nThe frontend reducer reads `lastChunk` to decide when to\nflush accumulated content. Missing `lastChunk` should be\ntreated as `true` (assume complete if absent).\n"
         }
       ],
       "status": "closed"
@@ -121,7 +209,7 @@
       "id": "GET /api/approvals",
       "method": "GET",
       "path": "/api/approvals",
-      "source": "backend",
+      "source": "both",
       "source_files": {
         "backend": [
           "/home/crochee/workspace/synthia/.worktrees/synthia-interface-contract-closure-cycle-2/crates/synthia-server/src/server/router.rs:164"
@@ -133,7 +221,7 @@
       "id": "GET /api/commands",
       "method": "GET",
       "path": "/api/commands",
-      "source": "backend",
+      "source": "both",
       "source_files": {
         "backend": [
           "/home/crochee/workspace/synthia/.worktrees/synthia-interface-contract-closure-cycle-2/crates/synthia-server/src/server/router.rs:150"
@@ -145,7 +233,7 @@
       "id": "GET /api/commands/{key}",
       "method": "GET",
       "path": "/api/commands/{key}",
-      "source": "backend",
+      "source": "both",
       "source_files": {
         "backend": [
           "/home/crochee/workspace/synthia/.worktrees/synthia-interface-contract-closure-cycle-2/crates/synthia-server/src/server/router.rs:151"
@@ -157,7 +245,7 @@
       "id": "GET /api/jobs",
       "method": "GET",
       "path": "/api/jobs",
-      "source": "backend",
+      "source": "both",
       "source_files": {
         "backend": [
           "/home/crochee/workspace/synthia/.worktrees/synthia-interface-contract-closure-cycle-2/crates/synthia-server/src/server/router.rs:118"
@@ -169,7 +257,7 @@
       "id": "GET /api/mcp/servers",
       "method": "GET",
       "path": "/api/mcp/servers",
-      "source": "backend",
+      "source": "both",
       "source_files": {
         "backend": [
           "/home/crochee/workspace/synthia/.worktrees/synthia-interface-contract-closure-cycle-2/crates/synthia-server/src/server/router.rs:127"
@@ -181,7 +269,7 @@
       "id": "GET /api/mcp/servers/{key}",
       "method": "GET",
       "path": "/api/mcp/servers/{key}",
-      "source": "backend",
+      "source": "both",
       "source_files": {
         "backend": [
           "/home/crochee/workspace/synthia/.worktrees/synthia-interface-contract-closure-cycle-2/crates/synthia-server/src/server/router.rs:132"
@@ -207,7 +295,7 @@
       "id": "GET /api/models",
       "method": "GET",
       "path": "/api/models",
-      "source": "backend",
+      "source": "both",
       "source_files": {
         "backend": [
           "/home/crochee/workspace/synthia/.worktrees/synthia-interface-contract-closure-cycle-2/crates/synthia-server/src/server/router.rs:91"
@@ -219,7 +307,7 @@
       "id": "GET /api/providers",
       "method": "GET",
       "path": "/api/providers",
-      "source": "backend",
+      "source": "both",
       "source_files": {
         "backend": [
           "/home/crochee/workspace/synthia/.worktrees/synthia-interface-contract-closure-cycle-2/crates/synthia-server/src/server/router.rs:95"
@@ -231,7 +319,7 @@
       "id": "GET /api/providers/{key}",
       "method": "GET",
       "path": "/api/providers/{key}",
-      "source": "backend",
+      "source": "both",
       "source_files": {
         "backend": [
           "/home/crochee/workspace/synthia/.worktrees/synthia-interface-contract-closure-cycle-2/crates/synthia-server/src/server/router.rs:100"
@@ -243,7 +331,7 @@
       "id": "GET /api/settings",
       "method": "GET",
       "path": "/api/settings",
-      "source": "backend",
+      "source": "both",
       "source_files": {
         "backend": [
           "/home/crochee/workspace/synthia/.worktrees/synthia-interface-contract-closure-cycle-2/crates/synthia-server/src/server/router.rs:157"
@@ -255,7 +343,7 @@
       "id": "GET /api/skills",
       "method": "GET",
       "path": "/api/skills",
-      "source": "backend",
+      "source": "both",
       "source_files": {
         "backend": [
           "/home/crochee/workspace/synthia/.worktrees/synthia-interface-contract-closure-cycle-2/crates/synthia-server/src/server/router.rs:106"
@@ -267,7 +355,7 @@
       "id": "GET /api/skills/{key}",
       "method": "GET",
       "path": "/api/skills/{key}",
-      "source": "backend",
+      "source": "both",
       "source_files": {
         "backend": [
           "/home/crochee/workspace/synthia/.worktrees/synthia-interface-contract-closure-cycle-2/crates/synthia-server/src/server/router.rs:110"
@@ -279,7 +367,7 @@
       "id": "GET /api/tasks",
       "method": "GET",
       "path": "/api/tasks",
-      "source": "backend",
+      "source": "both",
       "source_files": {
         "backend": [
           "/home/crochee/workspace/synthia/.worktrees/synthia-interface-contract-closure-cycle-2/crates/synthia-server/src/server/router.rs:93"
@@ -291,7 +379,7 @@
       "id": "GET /api/tools",
       "method": "GET",
       "path": "/api/tools",
-      "source": "backend",
+      "source": "both",
       "source_files": {
         "backend": [
           "/home/crochee/workspace/synthia/.worktrees/synthia-interface-contract-closure-cycle-2/crates/synthia-server/src/server/router.rs:145"
@@ -303,10 +391,214 @@
       "id": "GET /api/tools/{key}",
       "method": "GET",
       "path": "/api/tools/{key}",
-      "source": "backend",
+      "source": "both",
       "source_files": {
         "backend": [
           "/home/crochee/workspace/synthia/.worktrees/synthia-interface-contract-closure-cycle-2/crates/synthia-server/src/server/router.rs:147"
+        ],
+        "frontend": []
+      }
+    },
+    {
+      "id": "GET /api/v1/approvals",
+      "method": "GET",
+      "path": "/api/v1/approvals",
+      "source": "backend",
+      "source_files": {
+        "backend": [
+          "/home/crochee/workspace/synthia/crates/synthia-server/src/server/router.rs:159"
+        ],
+        "frontend": []
+      }
+    },
+    {
+      "id": "GET /api/v1/commands",
+      "method": "GET",
+      "path": "/api/v1/commands",
+      "source": "backend",
+      "source_files": {
+        "backend": [
+          "/home/crochee/workspace/synthia/crates/synthia-server/src/server/router.rs:145"
+        ],
+        "frontend": []
+      }
+    },
+    {
+      "id": "GET /api/v1/commands/{key}",
+      "method": "GET",
+      "path": "/api/v1/commands/{key}",
+      "source": "backend",
+      "source_files": {
+        "backend": [
+          "/home/crochee/workspace/synthia/crates/synthia-server/src/server/router.rs:146"
+        ],
+        "frontend": []
+      }
+    },
+    {
+      "id": "GET /api/v1/jobs",
+      "method": "GET",
+      "path": "/api/v1/jobs",
+      "source": "backend",
+      "source_files": {
+        "backend": [
+          "/home/crochee/workspace/synthia/crates/synthia-server/src/server/router.rs:115"
+        ],
+        "frontend": []
+      }
+    },
+    {
+      "id": "GET /api/v1/mcp/servers",
+      "method": "GET",
+      "path": "/api/v1/mcp/servers",
+      "source": "backend",
+      "source_files": {
+        "backend": [
+          "/home/crochee/workspace/synthia/crates/synthia-server/src/server/router.rs:125"
+        ],
+        "frontend": []
+      }
+    },
+    {
+      "id": "GET /api/v1/mcp/servers/{key}",
+      "method": "GET",
+      "path": "/api/v1/mcp/servers/{key}",
+      "source": "backend",
+      "source_files": {
+        "backend": [
+          "/home/crochee/workspace/synthia/crates/synthia-server/src/server/router.rs:130"
+        ],
+        "frontend": []
+      }
+    },
+    {
+      "id": "GET /api/v1/memory/search",
+      "method": "GET",
+      "path": "/api/v1/memory/search",
+      "source": "backend",
+      "source_files": {
+        "backend": [
+          "/home/crochee/workspace/synthia/crates/synthia-server/src/server/router.rs:113"
+        ],
+        "frontend": []
+      }
+    },
+    {
+      "id": "GET /api/v1/models",
+      "method": "GET",
+      "path": "/api/v1/models",
+      "source": "backend",
+      "source_files": {
+        "backend": [
+          "/home/crochee/workspace/synthia/crates/synthia-server/src/server/router.rs:93"
+        ],
+        "frontend": []
+      }
+    },
+    {
+      "id": "GET /api/v1/providers",
+      "method": "GET",
+      "path": "/api/v1/providers",
+      "source": "backend",
+      "source_files": {
+        "backend": [
+          "/home/crochee/workspace/synthia/crates/synthia-server/src/server/router.rs:98"
+        ],
+        "frontend": []
+      }
+    },
+    {
+      "id": "GET /api/v1/providers/{key}",
+      "method": "GET",
+      "path": "/api/v1/providers/{key}",
+      "source": "backend",
+      "source_files": {
+        "backend": [
+          "/home/crochee/workspace/synthia/crates/synthia-server/src/server/router.rs:99"
+        ],
+        "frontend": []
+      }
+    },
+    {
+      "id": "GET /api/v1/settings",
+      "method": "GET",
+      "path": "/api/v1/settings",
+      "source": "backend",
+      "source_files": {
+        "backend": [
+          "/home/crochee/workspace/synthia/crates/synthia-server/src/server/router.rs:152"
+        ],
+        "frontend": []
+      }
+    },
+    {
+      "id": "GET /api/v1/skills",
+      "method": "GET",
+      "path": "/api/v1/skills",
+      "source": "backend",
+      "source_files": {
+        "backend": [
+          "/home/crochee/workspace/synthia/crates/synthia-server/src/server/router.rs:101"
+        ],
+        "frontend": []
+      }
+    },
+    {
+      "id": "GET /api/v1/skills/{key}",
+      "method": "GET",
+      "path": "/api/v1/skills/{key}",
+      "source": "backend",
+      "source_files": {
+        "backend": [
+          "/home/crochee/workspace/synthia/crates/synthia-server/src/server/router.rs:105"
+        ],
+        "frontend": []
+      }
+    },
+    {
+      "id": "GET /api/v1/tasks",
+      "method": "GET",
+      "path": "/api/v1/tasks",
+      "source": "backend",
+      "source_files": {
+        "backend": [
+          "/home/crochee/workspace/synthia/crates/synthia-server/src/server/router.rs:95"
+        ],
+        "frontend": []
+      }
+    },
+    {
+      "id": "GET /api/v1/tasks/{key}",
+      "method": "GET",
+      "path": "/api/v1/tasks/{key}",
+      "source": "backend",
+      "source_files": {
+        "backend": [
+          "/home/crochee/workspace/synthia/crates/synthia-server/src/server/router.rs:96"
+        ],
+        "frontend": []
+      }
+    },
+    {
+      "id": "GET /api/v1/tools",
+      "method": "GET",
+      "path": "/api/v1/tools",
+      "source": "backend",
+      "source_files": {
+        "backend": [
+          "/home/crochee/workspace/synthia/crates/synthia-server/src/server/router.rs:140"
+        ],
+        "frontend": []
+      }
+    },
+    {
+      "id": "GET /api/v1/tools/{key}",
+      "method": "GET",
+      "path": "/api/v1/tools/{key}",
+      "source": "backend",
+      "source_files": {
+        "backend": [
+          "/home/crochee/workspace/synthia/crates/synthia-server/src/server/router.rs:142"
         ],
         "frontend": []
       }
@@ -318,10 +610,10 @@
       "source": "both",
       "source_files": {
         "backend": [
-          "/home/crochee/workspace/synthia/.worktrees/synthia-interface-contract-closure-cycle-2/crates/synthia-server/src/server/router.rs:196"
+          "/home/crochee/workspace/synthia/crates/synthia-server/src/server/router.rs:191"
         ],
         "frontend": [
-          "/home/crochee/workspace/synthia/.worktrees/synthia-interface-contract-closure-cycle-2/synthia-web/src/hooks/useServerHealth.ts:23"
+          "/home/crochee/workspace/synthia/synthia-web/src/hooks/useServerHealth.ts:23"
         ]
       }
     },
@@ -332,7 +624,7 @@
       "source": "backend",
       "source_files": {
         "backend": [
-          "/home/crochee/workspace/synthia/.worktrees/synthia-interface-contract-closure-cycle-2/crates/synthia-server/src/server/router.rs:177"
+          "/home/crochee/workspace/synthia/crates/synthia-server/src/server/router.rs:172"
         ],
         "frontend": []
       }
@@ -358,7 +650,7 @@
       "id": "POST /api/approvals/{key}/resolve",
       "method": "POST",
       "path": "/api/approvals/{key}/resolve",
-      "source": "backend",
+      "source": "both",
       "source_files": {
         "backend": [
           "/home/crochee/workspace/synthia/.worktrees/synthia-interface-contract-closure-cycle-2/crates/synthia-server/src/server/router.rs:165"
@@ -370,7 +662,7 @@
       "id": "POST /api/jobs",
       "method": "POST",
       "path": "/api/jobs",
-      "source": "backend",
+      "source": "both",
       "source_files": {
         "backend": [
           "/home/crochee/workspace/synthia/.worktrees/synthia-interface-contract-closure-cycle-2/crates/synthia-server/src/server/router.rs:118"
@@ -382,7 +674,7 @@
       "id": "POST /api/jobs/{key}/execute",
       "method": "POST",
       "path": "/api/jobs/{key}/execute",
-      "source": "backend",
+      "source": "both",
       "source_files": {
         "backend": [
           "/home/crochee/workspace/synthia/.worktrees/synthia-interface-contract-closure-cycle-2/crates/synthia-server/src/server/router.rs:123"
@@ -408,7 +700,7 @@
       "id": "POST /api/mcp",
       "method": "POST",
       "path": "/api/mcp",
-      "source": "backend",
+      "source": "both",
       "source_files": {
         "backend": [
           "/home/crochee/workspace/synthia/.worktrees/synthia-interface-contract-closure-cycle-2/crates/synthia-server/src/server/router.rs:126"
@@ -434,7 +726,7 @@
       "id": "POST /api/mcp/servers/{key}/discover",
       "method": "POST",
       "path": "/api/mcp/servers/{key}/discover",
-      "source": "backend",
+      "source": "both",
       "source_files": {
         "backend": [
           "/home/crochee/workspace/synthia/.worktrees/synthia-interface-contract-closure-cycle-2/crates/synthia-server/src/server/router.rs:136"
@@ -446,7 +738,7 @@
       "id": "POST /api/providers",
       "method": "POST",
       "path": "/api/providers",
-      "source": "backend",
+      "source": "both",
       "source_files": {
         "backend": [
           "/home/crochee/workspace/synthia/.worktrees/synthia-interface-contract-closure-cycle-2/crates/synthia-server/src/server/router.rs:95"
@@ -458,7 +750,7 @@
       "id": "POST /api/skills",
       "method": "POST",
       "path": "/api/skills",
-      "source": "backend",
+      "source": "both",
       "source_files": {
         "backend": [
           "/home/crochee/workspace/synthia/.worktrees/synthia-interface-contract-closure-cycle-2/crates/synthia-server/src/server/router.rs:106"
@@ -470,7 +762,7 @@
       "id": "POST /api/skills/reload",
       "method": "POST",
       "path": "/api/skills/reload",
-      "source": "backend",
+      "source": "both",
       "source_files": {
         "backend": [
           "/home/crochee/workspace/synthia/.worktrees/synthia-interface-contract-closure-cycle-2/crates/synthia-server/src/server/router.rs:114"
@@ -482,10 +774,148 @@
       "id": "POST /api/tools",
       "method": "POST",
       "path": "/api/tools",
-      "source": "backend",
+      "source": "both",
       "source_files": {
         "backend": [
           "/home/crochee/workspace/synthia/.worktrees/synthia-interface-contract-closure-cycle-2/crates/synthia-server/src/server/router.rs:146"
+        ],
+        "frontend": []
+      }
+    },
+    {
+      "id": "POST /api/v1/approvals/{key}/resolve",
+      "method": "POST",
+      "path": "/api/v1/approvals/{key}/resolve",
+      "source": "backend",
+      "source_files": {
+        "backend": [
+          "/home/crochee/workspace/synthia/crates/synthia-server/src/server/router.rs:160"
+        ],
+        "frontend": []
+      }
+    },
+    {
+      "id": "POST /api/v1/jobs",
+      "method": "POST",
+      "path": "/api/v1/jobs",
+      "source": "backend",
+      "source_files": {
+        "backend": [
+          "/home/crochee/workspace/synthia/crates/synthia-server/src/server/router.rs:115"
+        ],
+        "frontend": []
+      }
+    },
+    {
+      "id": "POST /api/v1/jobs/{key}/execute",
+      "method": "POST",
+      "path": "/api/v1/jobs/{key}/execute",
+      "source": "backend",
+      "source_files": {
+        "backend": [
+          "/home/crochee/workspace/synthia/crates/synthia-server/src/server/router.rs:120"
+        ],
+        "frontend": []
+      }
+    },
+    {
+      "id": "POST /api/v1/jobs/{key}/pause",
+      "method": "POST",
+      "path": "/api/v1/jobs/{key}/pause",
+      "source": "both",
+      "source_files": {
+        "backend": [
+          "/home/crochee/workspace/synthia/crates/synthia-server/src/server/router.rs:121"
+        ],
+        "frontend": [
+          "/home/crochee/workspace/synthia/synthia-web/src/pages/JobsPage.tsx:28"
+        ]
+      }
+    },
+    {
+      "id": "POST /api/v1/jobs/{key}/resume",
+      "method": "POST",
+      "path": "/api/v1/jobs/{key}/resume",
+      "source": "both",
+      "source_files": {
+        "backend": [
+          "/home/crochee/workspace/synthia/crates/synthia-server/src/server/router.rs:122"
+        ],
+        "frontend": [
+          "/home/crochee/workspace/synthia/synthia-web/src/pages/JobsPage.tsx:44"
+        ]
+      }
+    },
+    {
+      "id": "POST /api/v1/mcp/rpc",
+      "method": "POST",
+      "path": "/api/v1/mcp/rpc",
+      "source": "backend",
+      "source_files": {
+        "backend": [
+          "/home/crochee/workspace/synthia/crates/synthia-server/src/server/router.rs:124"
+        ],
+        "frontend": []
+      }
+    },
+    {
+      "id": "POST /api/v1/mcp/servers",
+      "method": "POST",
+      "path": "/api/v1/mcp/servers",
+      "source": "both",
+      "source_files": {
+        "backend": [
+          "/home/crochee/workspace/synthia/crates/synthia-server/src/server/router.rs:125"
+        ],
+        "frontend": [
+          "/home/crochee/workspace/synthia/synthia-web/src/pages/McpPage.tsx:42"
+        ]
+      }
+    },
+    {
+      "id": "POST /api/v1/mcp/servers/{key}/discover",
+      "method": "POST",
+      "path": "/api/v1/mcp/servers/{key}/discover",
+      "source": "backend",
+      "source_files": {
+        "backend": [
+          "/home/crochee/workspace/synthia/crates/synthia-server/src/server/router.rs:135"
+        ],
+        "frontend": []
+      }
+    },
+    {
+      "id": "POST /api/v1/skills",
+      "method": "POST",
+      "path": "/api/v1/skills",
+      "source": "backend",
+      "source_files": {
+        "backend": [
+          "/home/crochee/workspace/synthia/crates/synthia-server/src/server/router.rs:101"
+        ],
+        "frontend": []
+      }
+    },
+    {
+      "id": "POST /api/v1/skills/reload",
+      "method": "POST",
+      "path": "/api/v1/skills/reload",
+      "source": "backend",
+      "source_files": {
+        "backend": [
+          "/home/crochee/workspace/synthia/crates/synthia-server/src/server/router.rs:111"
+        ],
+        "frontend": []
+      }
+    },
+    {
+      "id": "POST /api/v1/tools",
+      "method": "POST",
+      "path": "/api/v1/tools",
+      "source": "backend",
+      "source_files": {
+        "backend": [
+          "/home/crochee/workspace/synthia/crates/synthia-server/src/server/router.rs:141"
         ],
         "frontend": []
       }
@@ -501,6 +931,34 @@
         ],
         "frontend": [
           "/home/crochee/workspace/synthia/.worktrees/synthia-interface-contract-closure-cycle-2/synthia-web/src/pages/SettingsPage.tsx:34"
+        ]
+      }
+    },
+    {
+      "id": "PUT /api/v1/settings",
+      "method": "PUT",
+      "path": "/api/v1/settings",
+      "source": "both",
+      "source_files": {
+        "backend": [
+          "/home/crochee/workspace/synthia/crates/synthia-server/src/server/router.rs:152"
+        ],
+        "frontend": [
+          "/home/crochee/workspace/synthia/synthia-web/src/pages/SettingsPage.tsx:34"
+        ]
+      }
+    },
+    {
+      "id": "PUT /api/v1/skills/{key}",
+      "method": "PUT",
+      "path": "/api/v1/skills/{key}",
+      "source": "both",
+      "source_files": {
+        "backend": [
+          "/home/crochee/workspace/synthia/crates/synthia-server/src/server/router.rs:105"
+        ],
+        "frontend": [
+          "/home/crochee/workspace/synthia/synthia-web/src/pages/SkillsPage.tsx:27"
         ]
       }
     }

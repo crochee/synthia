@@ -1,10 +1,14 @@
 # Synthia - AI Agent Framework
 
-Synthia is a modular, high-performance AI Agent framework written in Rust. It implements the ReAct (Reasoning + Acting) pattern with comprehensive tool execution, session management, memory systems, and security features.
+<p align="left">
+  <img src="synthia-web/public/logo.svg" alt="Synthia" height="56">
+</p>
+
+Synthia is a modular, high-performance AI Agent framework written in Rust. It implements the ReAct (Reasoning + Acting) pattern with comprehensive tool execution, session management, and observability hooks.
 
 ## Architecture
 
-The framework is organized as a Rust workspace with 17 crates:
+The framework is organized as a Rust workspace with **9 crates** (8 library crates + `test-support`). The front-end sits next to the workspace as `synthia-web/` with its own `package.json`.
 
 ### Core Crates
 
@@ -12,32 +16,46 @@ The framework is organized as a Rust workspace with 17 crates:
 |-------|-------------|
 | [synthia-core](crates/synthia-core/) | Common utilities (ID generation, time, paths, schemas) |
 | [synthia-provider](crates/synthia-provider/) | LLM provider abstraction (OpenAI, Anthropic) |
-| [synthia-model-router](crates/synthia-model-router/) | Dynamic model selection and routing |
-| [synthia-tool](crates/synthia-tool/) | Tool execution with permissions and sandbox |
+| [synthia-tool](crates/synthia-tool/) | Tool registry, execution, and sub-trait composition |
 | [synthia-session](crates/synthia-session/) | Session lifecycle and state management |
-| [synthia-memory](crates/synthia-memory/) | Hot/cold/episodic/context memory systems |
-| [synthia-agent](crates/synthia-agent/README.md) | Core ReAct loop agent |
-| [synthia-context](crates/synthia-context/) | Context assembly and compaction |
-| [synthia-guardian](crates/synthia-guardian/) | Security loop detection and circuit breakers |
-| [synthia-hook](crates/synthia-hook/) | Extensible hook system |
-| [synthia-telemetry](crates/synthia-telemetry/) | Observability with OpenTelemetry |
-| [synthia-mcp](crates/synthia-mcp/) | MCP server/client integration |
-| [synthia-command](crates/synthia-command/) | Slash command system |
-| [synthia-task](crates/synthia-task/) | Task scheduling and dispatch |
+| [synthia-agent](crates/synthia-agent/README.md) | Core ReAct loop agent (reasoning + tool execution) |
+| [synthia-telemetry](crates/synthia-telemetry/) | Observability with OpenTelemetry (optional `otel` feature) |
 
 ### Interface Crates
 
 | Crate | Description |
 |-------|-------------|
-| [synthia-cli](crates/synthia-cli/) | CLI interface with REPL |
-| [synthia-server](crates/synthia-server/) | HTTP/WebSocket server with axum |
+| [synthia-server](crates/synthia-server/) | HTTP/WebSocket server with axum, exposes the A2A protocol |
 
 ### Support Crates
 
 | Crate | Description |
 |-------|-------------|
-| [test-support](test-support/) | Mock implementations for testing |
-| [synthia-web](synthia-web/) | React/Vite frontend using the A2A protocol |
+| [test-support](test-support/) | Shared mock implementations for cross-crate testing |
+| [synthia-web](synthia-web/) | React/Vite frontend speaking the A2A protocol |
+
+### Protocol / Cache / Skill Crates
+
+| Crate | Description |
+|-------|-------------|
+| [synthia-skill](crates/synthia-skill/) | Skill registry (slash-command, prompt, and tool bundles) |
+
+### Workspace Members
+
+The 8 crates listed above match the `[workspace.members]` array in the root
+`Cargo.toml`. Every path below is a real on-disk directory:
+
+| Path | One-line responsibility |
+|------|-------------------------|
+| `crates/synthia-core` | Cross-cutting utilities (IDs, time, paths, error schemas) |
+| `crates/synthia-telemetry` | Tracing + optional OTel pipeline |
+| `crates/synthia-provider` | LLM provider trait, OpenAI / Anthropic adapters |
+| `crates/synthia-tool` | Tool registry, executor, built-in toolset |
+| `crates/synthia-skill` | Skill registry + loader |
+| `crates/synthia-session` | Session lifecycle + cleanup daemon |
+| `crates/synthia-agent` | ReAct loop agent (the "AI" of Synthia) |
+| `crates/synthia-server` | HTTP / WebSocket server (axum, A2A JSON-RPC, AgentCard) |
+| `test-support` | Mock fixtures shared by integration tests |
 
 ## Quick Start
 
@@ -80,10 +98,10 @@ make fmt             # cargo +nightly fmt + prettier
 
 ## Running
 
-### CLI Mode
+### Server
 
 ```bash
-make dev-server   # or: cargo run --bin synthia
+make dev-server   # or: cargo run -p synthia-server
 ```
 
 ### Server + Web
@@ -113,7 +131,16 @@ Run `make help` for the full list of targets.
 ├── docker-compose.prod.yml     # production compose (split deploy)
 ├── nginx.conf                  # reverse-proxy config (used by web image)
 ├── DEPLOYMENT.md               # deployment guide
-├── crates/                     # synthia Rust crates
+├── crates/                     # synthia Rust crates (8 libraries)
+│   ├── synthia-core/
+│   ├── synthia-telemetry/
+│   ├── synthia-provider/
+│   ├── synthia-tool/
+│   ├── synthia-skill/
+│   ├── synthia-session/
+│   ├── synthia-agent/
+│   └── synthia-server/
+├── test-support/               # shared mock fixtures
 └── synthia-web/                # React frontend
     ├── src/
     │   ├── api/                # A2A client modules

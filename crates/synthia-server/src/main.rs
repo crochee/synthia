@@ -20,6 +20,18 @@ struct Args {
     #[arg(short, long, default_value = ".")]
     directory: PathBuf,
 
+    /// Path to an LLM provider configuration file.
+    ///
+    /// When present and the file exists, the YAML/TOML is parsed and its
+    /// provider entries (base_url, api_key, default_model) are bridged
+    /// into the runtime `WorkspaceConfig` consumed by `synthia-provider`.
+    /// When omitted, the server falls back to `<directory>/.agents/config.toml`
+    /// (existing behavior).
+    ///
+    /// Supported formats: YAML (`.yaml`, `.yml`) and TOML (`.toml`).
+    #[arg(long, value_name = "PATH")]
+    config: Option<PathBuf>,
+
     /// Host to bind to
     #[arg(long, default_value = "127.0.0.1")]
     host: String,
@@ -31,15 +43,19 @@ struct Args {
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    dotenv::dotenv().ok();
+    dotenvy::dotenv().ok();
 
-    // Initialize tracing with RUST_LOG env filter
-    tracing_subscriber::fmt()
-        .with_env_filter(
-            tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info")),
-        )
-        .init();
+    // Initialize tracing via `synthia-telemetry` so the OTLP
+    // pipeline (SYNTHIA_OTLP_ENDPOINT, etc.) and structured
+    // layers from that crate are wired up. Falls back to
+    // console tracing when OTLP is unset, matching the
+    // `tracing_subscriber::fmt` behaviour the previous
+    // inlined setup provided.
+    synthia_telemetry::init_tracing(&synthia_telemetry::TelemetryConfig {
+        service_name: "synthia-server".to_string(),
+        log_level: std::env::var("RUST_LOG").unwrap_or_else(|_| "info".into()),
+    })
+    .map_err(|e| anyhow::anyhow!("failed to init tracing: {e}"))?;
 
     let args = Args::parse();
 
@@ -63,8 +79,12 @@ async fn main() -> Result<()> {
     });
 
     // Create and run server
-    let app =
-        synthia_server::server::create_server(args.directory.clone()).await;
+    let app = synthia_server::server::create_server(
+        args.directory.clone(),
+        args.config.as_ref(),
+    )
+    .await
+    .map_err(|e| anyhow::anyhow!("failed to build server: {e}"))?;
     let listener =
         tokio::net::TcpListener::bind(format!("{}:{}", args.host, args.port))
             .await?;

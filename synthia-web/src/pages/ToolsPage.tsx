@@ -1,51 +1,97 @@
+import { Link } from 'react-router-dom';
+import { Heading } from '@radix-ui/themes';
 import { Card } from '../components/ui/Card';
-import { useEffect, useState } from 'react';
-import { api } from '../api/client';
+import { Button } from '../components/ui/Button';
+import { EmptyState } from '../components/ui/EmptyState';
+import { SkeletonList } from '../components/ui/SkeletonList';
+import { ListToolbar } from '../components/ui/ListToolbar';
+import { useCursorList } from '../hooks/useCursorList';
+import { useListFilter } from '../hooks/useListFilter';
 import type { Tool } from '../api/types';
 
-interface ToolListResponse {
-  tools: Tool[];
-  count: number;
-}
-
 export function ToolsPage() {
-  const [tools, setTools] = useState<Tool[]>([]);
-  const [error, setError] = useState<string | null>(null);
+  const { items: tools, loading, error, hasMore, loadMore } = useCursorList<Tool>('/api/v1/tools');
 
-  useEffect(() => {
-    let cancelled = false;
-    api
-      .get<ToolListResponse>('/api/tools')
-      .then((data) => {
-        if (cancelled) return;
-        setTools(data.tools ?? []);
-      })
-      .catch((e: Error) => {
-        if (cancelled) return;
-        setError(e.message);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, []);
+  const {
+    filtered: visibleTools,
+    query,
+    setQuery,
+    sortDir,
+    setSortDir,
+    isFiltering,
+  } = useListFilter(tools, {
+    match: (t, q) => {
+      // Match by name + description. Description can be
+      // undefined for tool records that don't carry one.
+      if (t.name.toLowerCase().includes(q)) return true;
+      if (t.description && t.description.toLowerCase().includes(q)) return true;
+      return false;
+    },
+    compare: (a, b) => a.name.localeCompare(b.name),
+  });
 
   return (
     <div>
-      <h1 className="nt-page-title">Tools</h1>
-      {error && (
-        <Card glow="red" title="Error">
-          <code>{error}</code>
-        </Card>
+      <Heading as="h1" size="6">
+        Tools
+      </Heading>
+      <ListToolbar
+        query={query}
+        onQueryChange={setQuery}
+        sortDir={sortDir}
+        onSortDirChange={setSortDir}
+        searchLabel="Tools"
+        testId="tools-toolbar"
+      />
+      {error ? (
+        <EmptyState
+          icon="⚠️"
+          title="Failed to load tools"
+          description={error}
+          testId="tools-error"
+        />
+      ) : loading && tools.length === 0 ? (
+        <SkeletonList count={4} testId="tools-skeleton" />
+      ) : visibleTools.length === 0 && !error ? (
+        <EmptyState
+          icon={isFiltering ? '🔍' : '🧰'}
+          title={isFiltering ? 'No tools match your search' : 'No tools registered'}
+          description={
+            isFiltering
+              ? `No tools matched "${query}". Try clearing the search.`
+              : 'Tools become available here once an agent descriptor references them.'
+          }
+          testId="tools-empty"
+        />
+      ) : (
+        visibleTools.map((tool) => (
+          <Card
+            key={tool.name}
+            title={
+              <Link
+                to={`/tools/${encodeURIComponent(tool.name)}`}
+                data-testid={`tool-link-${tool.name}`}
+              >
+                {tool.name}
+              </Link>
+            }
+          >
+            {tool.description && <p>{tool.description}</p>}
+          </Card>
+        ))
       )}
-      {tools.length === 0 && !error && (
-        <Card title="No tools">No tools are currently registered.</Card>
+      {hasMore && (
+        <div>
+          <Button
+            variant="soft"
+            onClick={loadMore}
+            disabled={loading}
+            data-testid="tools-load-more"
+          >
+            {loading ? 'Loading...' : 'Load More'}
+          </Button>
+        </div>
       )}
-      {tools.map((tool) => (
-        <Card key={tool.name} title={tool.name} glow="green">
-          {tool.description && <p>{tool.description}</p>}
-          {tool.status && <code>status: {tool.status}</code>}
-        </Card>
-      ))}
     </div>
   );
 }

@@ -15,6 +15,11 @@ import { defineConfig, devices } from '@playwright/test';
  */
 export default defineConfig({
   testDir: './tests/e2e/integration/contract-closure',
+  // Only pick up Playwright spec files (`*.spec.ts`). The
+  // `sse-harness.test.ts` unit test imports from `vitest` and is
+  // run via `npm run test:unit`; including it here makes Playwright
+  // crash with "Vitest failed to access its internal state".
+  testMatch: /.*\.spec\.ts$/,
   fullyParallel: false,
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 1 : 0,

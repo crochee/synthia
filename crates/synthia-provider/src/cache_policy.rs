@@ -31,9 +31,11 @@
 use std::sync::Arc;
 
 use serde::{Deserialize, Serialize};
-use synthia_cache_mark::{CacheControlMark, CacheScope, CacheTtl};
 
-use crate::types::{Content, ContentPart, Message, Role};
+use crate::{
+    cache_mark::{CacheControlMark, CacheScope, CacheTtl},
+    types::{Content, ContentPart, Message, Role},
+};
 
 /// Strategy for caching the message tail.
 ///
@@ -388,5 +390,170 @@ mod tests {
         } else {
             panic!("expected Multi");
         }
+    }
+
+    /// Empty tool list must not panic or insert a phantom
+    /// `cache_control`. `tools.last_mut()` on an empty
+    /// vector returns `None`, so the marker branch is
+    /// skipped silently. This pins the safety contract so
+    /// future refactors (e.g. adding a "first tool" branch)
+    /// do not silently regress agent loop startup when an
+    /// agent has no registered tools.
+    #[test]
+    fn cache_policy_with_empty_tool_list_is_safe_noop() {
+        use std::sync::Arc;
+        let mut req = make_request_with_tools(0);
+        let policy = CachePolicy::default();
+        apply_cache_policy(&mut req, &policy);
+        assert!(
+            req.tools.is_empty(),
+            "empty tool list must remain empty after apply_cache_policy"
+        );
+        // Specifically: no panic, no phantom entry, no
+        // `cache_control` reference created.
+        assert_eq!(
+            Arc::strong_count(&req.tools),
+            1,
+            "the tool Arc must not have been duplicated by a no-op"
+        );
+    }
+
+    /// `CachePolicyApplier::apply` is the
+    /// stateful short-circuit path: when both
+    /// `tools` and `messages` Arc references are
+    /// ptr-equal to the previous call, the
+    /// function returns `true` and skips
+    /// re-application. This is the contract that
+    /// keeps the provider's prompt cache prefix
+    /// valid across multiple agent-loop turns.
+    ///
+    /// No existing test exercises this path —
+    /// `apply_cache_policy` (the free function) is
+    /// always called, so the short-circuit logic
+    /// is dead code as far as CI is concerned.
+    /// Pin the 4 critical invariants.
+    fn messages_one_user() -> Arc<Vec<Message>> {
+        Arc::new(vec![Message::user("hi")])
+    }
+
+    #[test]
+    fn applier_first_call_returns_false_and_stores_state() {
+        let mut applier = CachePolicyApplier::new();
+        let mut req = make_request_with_tools(2);
+        req.messages = messages_one_user();
+        let policy = CachePolicy::default();
+        let short_circuited = applier.apply(&mut req, &policy);
+        assert!(
+            !short_circuited,
+            "first call MUST return false (full evaluation path)"
+        );
+    }
+
+    #[test]
+    fn applier_second_call_same_arcs_short_circuits() {
+        let mut applier = CachePolicyApplier::new();
+        let mut req = make_request_with_tools(2);
+        req.messages = messages_one_user();
+        let policy = CachePolicy::default();
+        // First call — full evaluation.
+        applier.apply(&mut req, &policy);
+        // Second call — same Arc pointers — short-circuit.
+        let short_circuited = applier.apply(&mut req, &policy);
+        assert!(
+            short_circuited,
+            "second call with identical Arc pointers MUST short-circuit"
+        );
+    }
+
+    #[test]
+    fn applier_second_call_with_only_tools_changed_re_evaluates() {
+        let mut applier = CachePolicyApplier::new();
+        let mut req = make_request_with_tools(2);
+        req.messages = messages_one_user();
+        let policy = CachePolicy::default();
+        applier.apply(&mut req, &policy);
+        // Re-build request with NEW tools Arc but
+        // SAME messages Arc (via Arc::clone).
+        let original_messages = Arc::clone(&req.messages);
+        req.tools = Arc::new(vec![ToolDefinition::new(
+            "new_tool".to_string(),
+            "New Tool".to_string(),
+            serde_json::json!({"type": "object"}),
+        )]);
+        req.messages = original_messages;
+        let short_circuited = applier.apply(&mut req, &policy);
+        assert!(
+            !short_circuited,
+            "tools Arc changed — short-circuit MUST NOT fire"
+        );
+    }
+
+    #[test]
+    fn applier_second_call_with_only_messages_changed_re_evaluates() {
+        let mut applier = CachePolicyApplier::new();
+        let mut req = make_request_with_tools(2);
+        req.messages = messages_one_user();
+        let policy = CachePolicy::default();
+        applier.apply(&mut req, &policy);
+        // Re-build request with NEW messages Arc but
+        // SAME tools Arc (via Arc::clone).
+        let original_tools = Arc::clone(&req.tools);
+        req.messages = Arc::new(vec![Message::user("bye")]);
+        req.tools = original_tools;
+        let short_circuited = applier.apply(&mut req, &policy);
+        assert!(
+            !short_circuited,
+            "messages Arc changed — short-circuit MUST NOT fire"
+        );
+    }
+
+    #[test]
+    fn applier_second_call_with_both_arcs_changed_re_evaluates() {
+        let mut applier = CachePolicyApplier::new();
+        let mut req = make_request_with_tools(2);
+        req.messages = messages_one_user();
+        let policy = CachePolicy::default();
+        applier.apply(&mut req, &policy);
+        // Both Arcs replaced with brand-new allocations.
+        req.tools = Arc::new(vec![ToolDefinition::new(
+            "fresh_tool".to_string(),
+            "Fresh".to_string(),
+            serde_json::json!({"type": "object"}),
+        )]);
+        req.messages = Arc::new(vec![Message::user("goodbye")]);
+        let short_circuited = applier.apply(&mut req, &policy);
+        assert!(
+            !short_circuited,
+            "both Arcs changed — short-circuit MUST NOT fire"
+        );
+    }
+
+    #[test]
+    fn applier_short_circuit_does_not_double_mark_tools() {
+        // The most subtle invariant: short-circuit
+        // returns `true` (signaling "marks already
+        // present") and must NOT re-apply. If a
+        // refactor accidentally re-applies during
+        // short-circuit, the second call would
+        // overwrite the mark on the last tool with
+        // a fresh one (still a mark, but wastes
+        // work and could matter if future code
+        // distinguishes mark identity, e.g. for
+        // cache invalidation).
+        let mut applier = CachePolicyApplier::new();
+        let mut req = make_request_with_tools(2);
+        req.messages = messages_one_user();
+        let policy = CachePolicy::default();
+        applier.apply(&mut req, &policy);
+        // Capture the mark on the last tool.
+        let mark_after_first = req.tools.last().unwrap().cache_control.clone();
+        // Second call — short-circuit.
+        let short_circuited = applier.apply(&mut req, &policy);
+        assert!(short_circuited);
+        let mark_after_second = req.tools.last().unwrap().cache_control.clone();
+        assert_eq!(
+            mark_after_first, mark_after_second,
+            "short-circuit MUST NOT mutate existing marks"
+        );
     }
 }

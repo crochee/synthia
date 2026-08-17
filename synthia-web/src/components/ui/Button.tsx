@@ -1,32 +1,46 @@
+import { Button as RadixButton } from '@radix-ui/themes';
 import type { ButtonHTMLAttributes, ReactNode } from 'react';
-import './Button.css';
 
-export type ButtonVariant = 'primary' | 'secondary' | 'danger' | 'ghost';
-export type ButtonSize = 'sm' | 'md' | 'lg';
+type ButtonVariant = 'classic' | 'solid' | 'soft' | 'surface' | 'outline' | 'ghost';
+type ButtonSize = '1' | '2' | '3' | '4';
+type ButtonColor = 'blue' | 'green' | 'red' | 'gray';
 
-export interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
+export interface ButtonProps extends Omit<ButtonHTMLAttributes<HTMLButtonElement>, 'color'> {
   variant?: ButtonVariant;
   size?: ButtonSize;
+  color?: ButtonColor;
+  loading?: boolean;
   children: ReactNode;
 }
 
 /**
- * Neon Terminal-styled button.
- * Uses CSS variables from `tokens.css` for color and glow effects.
+ * Wrapper around Radix Themes' Button.
+ *
+ * - `variant` maps to Radix Button variants.
+ * - `loading` shows a built-in spinner and disables the button.
+ * - `color` defaults to `blue` (Radix accent color).
  */
 export function Button({
-  variant = 'primary',
-  size = 'md',
+  variant = 'solid',
+  size = '2',
+  color = 'blue',
+  loading = false,
+  disabled,
   className,
   children,
   ...rest
 }: ButtonProps) {
-  const classes = ['nt-button', `nt-button--${variant}`, `nt-button--${size}`, className]
-    .filter(Boolean)
-    .join(' ');
   return (
-    <button className={classes} {...rest}>
+    <RadixButton
+      variant={variant}
+      size={size}
+      color={color}
+      loading={loading}
+      disabled={disabled || loading}
+      className={className}
+      {...rest}
+    >
       {children}
-    </button>
+    </RadixButton>
   );
 }

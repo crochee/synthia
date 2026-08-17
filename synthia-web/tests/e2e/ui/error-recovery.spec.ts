@@ -1,7 +1,5 @@
 import { test, expect } from '@playwright/test';
 import { ChatPage } from '../pages/chat.page';
-import { McpPage } from '../pages/mcp.page';
-import { SettingsPage } from '../pages/settings.page';
 
 /**
  * Layer 1 — UI error & recovery tests.
@@ -9,8 +7,7 @@ import { SettingsPage } from '../pages/settings.page';
  * Verifies that the UI keeps working when:
  *   - the user types whitespace-only input (should be rejected),
  *   - the user submits, then immediately types again,
- *   - the user reloads the page in the middle of streaming,
- *   - the settings page surfaces server validation errors gracefully.
+ *   - the user reloads the page in the middle of streaming.
  *
  * These tests assert resilience against bad input and intermittent
  * failures rather than happy-path behaviour.
@@ -40,12 +37,11 @@ test.describe('UI error & recovery', () => {
       const payload = keys.map((k) => window.localStorage.getItem(k) ?? '');
       return { keys, payload };
     });
-    expect(storedBeforeReload.keys.length, 'localStorage must hold at least one session').toBeGreaterThan(
-      0,
-    );
-    const persistedJson = storedBeforeReload.payload.find((p) =>
-      p.includes('persistent question'),
-    );
+    expect(
+      storedBeforeReload.keys.length,
+      'localStorage must hold at least one session',
+    ).toBeGreaterThan(0);
+    const persistedJson = storedBeforeReload.payload.find((p) => p.includes('persistent question'));
     expect(persistedJson, 'user message must be in localStorage before reload').toBeTruthy();
 
     // NOTE: full cross-reload restore of the *same* session depends
@@ -82,34 +78,5 @@ test.describe('UI error & recovery', () => {
     await expect(chat.sendButton).toBeDisabled();
     await chat.input.fill('next');
     await expect(chat.sendButton).toBeEnabled();
-  });
-
-  test('settings page surfaces validation errors without crashing', async ({ page }) => {
-    const settings = new SettingsPage(page);
-    await settings.goto();
-    // Whitespace-only provider should still be accepted by the UI
-    // (server is the source of truth); but the save button should
-    // remain enabled and not throw.
-    await settings.setProvider(' ');
-    await settings.setModel('test');
-    await expect(settings.saveButton).toBeEnabled();
-    // Click save — server may accept or reject, but the page must
-    // stay on /settings and not crash.
-    await settings.save();
-    await expect(page).toHaveURL(/\/settings/);
-  });
-
-  test('mcp add form rejects empty submission gracefully', async ({ page }) => {
-    const mcp = new McpPage(page);
-    await mcp.goto();
-    await expect(mcp.addButton).toBeVisible();
-    // Empty form: leave name/command blank.
-    // The button should either be disabled or trigger a client-side
-    // error; in either case the page must not crash.
-    await mcp.addButton.click().catch(() => {
-      // Expected if the button is disabled. Swallow the rejection —
-      // the assertion below is what matters.
-    });
-    await expect(page).toHaveURL(/\/mcp/);
   });
 });

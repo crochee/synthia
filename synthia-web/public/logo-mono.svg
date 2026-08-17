@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Synthia — monochrome lockup.
+  Single-color variant for print, watermarks, dark surfaces where
+  brand color would clash, or situations where only one ink is
+  available. The accent arc is dropped because it relies on a
+  second hue; the mark stays recognisable without it.
+-->
+<svg xmlns="http://www.w3.org/2000/svg"
+     viewBox="0 0 220 48"
+     role="img"
+     aria-label="Synthia">
+  <title>Synthia</title>
+
+  <g transform="translate(8, 8)">
+    <circle cx="16" cy="16" r="14"
+            fill="none"
+            stroke="#18181b"
+            stroke-width="2.5"/>
+    <circle cx="22" cy="16" r="7"
+            fill="#18181b"/>
+  </g>
+
+  <g transform="translate(48, 0)"
+     font-family="'Inter', 'Helvetica Neue', Arial, sans-serif"
+     font-weight="700"
+     font-size="20"
+     letter-spacing="2"
+     fill="#18181b">
+    <text x="0" y="31">SYNTHIA</text>
+  </g>
+</svg>

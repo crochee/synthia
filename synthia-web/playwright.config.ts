@@ -14,6 +14,13 @@ import { defineConfig, devices } from '@playwright/test';
  */
 export default defineConfig({
   testDir: './tests/e2e',
+  // Only pick up Playwright spec files (`*.spec.ts`). The
+  // `sse-harness.test.ts` and similar unit tests under
+  // `tests/e2e/integration/contract-closure/_helpers/` import from
+  // `vitest` and are run via `npm run test:unit`; including them
+  // here makes Playwright crash with
+  // "Vitest failed to access its internal state".
+  testMatch: /.*\.spec\.ts$/,
   fullyParallel: true,
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 2 : 0,
@@ -31,15 +38,16 @@ export default defineConfig({
   projects: [{ name: 'chromium', use: { ...devices['Desktop Chrome'] } }],
   webServer: [
     {
-      command: 'cd ../.. && cargo run -p synthia-server',
+      command:
+        'cd /home/crochee/workspace/synthia && cargo run -p synthia-server -- --config config.yaml',
       port: 8080,
-      reuseExistingServer: !process.env.CI,
+      reuseExistingServer: true,
       timeout: 60_000,
     },
     {
       command: 'npm run dev',
       port: 5173,
-      reuseExistingServer: !process.env.CI,
+      reuseExistingServer: true,
       timeout: 30_000,
     },
   ],

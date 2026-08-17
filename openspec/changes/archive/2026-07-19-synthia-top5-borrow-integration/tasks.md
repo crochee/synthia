@@ -58,30 +58,30 @@
 
 ## 2. extension-system (PR-2.1 ~ PR-2.4)
 
-### Task 2.1: PR-2.1 — create `synthia-extension-v2` skeleton ✅
+### Task 2.1: PR-2.1 — create `synthia-extension-hook` skeleton ✅
 
-- **WHERE**: `crates/synthia-extension-v2/`
+- **WHERE**: `crates/synthia-extension-hook/`
 - **HOW**: scaffold `Extension` trait + `ExtensionManifest` struct (replaces stub `crates/synthia-extension/src/lib.rs` in parallel)
 - **WHY**: 19 typed events + sandbox need a real crate
-- **EXPECTED**: `cargo check -p synthia-extension-v2` exit code 0
+- **EXPECTED**: `cargo check -p synthia-extension-hook` exit code 0
 
 ### Task 2.2: PR-2.2 — 19 typed event payloads ✅
 
-- **WHERE**: `crates/synthia-extension-v2/src/events.rs`
+- **WHERE**: `crates/synthia-extension-hook/src/events.rs`
 - **HOW**: enum + 19 typed payload structs (no `serde_json::Value` in opt-in events)
 - **WHY**: events listed in extension-system spec.md
 - **EXPECTED**: exhaustive match compile passes for all 19
 
 ### Task 2.3: PR-2.3 — typed capability-scoped sandbox ✅
 
-- **WHERE**: `crates/synthia-extension-v2/src/sandbox.rs`
+- **WHERE**: `crates/synthia-extension-hook/src/sandbox.rs`
 - **HOW**: capability table per extension manifest + executor that rejects missing capabilities before invoking callback; integrated `HookOutcome::Deny` (see hook-system-unification)
 - **WHY**: design-review B4 partial fix (typed Rust trait sandbox; WASM deferred to change #3)
 - **EXPECTED**: rejection unit test + prometheus counter test pass
 
 ### Task 2.4: PR-2.4 — ExtensionRegistry + double-registration ✅
 
-- **WHERE**: `crates/synthia-extension-v2/src/registry.rs`
+- **WHERE**: `crates/synthia-extension-hook/src/registry.rs`
 - **HOW**: `ExtensionRegistry::register` / `deregister` with atomic `ServiceRegistry` registration; reject duplicate ids
 - **WHY**: enables bidirectional find (extension consumers <-> service consumers)
 - **EXPECTED**: double-register integration test passes; existing `synthia-extension` 1-line stub still compiles with `#[deprecated]`
@@ -230,7 +230,7 @@
 
 ### Task 8.2: PR-7.2 — EventRenderer registry + builtin JSON renderer ✅
 
-- **WHERE**: `crates/synthia-extension-v2/src/event_renderer.rs`
+- **WHERE**: `crates/synthia-extension-hook/src/event_renderer.rs`
 - **HOW**: `EventRendererRegistry` keyed by `event_type`; builtin `JsonEventRenderer` as wildcard `*`
 - **EXPECTED**: wildcard match test + custom-shadow test pass
 
@@ -273,7 +273,7 @@
 
 ### Task 10.2: cargo test split (per Rust project rules — never run all at once) ✅
 
-- **HOW**: per-module, e.g. `cargo test -p synthia-event-v2`, `cargo test -p synthia-extension-v2`, ..., continuing through each new + modified crate, in dependency order; never `cargo test --workspace` in one shot
+- **HOW**: per-module, e.g. `cargo test -p synthia-event-v2`, `cargo test -p synthia-extension-hook`, ..., continuing through each new + modified crate, in dependency order; never `cargo test --workspace` in one shot
 - **EXPECTED**: every batch green; no pre-existing failures
 
 ### Task 10.3: OpenSpec CLI schema validation ✅

@@ -6,7 +6,7 @@
 //! 1-line `pub use` shims.
 
 use serde::{Deserialize, Serialize};
-use synthia_telemetry::Sensitive;
+use synthia_core::Sensitive;
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct TokenUsage {

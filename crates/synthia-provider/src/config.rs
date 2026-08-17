@@ -1,8 +1,7 @@
 use std::{collections::HashMap, path::Path};
 
 use serde::{Deserialize, Serialize};
-use synthia_core::Error;
-use synthia_telemetry::SensitiveData;
+use synthia_core::{Error, Sensitive, SensitiveData};
 
 use crate::{
     anthropic::AnthropicProvider,
@@ -14,10 +13,10 @@ use crate::{
 #[derive(Clone, Debug)]
 pub struct ProviderConfig {
     pub name: String,
-    pub api_key: synthia_telemetry::Sensitive<String>,
+    pub api_key: Sensitive<String>,
     pub api_endpoint: String,
-    pub organization: Option<synthia_telemetry::Sensitive<String>>,
-    pub headers: HashMap<String, synthia_telemetry::Sensitive<String>>,
+    pub organization: Option<Sensitive<String>>,
+    pub headers: HashMap<String, Sensitive<String>>,
 }
 
 impl SensitiveData for ProviderConfig {
@@ -96,18 +95,19 @@ impl WorkspaceConfig {
         let config_path = workspace_root.join(".agents").join("config.toml");
         if config_path.exists() {
             let content = std::fs::read_to_string(&config_path)
-                .map_err(|e| Error::Config(e.to_string()))?;
+                .map_err(|e| Error::config(e.to_string()))?;
             let config: WorkspaceConfig = toml::from_str(&content)
-                .map_err(|e| Error::Parse(e.to_string()))?;
+                .map_err(|e| Error::parse(e.to_string()))?;
             Ok(config)
         } else {
             let config = Self::from_env();
             if config.providers.is_empty() {
-                panic!(
-                    "Synthia provider configuration missing: no .agents/config.toml found and no \
-                     OPENAI_API_KEY/OPENAI_BASE_URL/ANTHROPIC_API_KEY environment variables \
+                return Err(Error::config(
+                    "Synthia provider configuration missing: no .agents/config.toml found and \
+                     no OPENAI_API_KEY/OPENAI_BASE_URL/ANTHROPIC_API_KEY environment variables \
                      are set. Provide one of these to start the server."
-                );
+                        .to_string(),
+                ));
             }
             Ok(config)
         }
@@ -180,7 +180,7 @@ impl WorkspaceConfig {
         entry: &ProviderEntry,
     ) -> Result<String, Error> {
         std::env::var(&entry.api_key_env).map_err(|_| {
-            Error::Config(format!(
+            Error::config(format!(
                 "Missing API key: environment variable {} not set for provider {}",
                 entry.api_key_env, entry.r#type
             ))
@@ -194,7 +194,7 @@ impl WorkspaceConfig {
         let entry = self
             .providers
             .get(name)
-            .ok_or_else(|| Error::NotFound(name.to_string()))?;
+            .ok_or_else(|| Error::not_found(name))?;
 
         let api_key = self.resolve_api_key(entry)?;
 
@@ -230,7 +230,7 @@ impl WorkspaceConfig {
                 }
                 Ok(Box::new(provider))
             }
-            other => Err(Error::Validation(format!(
+            other => Err(Error::validation(format!(
                 "Unsupported provider type: {}",
                 other
             ))),
@@ -309,6 +309,7 @@ default_model = "claude-sonnet-4-20250514"
     }
 
     #[test]
+    #[serial_test::serial]
     fn test_unsupported_provider_type() {
         let mut config = WorkspaceConfig::default();
         config.providers.insert(
@@ -359,6 +360,7 @@ default_model = "claude-sonnet-4-20250514"
     }
 
     #[test]
+    #[serial_test::serial]
     fn test_env_or_returns_fallback_when_unset() {
         #[allow(unsafe_code)]
         unsafe {
@@ -371,6 +373,7 @@ default_model = "claude-sonnet-4-20250514"
     }
 
     #[test]
+    #[serial_test::serial]
     fn test_env_or_returns_value_when_set() {
         #[allow(unsafe_code)]
         unsafe {
@@ -387,6 +390,7 @@ default_model = "claude-sonnet-4-20250514"
     }
 
     #[test]
+    #[serial_test::serial]
     fn test_env_or_ignores_empty_value() {
         #[allow(unsafe_code)]
         unsafe {
@@ -400,6 +404,7 @@ default_model = "claude-sonnet-4-20250514"
     }
 
     #[test]
+    #[serial_test::serial]
     fn test_from_env_uses_openai_model_override() {
         #[allow(unsafe_code)]
         unsafe {
@@ -424,7 +429,15 @@ default_model = "claude-sonnet-4-20250514"
     }
 
     #[test]
+    #[serial_test::serial]
     fn test_from_env_uses_anthropic_model_override() {
+        // Save and restore env vars to avoid polluting parallel tests.
+        let saved: Vec<(&'static str, Option<String>)> =
+            ["ANTHROPIC_API_KEY", "ANTHROPIC_MODEL"]
+                .iter()
+                .map(|k| (*k, std::env::var(k).ok()))
+                .collect();
+
         #[allow(unsafe_code)]
         unsafe {
             std::env::set_var("ANTHROPIC_API_KEY", "test-key")
@@ -436,86 +449,45 @@ default_model = "claude-sonnet-4-20250514"
         let config = WorkspaceConfig::from_env();
         let anthropic = config.providers.get("anthropic").unwrap();
         assert_eq!(anthropic.default_model.as_deref(), Some("custom-claude"));
-        #[allow(unsafe_code)]
-        unsafe {
-            std::env::remove_var("ANTHROPIC_MODEL")
-        };
-        #[allow(unsafe_code)]
-        unsafe {
-            std::env::remove_var("ANTHROPIC_API_KEY")
-        };
+
+        for (k, v) in saved {
+            #[allow(unsafe_code)]
+            match v {
+                Some(value) => unsafe { std::env::set_var(k, value) },
+                None => unsafe { std::env::remove_var(k) },
+            }
+        }
     }
 
     #[test]
+    #[serial_test::serial]
     fn test_from_env_returns_empty_providers_when_unset() {
         // Save and clear every provider env var so the test is hermetic.
-        let saved: Vec<(&'static str, Option<String>)> = [
-            "OPENAI_API_KEY",
-            "OPENAI_BASE_URL",
-            "OPENAI_MODEL",
-            "ANTHROPIC_API_KEY",
-            "ANTHROPIC_BASE_URL",
-            "ANTHROPIC_MODEL",
-        ]
-        .iter()
-        .map(|k| (*k, std::env::var(k).ok()))
-        .collect();
-        for (k, _) in &saved {
-            #[allow(unsafe_code)]
-            unsafe {
-                std::env::remove_var(k)
-            };
-        }
+        let saved = save_provider_env();
+        clear_provider_env(&saved);
         let config = WorkspaceConfig::from_env();
         assert!(
             config.providers.is_empty(),
             "expected no providers when no env vars are set"
         );
-        for (k, v) in saved {
-            #[allow(unsafe_code)]
-            match v {
-                Some(value) => unsafe { std::env::set_var(k, value) },
-                None => unsafe { std::env::remove_var(k) },
-            }
-        }
+        restore_provider_env(saved);
     }
 
     #[test]
-    fn test_load_from_dir_panics_without_config_or_env() {
-        use std::panic;
-
-        let saved: Vec<(&'static str, Option<String>)> = [
-            "OPENAI_API_KEY",
-            "OPENAI_BASE_URL",
-            "OPENAI_MODEL",
-            "ANTHROPIC_API_KEY",
-            "ANTHROPIC_BASE_URL",
-            "ANTHROPIC_MODEL",
-        ]
-        .iter()
-        .map(|k| (*k, std::env::var(k).ok()))
-        .collect();
-        for (k, _) in &saved {
-            #[allow(unsafe_code)]
-            unsafe {
-                std::env::remove_var(k)
-            };
-        }
+    #[serial_test::serial]
+    fn test_load_from_dir_returns_config_error_without_config_or_env() {
+        let saved = save_provider_env();
+        clear_provider_env(&saved);
 
         // Use a workspace root that definitely has no .agents/config.toml.
         let dir = tempfile_env_root();
-        let result = panic::catch_unwind(|| {
-            let _ = WorkspaceConfig::load_from_dir(&dir);
-        });
-        assert!(result.is_err(), "expected panic on missing config");
+        let result = WorkspaceConfig::load_from_dir(&dir);
+        assert!(
+            matches!(result, Err(Error::Config { .. })),
+            "expected Error::Config on missing config, got {result:?}"
+        );
 
-        for (k, v) in saved {
-            #[allow(unsafe_code)]
-            match v {
-                Some(value) => unsafe { std::env::set_var(k, value) },
-                None => unsafe { std::env::remove_var(k) },
-            }
-        }
+        restore_provider_env(saved);
     }
 
     fn tempfile_env_root() -> std::path::PathBuf {
@@ -525,5 +497,59 @@ default_model = "claude-sonnet-4-20250514"
             .join("..")
             .join("..")
             .join("target")
+    }
+
+    /// Snapshot every env var that `WorkspaceConfig::from_env` (or any
+    /// future bridge like `SYNTHIA_PROVIDER_API_KEY_*` injection) reads.
+    /// Tests must call this *before* mutating the environment so the
+    /// snapshot can be restored on the way out — without it, parallel
+    /// cargo-test workers can leak env state into each other and the
+    /// next test sees a polluted view.
+    fn save_provider_env() -> Vec<(String, Option<String>)> {
+        const STATIC_VARS: &[&str] = &[
+            "OPENAI_API_KEY",
+            "OPENAI_BASE_URL",
+            "OPENAI_MODEL",
+            "ANTHROPIC_API_KEY",
+            "ANTHROPIC_BASE_URL",
+            "ANTHROPIC_MODEL",
+        ];
+        let mut out: Vec<(String, Option<String>)> = STATIC_VARS
+            .iter()
+            .map(|k| ((*k).to_string(), std::env::var(k).ok()))
+            .collect();
+
+        // Catch any injected API key (e.g. from `synthia_server::config::yaml_bridge`)
+        // so a hermetic test doesn't accidentally observe one left behind
+        // by a previous test in the same process.
+        for (k, v) in std::env::vars() {
+            if k.starts_with("SYNTHIA_PROVIDER_API_KEY_") {
+                out.push((k, Some(v)));
+            }
+        }
+        out
+    }
+
+    #[allow(unsafe_code)]
+    fn clear_provider_env(saved: &[(String, Option<String>)]) {
+        for (k, _) in saved {
+            unsafe {
+                std::env::remove_var(k);
+            }
+        }
+    }
+
+    #[allow(unsafe_code)]
+    fn restore_provider_env(saved: Vec<(String, Option<String>)>) {
+        for (k, v) in saved {
+            match v {
+                Some(value) => unsafe {
+                    std::env::set_var(&k, value);
+                },
+                None => unsafe {
+                    std::env::remove_var(&k);
+                },
+            }
+        }
     }
 }

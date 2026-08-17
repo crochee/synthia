@@ -3,12 +3,12 @@
 
 use async_trait::async_trait;
 use futures::StreamExt;
-use synthia_core::Error;
+use synthia_core::{Error, RegistryItem};
 use tokio_util::sync::CancellationToken;
 
 use super::{provider::AnthropicProvider, types::AnthropicResponse};
 use crate::{
-    streaming::{AnthropicStreamEvent, StreamProcessorV2},
+    streaming::{AnthropicStreamEvent, StreamProcessor},
     traits::ModelProvider,
     types::{
         CompletionRequest,
@@ -62,7 +62,7 @@ impl ModelProvider for AnthropicProvider {
             target: "synthia.llm",
             tracing::Level::INFO,
             "llm.call",
-            gen_ai.system = %self.name(),
+            gen_ai.system = %crate::traits::ModelProvider::name(self),
             gen_ai.request.model = %request.model,
             gen_ai.response.finish_reason = tracing::field::Empty,
             gen_ai.usage.input_tokens = tracing::field::Empty,
@@ -90,14 +90,14 @@ impl ModelProvider for AnthropicProvider {
                         .get("retry-after")
                         .and_then(|v| v.to_str().ok())
                         .and_then(parse_retry_after);
-                    return Err(Error::RateLimited(retry_after));
+                    return Err(Error::rate_limited(retry_after));
                 }
                 if !status.is_success() {
                     let message = response.text().await.unwrap_or_default();
-                    return Err(Error::RequestFailed {
-                        status: status.as_u16(),
+                    return Err(Error::request_failed(
+                        status.as_u16(),
                         message,
-                    });
+                    ));
                 }
                 response
                     .json::<AnthropicResponse>()
@@ -111,7 +111,7 @@ impl ModelProvider for AnthropicProvider {
             Err(e) => {
                 #[cfg(feature = "otel")]
                 {
-                    llm_span.record("exception.type", e.code().to_string());
+                    llm_span.record("exception.type", e.kind());
                     llm_span.record("exception.message", e.to_string());
                     llm_span.record("otel.status_code", "ERROR");
                 }
@@ -144,8 +144,8 @@ impl ModelProvider for AnthropicProvider {
     }
 
     async fn embed(&self, _texts: Vec<String>) -> Result<Vec<Vec<f64>>, Error> {
-        Err(Error::Internal(
-            "Anthropic provider does not support embedding".to_string(),
+        Err(Error::internal(
+            "Anthropic provider does not support embedding",
         ))
     }
 
@@ -184,14 +184,11 @@ impl ModelProvider for AnthropicProvider {
                 .get("retry-after")
                 .and_then(|v| v.to_str().ok())
                 .and_then(crate::retry::parse_retry_after);
-            return Err(Error::RateLimited(retry_after));
+            return Err(Error::rate_limited(retry_after));
         }
         if !status.is_success() {
             let message = resp.text().await.unwrap_or_default();
-            return Err(Error::RequestFailed {
-                status: status.as_u16(),
-                message,
-            });
+            return Err(Error::request_failed(status.as_u16(), message));
         }
 
         // 2) Pull SSE bytes. We select! between the byte stream and
@@ -199,7 +196,7 @@ impl ModelProvider for AnthropicProvider {
         //    its body before we abort hard.
         const CANCEL_GRACE: std::time::Duration =
             std::time::Duration::from_secs(5);
-        let mut processor = StreamProcessorV2::new();
+        let mut processor = StreamProcessor::new();
         let mut byte_stream = resp.bytes_stream();
         let mut buf: Vec<u8> = Vec::new();
         let mut final_sampling: Option<SamplingResult> = None;
@@ -312,11 +309,12 @@ impl ModelProvider for AnthropicProvider {
             )
         };
         Ok(CompletionResponse {
-            id: ulid::Ulid::new().to_string(),
+            id: ulid::Ulid::generate().to_string(),
             model: request.model,
             content,
             usage: sampling.usage.clone(),
             cached: false,
+            stop_reason: sampling.stop_reason.clone(),
         })
     }
 }
@@ -334,5 +332,128 @@ pub(super) async fn wait_cancel(token: Option<CancellationToken>) {
         // actually park here in practice; the future is cancelled when
         // its corresponding select! branch is disabled by the guard.
         std::future::pending::<()>().await;
+    }
+}
+
+impl RegistryItem for AnthropicProvider {
+    fn name(&self) -> &str {
+        <Self as ModelProvider>::name(self)
+    }
+
+    fn description(&self) -> &str {
+        "Anthropic Claude model provider"
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::types::{ModelConfig, ProviderConfig};
+
+    fn provider() -> AnthropicProvider {
+        AnthropicProvider::new(ModelConfig {
+            name: "claude-3-5-sonnet".into(),
+            provider: "anthropic".into(),
+            context_window: 200_000,
+            max_output_tokens: 8_192,
+            supports_tools: true,
+            supports_streaming: true,
+            supports_reasoning: false,
+        })
+    }
+
+    // -- RegistryItem trait ----------------------------------------
+
+    /// `RegistryItem::name(self)`
+    /// MUST delegate to
+    /// `<Self as ModelProvider>::name(self)`
+    /// (return `"anthropic"`).
+    #[test]
+    fn registry_item_name_is_anthropic() {
+        let p = provider();
+        assert_eq!(crate::traits::ModelProvider::name(&p), "anthropic");
+        assert_eq!(<AnthropicProvider as RegistryItem>::name(&p), "anthropic");
+    }
+
+    /// `RegistryItem::description(self)`
+    /// MUST return the static
+    /// `"Anthropic Claude model provider"`
+    /// string.
+    #[test]
+    fn registry_item_description_is_static() {
+        let p = provider();
+        assert_eq!(
+            <AnthropicProvider as RegistryItem>::description(&p),
+            "Anthropic Claude model provider"
+        );
+    }
+
+    // -- ModelProvider trait (non-async methods) -------------------
+
+    /// `ModelProvider::name(self)`
+    /// MUST return `"anthropic"`
+    /// (used for routing keys).
+    #[test]
+    fn model_provider_name_is_anthropic() {
+        let p = provider();
+        assert_eq!(crate::traits::ModelProvider::name(&p), "anthropic");
+    }
+
+    /// `ModelProvider::model_config(self)`
+    /// MUST return a clone of the
+    /// internally-stored
+    /// `ModelConfig`.
+    #[test]
+    fn model_config_is_cloned_verbatim() {
+        let p = provider();
+        let m1 = p.model_config();
+        let m2 = p.model_config();
+        assert_eq!(m1.name, m2.name);
+        assert_eq!(m1.context_window, 200_000);
+        assert_eq!(m1.max_output_tokens, 8_192);
+    }
+
+    /// `ModelProvider::supports_inline_cache_hints(self)`
+    /// MUST return `true` for
+    /// Anthropic (Anthropic is one
+    /// of the two providers that
+    /// supports inline cache hints).
+    #[test]
+    fn anthropic_supports_inline_cache_hints() {
+        let p = provider();
+        assert!(p.supports_inline_cache_hints());
+    }
+
+    /// `ModelProvider::initialize(mut self, config)`
+    /// MUST store the API key from
+    /// `ProviderConfig::api_key`.
+    #[tokio::test]
+    async fn initialize_stores_api_key() {
+        let mut p = provider();
+        let cfg = ProviderConfig {
+            api_key: synthia_core::Sensitive::new("sk-test-key".into()),
+            base_url: None,
+            timeout_ms: None,
+            max_retries: None,
+        };
+        p.initialize(cfg).await.unwrap();
+        assert_eq!(p.api_key.as_deref(), Some("sk-test-key"));
+    }
+
+    /// `ModelProvider::initialize`
+    /// MUST return `Ok(())` on
+    /// success (not propagate any
+    /// error).
+    #[tokio::test]
+    async fn initialize_returns_ok() {
+        let mut p = provider();
+        let cfg = ProviderConfig {
+            api_key: synthia_core::Sensitive::new("k".into()),
+            base_url: None,
+            timeout_ms: None,
+            max_retries: None,
+        };
+        let result = p.initialize(cfg).await;
+        assert!(result.is_ok());
     }
 }

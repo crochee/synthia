@@ -28,7 +28,7 @@ THEN the dispatcher SHALL return `HookOutcome::Deny { reason }`
 
 ### Requirement: From ExtensionOutcome to HookOutcome conversion
 
-The system SHALL provide `impl From<ExtensionOutcome> for HookOutcome` in the `synthia-extension-v2` crate.
+The system SHALL provide `impl From<ExtensionOutcome> for HookOutcome` in the `synthia-extension-hook` crate.
 
 #### Scenario: Convert ExtensionOutcome Allow
 

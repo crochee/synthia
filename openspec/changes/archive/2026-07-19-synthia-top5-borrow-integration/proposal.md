@@ -91,7 +91,7 @@ Synthia master (`2f0a9ad`) 已完成 v3 agent-toolification，但仓库级实测
 ### 新增 crates
 
 - **新增**（3 个独立 crate，质量门禁后启用）：
-  - `synthia-extension-v2`（19 typed hook events，sandbox infrastructure）
+  - `synthia-extension-hook`（19 typed hook events，sandbox infrastructure）
   - `synthia-goal-service`（CodeGoalService + Keep/Set OCC）
   - `synthia-tool-materialization`（Materialization + identity + Provenance + Scope.fork）
 
@@ -118,13 +118,13 @@ Synthia master (`2f0a9ad`) 已完成 v3 agent-toolification，但仓库级实测
 - **风险 1**：service → [core, loop] 反向依赖循环（design-review H9 blocking）— 本 change 在 PR-3.1 通过 `OutputBound::Service` trait 抽象 + Capability contract 解决
 - **风险 2**：Plugin 沙箱（design-review B4 blocking）— 本 change 在 PR-2.3 实现 typed hook 签名 + capability-scoped execution，避免外进程沙箱依赖
 - **风险 3**：ToolContext `Arc<ServiceRegistry>` → CapabilityBroker（change #3 解决）
-- **依赖循环**：本 change 不引入跨 cycle 依赖；`synthia-event-v2` 仅依赖 `synthia-protocol` + `synthia-tool` traits；`synthia-extension-v2` 依赖 `synthia-event-v2` 单向
+- **依赖循环**：本 change 不引入跨 cycle 依赖；`synthia-event-v2` 仅依赖 `synthia-protocol` + `synthia-tool` traits；`synthia-extension-hook` 依赖 `synthia-event-v2` 单向
 
 ### 验证标准
 
 - [ ] `cargo +nightly fmt --all` 无改动
 - [ ] `cargo clippy --workspace --all-targets --all-features --tests -- -D warnings` 全绿
-- [ ] `cargo test -p synthia-event-v2` + `cargo test -p synthia-extension-v2` + 4 个 crate 验收测试全绿
+- [ ] `cargo test -p synthia-event-v2` + `cargo test -p synthia-extension-hook` + 4 个 crate 验收测试全绿
 - [ ] `cargo bench -p synthia-tool-materialization` 无 regression
 - [ ] docs/unified-registry-architecture-design.md + design-review.md 全部 checked items 标记
 - [ ] 8 个 capability spec.md 通过 OpenSpec CLI schema 校验

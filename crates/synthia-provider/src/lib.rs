@@ -1,18 +1,18 @@
 //! Synthia Provider: LLM provider abstraction with OpenAI-compatible and Anthropic implementations
 
 pub mod anthropic;
+pub mod cache_mark;
 pub mod cache_policy;
 pub mod config;
 pub mod context_overflow;
 pub mod error;
 pub mod openai;
 pub(crate) mod openai_streaming;
-pub mod registry;
 pub mod retry;
-pub mod router;
 pub mod streaming;
 pub mod token_counter;
 pub mod traits;
+pub mod traits_stub;
 pub mod types;
 pub mod validation;
 
@@ -20,6 +20,7 @@ pub mod validation;
 mod tests;
 
 pub use anthropic::AnthropicProvider;
+pub use cache_mark::{CacheControlMark, CacheScope, CacheTtl};
 pub use cache_policy::{
     CachePolicy,
     CachePolicyApplier,
@@ -34,7 +35,6 @@ pub use context_overflow::{
 };
 pub use error::ProviderError;
 pub use openai::OpenAICompatibleProvider;
-pub use registry::ProviderRegistry;
 pub use retry::{
     RetryConfig,
     is_retryable_error,
@@ -47,7 +47,6 @@ pub use streaming::{
     AnthropicStreamDelta,
     AnthropicStreamEvent,
 };
-pub use synthia_cache_mark::CacheControlMark;
 pub use token_counter::{TokenCounter, estimate_messages_token_count};
 pub use traits::{ModelProvider, StreamResult};
 pub use types::{

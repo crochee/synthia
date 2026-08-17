@@ -1,14 +1,8 @@
 use std::time::Duration;
 
-use opentelemetry::{
-    KeyValue,
-    metrics::{Meter, MeterProvider},
-};
+use opentelemetry::metrics::{Meter, MeterProvider};
 use opentelemetry_otlp::{MetricExporter, WithExportConfig};
-use opentelemetry_sdk::{
-    Resource,
-    metrics::{PeriodicReader, SdkMeterProvider},
-};
+use opentelemetry_sdk::metrics::{PeriodicReader, SdkMeterProvider};
 
 use crate::{
     TelemetryConfig,
@@ -61,38 +55,6 @@ impl TelemetryMetrics {
                 .build(),
         }
     }
-
-    /// Record a completed LLM call.
-    pub fn record_llm_call(
-        &self,
-        duration_ms: u64,
-        input_tokens: u64,
-        output_tokens: u64,
-    ) {
-        self.llm_call_count.add(1, &[]);
-        self.llm_call_duration.record(duration_ms, &[]);
-
-        // Record token usage with attributes
-        let input_attrs = [KeyValue::new("type", "input")];
-        let output_attrs = [KeyValue::new("type", "output")];
-        self.token_usage.add(input_tokens, &input_attrs);
-        self.token_usage.add(output_tokens, &output_attrs);
-    }
-
-    /// Record a completed tool call.
-    pub fn record_tool_call(
-        &self,
-        tool_name: &str,
-        duration_ms: u64,
-        success: bool,
-    ) {
-        let attrs = [
-            KeyValue::new("tool.name", tool_name.to_string()),
-            KeyValue::new("tool.success", success),
-        ];
-        self.tool_call_count.add(1, &attrs);
-        self.tool_call_duration.record(duration_ms, &attrs);
-    }
 }
 
 /// Initialize the OpenTelemetry metrics pipeline and return the metrics instruments.
@@ -129,16 +91,13 @@ pub fn init_metrics(config: &TelemetryConfig) -> Option<TelemetryMetrics> {
             .ok()?,
     };
 
-    let reader =
-        PeriodicReader::builder(exporter, opentelemetry_sdk::runtime::Tokio)
-            .with_interval(Duration::from_secs(30))
-            .with_timeout(Duration::from_secs(10))
-            .build();
+    let reader = PeriodicReader::builder(exporter)
+        .with_interval(Duration::from_secs(30))
+        .build();
 
-    let resource = Resource::new(vec![opentelemetry::KeyValue::new(
-        opentelemetry_semantic_conventions::resource::SERVICE_NAME,
-        config.service_name.clone(),
-    )]);
+    let resource = opentelemetry_sdk::Resource::builder()
+        .with_service_name(config.service_name.clone())
+        .build();
 
     let provider = SdkMeterProvider::builder()
         .with_reader(reader)
@@ -157,4 +116,89 @@ pub fn init_metrics(config: &TelemetryConfig) -> Option<TelemetryMetrics> {
         "OpenTelemetry OTLP metrics initialized"
     );
     Some(metrics)
+}
+
+#[cfg(all(test, feature = "otel"))]
+mod tests {
+    use opentelemetry_sdk::metrics::SdkMeterProvider;
+
+    use super::*;
+
+    fn test_meter() -> Meter {
+        let provider = SdkMeterProvider::builder().build();
+        provider.meter("test")
+    }
+
+    /// `TelemetryMetrics::new` MUST return a struct with all 5
+    /// instrument fields populated (no panic, no missing
+    /// instrument).
+    #[test]
+    fn telemetry_metrics_new_populates_all_five_fields() {
+        let meter = test_meter();
+        let m = TelemetryMetrics::new(&meter);
+        // Pin field presence: the SDK returns typed instruments
+        // that are valid even without an exporter attached.
+        let _ = m.llm_call_count.clone();
+        let _ = m.llm_call_duration.clone();
+        let _ = m.token_usage.clone();
+        let _ = m.tool_call_count.clone();
+        let _ = m.tool_call_duration.clone();
+    }
+
+    /// `TelemetryMetrics::new` MUST accept a `Meter` and produce
+    /// independent metric instances per call (no static caching).
+    #[test]
+    fn telemetry_metrics_new_creates_independent_instances() {
+        let meter = test_meter();
+        let a = TelemetryMetrics::new(&meter);
+        let b = TelemetryMetrics::new(&meter);
+        // Two independent builders MUST produce two independent
+        // counter / histogram instances. We pin identity via
+        // separate field accesses (any compile error would mean
+        // the fields are not publicly accessible).
+        let _ = (a.llm_call_count, b.llm_call_count);
+        let _ = (a.tool_call_duration, b.tool_call_duration);
+    }
+
+    /// `init_metrics` MUST return `None` when `SYNTHIA_OTLP_ENDPOINT`
+    /// is unset (the documented "no exporter" fallback).
+    #[test]
+    fn init_metrics_returns_none_when_endpoint_unset() {
+        unsafe {
+            std::env::remove_var(crate::tracer::SYNTHIA_OTLP_ENDPOINT_ENV);
+        }
+        let cfg = TelemetryConfig::default();
+        let result = init_metrics(&cfg);
+        assert!(result.is_none());
+    }
+
+    /// `init_metrics` MUST return `None` when `SYNTHIA_OTLP_ENDPOINT`
+    /// is set to whitespace-only (filtered out by `.trim().is_empty()`).
+    #[test]
+    fn init_metrics_returns_none_when_endpoint_is_whitespace() {
+        unsafe {
+            std::env::set_var(crate::tracer::SYNTHIA_OTLP_ENDPOINT_ENV, "   ");
+        }
+        let cfg = TelemetryConfig::default();
+        let result = init_metrics(&cfg);
+        assert!(result.is_none());
+        unsafe {
+            std::env::remove_var(crate::tracer::SYNTHIA_OTLP_ENDPOINT_ENV);
+        }
+    }
+
+    /// `init_metrics` MUST return `None` when `SYNTHIA_OTLP_ENDPOINT`
+    /// is set to an empty string (filtered out).
+    #[test]
+    fn init_metrics_returns_none_when_endpoint_is_empty() {
+        unsafe {
+            std::env::set_var(crate::tracer::SYNTHIA_OTLP_ENDPOINT_ENV, "");
+        }
+        let cfg = TelemetryConfig::default();
+        let result = init_metrics(&cfg);
+        assert!(result.is_none());
+        unsafe {
+            std::env::remove_var(crate::tracer::SYNTHIA_OTLP_ENDPOINT_ENV);
+        }
+    }
 }

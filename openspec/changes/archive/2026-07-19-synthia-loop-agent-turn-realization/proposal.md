@@ -42,6 +42,6 @@ Change #2 的目标是将 change #1 的基础设施 **消费** 到 main_loop 中
 
 - **Code**: `main_loop.rs` (1077→~850 行 after extraction), `LoopServices` (+5 fields), `HookBuilder` (deprecated), `BuilderSteps` (hook_dispatcher replaces hooks), new `UnifiedHookDispatcher` (~200 行), `steering.rs` (+1 priority level)
 - **API**: `HookBuilder::fire_*` → `#[deprecated]` (6-month window), new `UnifiedHookDispatcher::dispatch()` public API
-- **Dependencies**: `synthia-extension-v2` gains `synthia-hook` dep (for `From<ExtensionOutcome> for HookOutcome`)
+- **Dependencies**: `synthia-extension-hook` gains `synthia-hook` dep (for `From<ExtensionOutcome> for HookOutcome`)
 - **Backward compatibility**: Old `HookBuilder` path preserved behind feature flag for 6-month deprecation window; new `UnifiedHookDispatcher` is opt-in via `LoopServices`
 - **Runtime behavior**: Hook dispatch order changes (hook-first, then extension); ForwardToMainAgent now actually routes messages; GoalService can reject turn admission

@@ -4,9 +4,7 @@ version.workspace = true
 edition.workspace = true
 
 [dependencies]
-synthia-core = { path = "../synthia-core" }
-synthia-telemetry = { path = "../synthia-telemetry" }
-synthia-cache-mark = { path = "../synthia-cache-mark" }
+synthia-core.workspace = true
 async-trait.workspace = true
 # `rc` feature enables `Serialize`/`Deserialize` for `Arc<T>` so that
 # `CompletionRequest`'s `Arc<Vec<T>>` fields derive serde impls that
@@ -14,20 +12,17 @@ async-trait.workspace = true
 serde = { workspace = true, features = ["rc"] }
 serde_json.workspace = true
 thiserror.workspace = true
-anyhow.workspace = true
 futures.workspace = true
 reqwest.workspace = true
 tokio.workspace = true
 tokio-util = { workspace = true, features = ["rt"] }
 parking_lot.workspace = true
 tracing.workspace = true
-uuid.workspace = true
 ulid.workspace = true
 chrono.workspace = true
 regex.workspace = true
-async-stream.workspace = true
 toml.workspace = true
-rand.workspace = true
+ahash = "0.8"
 
 [features]
 default = []
@@ -39,7 +34,7 @@ otel = []
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["macros", "rt"] }
-tempfile.workspace = true
 wiremock.workspace = true
 futures.workspace = true
 tracing-subscriber.workspace = true
+serial_test = "4.0"

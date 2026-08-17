@@ -29,14 +29,12 @@ use opentelemetry::{
     InstrumentationScope,
     trace::{SpanContext, SpanId, SpanKind, Status, Tracer, TracerProvider},
 };
-use opentelemetry_sdk::{
-    export::trace::SpanData,
-    trace::{
-        SpanEvents,
-        SpanLinks,
-        SpanProcessor,
-        TracerProvider as SdkTracerProvider,
-    },
+use opentelemetry_sdk::trace::{
+    SdkTracerProvider,
+    SpanData,
+    SpanEvents,
+    SpanLinks,
+    SpanProcessor,
 };
 use synthia_telemetry::{
     SpanAttributesProcessor,
@@ -82,6 +80,7 @@ fn sample_span_data(name: &'static str) -> SpanData {
     SpanData {
         span_context: SpanContext::empty_context(),
         parent_span_id: SpanId::INVALID,
+        parent_span_is_remote: false,
         span_kind: SpanKind::Internal,
         name: Cow::Borrowed(name),
         start_time: std::time::SystemTime::now(),

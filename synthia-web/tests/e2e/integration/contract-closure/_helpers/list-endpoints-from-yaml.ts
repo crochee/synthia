@@ -32,13 +32,8 @@ const DEFAULT_CONTRACT_PATH = 'docs/interface-contract/contract.yaml';
 export function contractPath(): string {
   // Synthia-web/tests run with cwd == synthia-web/.  Contract.yaml lives
   // at repo root, so resolve from there.
-  const fromCwd = (process.env.CONTRACT_PATH ?? DEFAULT_CONTRACT_PATH).replace(
-    /^\.\//,
-    '',
-  );
-  return process.cwd().endsWith('synthia-web')
-    ? `../${fromCwd}`
-    : fromCwd;
+  const fromCwd = (process.env.CONTRACT_PATH ?? DEFAULT_CONTRACT_PATH).replace(/^\.\//, '');
+  return process.cwd().endsWith('synthia-web') ? `../${fromCwd}` : fromCwd;
 }
 
 export function loadEndpoints(path?: string): ContractEndpoint[] {

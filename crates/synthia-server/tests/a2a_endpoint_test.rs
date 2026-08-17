@@ -13,7 +13,7 @@ use tower::ServiceExt;
 
 async fn make_app() -> axum::Router {
     let temp = tempfile::TempDir::new().unwrap();
-    let session_manager = synthia_session::manager::SessionManager::new(
+    let session_manager = synthia_session::manager::SessionRegistry::new(
         temp.path().to_path_buf(),
     );
     let state =

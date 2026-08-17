@@ -7,7 +7,10 @@ export class ToolsPage extends BasePage {
     await this.waitForReady();
   }
 
+  /** Card titles — Radix Themes `<Card>` renders its title as an
+   *  `<h3>` via our `<Card>` wrapper, so the title list is the
+   *  list of `h3` elements under `<main>`. */
   get toolCards(): Locator {
-    return this.page.locator('.nt-card__title');
+    return this.page.locator('main h3');
   }
 }

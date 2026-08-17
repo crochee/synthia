@@ -60,7 +60,7 @@ Sequential chain (must NOT parallelize — deps on 1.x):
 
 ```
 Parallel batch (independent of A):
-  Task 2.1 PR-2.1 scaffold synthia-extension-v2
+  Task 2.1 PR-2.1 scaffold synthia-extension-hook
       ↓
       Task 2.2 PR-2.2 19 typed events
             ↓ (parallel)

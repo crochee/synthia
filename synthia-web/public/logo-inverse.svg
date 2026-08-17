@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Synthia primary logo lockup (symbol + wordmark), inverse colour way.
+
+  For dark surfaces: wordmark ink is hard-coded to #e6e8ee so the
+  lockup remains legible without depending on the host page's
+  `color` cascade. The React Header switches the image src based on
+  the active theme (`theme === 'dark' ? '/logo-inverse.svg' : '/logo.svg'`).
+  This is more portable than `currentColor` inside <img>, which the
+  browser does not propagate from the host document.
+-->
+<svg xmlns="http://www.w3.org/2000/svg"
+     viewBox="0 0 220 48"
+     role="img"
+     aria-label="Synthia">
+  <title>Synthia</title>
+
+  <g transform="translate(8, 8)">
+    <circle cx="16" cy="16" r="14"
+            fill="none"
+            stroke="#60a5fa"
+            stroke-width="2.5"/>
+    <circle cx="22" cy="16" r="7"
+            fill="#60a5fa"/>
+    <path d="M 16 2 A 14 14 0 0 1 30 16"
+          fill="none"
+          stroke="#22d3ee"
+          stroke-width="2.5"
+          stroke-linecap="round"/>
+  </g>
+
+  <g transform="translate(48, 0)"
+     font-family="'Inter var','Inter',system-ui,-apple-system,'Helvetica Neue',Arial,sans-serif"
+     font-weight="700"
+     font-size="20"
+     letter-spacing="2"
+     fill="#e6e8ee">
+    <text x="0" y="31">SYNTHIA</text>
+  </g>
+</svg>

@@ -1,26 +1,3 @@
-## Browser Automation
-
-Use `agent-browser` for web automation. Run `agent-browser --help` for all commands.
-
-Core workflow:
-
-1. `agent-browser open <url>` - Navigate to page
-2. `agent-browser snapshot -i` - Get interactive elements with refs (@e1, @e2)
-3. `agent-browser click @e1` / `fill @e2 "text"` - Interact using refs
-4. Re-snapshot after page changes
-
-<br />
-
-# Project Rules (MUST READ before starting any task)
-
-Before starting any task, read the following files:
-
-- `.trae/rules/agent_rule.md` — P1-P10 design principles (prefix consistency > append-only > interruptibility > distrust LLM > progressive degradation > lazy loading > recency anchoring > no information loss > observability > file as memory)
-- `.trae/rules/rust.md` — Rust coding conventions (`cargo +nightly fmt --all` + `cargo clippy --all-targets --all-features --tests --all`)
-- `CLAUDE.md` — Behavioral guidelines (think before coding, simplicity first, surgical changes, goal-driven execution, skills, task-centric execution)
-
-Key constraint: Do not proactively ask questions; explore the best path independently.
-
 # env
 
 真实llm api配置在.env中
@@ -38,7 +15,9 @@ Key constraint: Do not proactively ask questions; explore the best path independ
 详见 [crates/synthia-telemetry/README.md](crates/synthia-telemetry/README.md)。
 
 # 代码同步规范
-- 不主动push代码到远程仓库
 
+- 不主动push代码到远程仓库
 - find时不到万不得已，不使用find命令且是根目录下的文件
 - 搜索时，优先级应该是本地工作空间>HOME目录>其他目录
+- 统一使用 `rg`（ripgrep）替代 `grep`
+

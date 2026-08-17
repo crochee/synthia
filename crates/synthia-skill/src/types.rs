@@ -1,235 +1,207 @@
-use std::{collections::HashMap, path::PathBuf};
+use std::collections::HashMap;
 
-use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
-use synthia_core::Error;
 
+/// Frontmatter of a `SKILL.md` file.
+///
+/// Aligned with the Anthropic Agent Skills open standard
+/// ([`agentskills.io`](https://agentskills.io/specification)):
+/// `name` is required; `description` is recommended but
+/// optional; everything else is open-ended metadata.
+///
+/// Industry reference points:
+///
+/// - **Anthropic Agent Skills**: `name` (required, ≤64 chars,
+///   lowercase letters / digits / hyphens), `description`
+///   (recommended, ≤1024 chars, must describe both *what* and
+///   *when to use*).
+/// - **OpenAI Codex CLI**: same frontmatter shape, `name` only
+///   is required.
+/// - **GitHub Copilot / OpenCode / Grok Build**: same
+///   frontmatter shape; OpenCode uses the directory name when
+///   the `name` field is absent.
+///
+/// The body of `SKILL.md` (everything after the `---` closer)
+/// is loaded by [`crate::loader::SkillLoader::parse_body`] and
+/// exposed to the runtime as a plain `String`.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct SkillMetadata {
+    /// Skill identifier. Required. Matches the parent
+    /// directory name (verified at load time by
+    /// [`crate::loader::SkillLoader::parse_frontmatter`]).
     pub name: String,
-    pub description: String,
-    #[serde(default)]
-    pub triggers: Vec<String>,
-    #[serde(default)]
-    pub priority: i32,
-    pub license: Option<String>,
-    pub compatibility: Option<String>,
-    #[serde(default)]
-    pub allowed_tools: Vec<String>,
-    pub exec: Option<Vec<String>>,
-    pub version: Option<String>,
-    #[serde(default)]
-    pub tags: Vec<String>,
-    #[serde(default)]
-    pub depends_on: Vec<String>,
-    #[serde(default)]
-    pub conflicts_with: Vec<String>,
+    /// One-line description surfaced through the
+    /// `<available_skills>` prompt block so the model knows
+    /// when to invoke the skill. Optional — the model
+    /// falls back to the first non-empty line of the body
+    /// when this is absent, matching the Anthropic /
+    /// OpenCode convention.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+    /// Extension bag: projects can add custom keys without
+    /// changing this struct. Anthropic / OpenCode /
+    /// Grok Build all reserve a `metadata:` map for
+    /// vendor-specific fields (`allowed-tools`,
+    /// `category`, etc.).
     #[serde(default)]
     pub metadata: HashMap<String, serde_json::Value>,
-    #[serde(default)]
-    pub levels: SkillLevels,
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct Skill {
-    pub metadata: SkillMetadata,
-    pub body: String,
-    pub source: SkillSource,
-    pub level: SkillLevel,
-    pub token_count: SkillTokenCount,
-    pub state: SkillState,
-}
+#[cfg(test)]
+mod tests {
+    use super::*;
 
-#[derive(Clone, Debug, Default, Serialize, Deserialize)]
-pub struct SkillTokenCount {
-    pub level0: usize,
-    pub level1: usize,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub enum SkillState {
-    Loaded,
-    Activated,
-    Disabled,
-}
-
-#[derive(
-    Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize,
-)]
-pub enum SkillSource {
-    BuiltIn,
-    Project,
-    User,
-}
-
-impl SkillSource {
-    pub fn from_path(
-        path: &std::path::Path,
-        _builtin_root: &std::path::Path,
-        project_root: &std::path::Path,
-        user_root: &std::path::Path,
-    ) -> Self {
-        if path.starts_with(user_root) {
-            SkillSource::User
-        } else if path.starts_with(project_root) {
-            SkillSource::Project
-        } else {
-            SkillSource::BuiltIn
-        }
-    }
-}
-
-#[derive(Clone, Debug, PartialEq, Eq, Default, Serialize, Deserialize)]
-pub enum SkillLevel {
-    #[default]
-    Level0 = 0,
-    Level1 = 1,
-    Level2 = 2,
-}
-
-impl SkillLevel {
-    pub fn from_u8(value: u8) -> Option<Self> {
-        match value {
-            0 => Some(SkillLevel::Level0),
-            1 => Some(SkillLevel::Level1),
-            2 => Some(SkillLevel::Level2),
-            _ => None,
-        }
+    /// `SkillMetadata` MUST round-trip through
+    /// YAML identity — the same fields read back
+    /// as the same struct. This is the loading
+    /// contract for `SKILL.md` frontmatter.
+    #[test]
+    fn round_trip_through_yaml_is_identity() {
+        let original = SkillMetadata {
+            name: "code-review".to_string(),
+            description: Some("Review code".to_string()),
+            metadata: HashMap::new(),
+        };
+        let yaml = serde_yaml::to_string(&original).expect("serialize");
+        let parsed: SkillMetadata = serde_yaml::from_str(&yaml).expect("parse");
+        assert_eq!(parsed.name, original.name);
+        assert_eq!(parsed.description.as_deref(), Some("Review code"));
+        assert!(parsed.metadata.is_empty());
     }
 
-    pub fn as_u8(&self) -> u8 {
-        match self {
-            SkillLevel::Level0 => 0,
-            SkillLevel::Level1 => 1,
-            SkillLevel::Level2 => 2,
-        }
-    }
-}
-
-#[derive(Clone, Debug, Default, Serialize, Deserialize)]
-pub struct SkillLevels {
-    #[serde(default)]
-    pub level0: Option<String>,
-    #[serde(default)]
-    pub level1: Option<String>,
-    #[serde(default)]
-    pub level2: Option<String>,
-}
-
-impl SkillLevels {
-    pub fn new() -> Self {
-        Self {
-            level0: Some("name + description".to_string()),
-            level1: Some("detailed instructions".to_string()),
-            level2: Some("reference code snippets".to_string()),
-        }
+    /// `name` is a required field — missing it
+    /// MUST yield a deserialize error, not an
+    /// empty-string field. Pin the contract so a
+    /// refactor that adds `#[serde(default)]` to
+    /// `name` (which would silently accept
+    /// nameless skills) breaks loudly.
+    #[test]
+    fn missing_name_field_yields_deserialize_error() {
+        let yaml = "description: only description\n";
+        let err = serde_yaml::from_str::<SkillMetadata>(yaml).unwrap_err();
+        assert!(
+            err.to_string().to_lowercase().contains("name")
+                || err.to_string().to_lowercase().contains("missing"),
+            "error must mention name or missing; got {err}"
+        );
     }
 
-    pub fn get_level(&self, level: SkillLevel) -> Option<String> {
-        match level {
-            SkillLevel::Level0 => self.level0.clone(),
-            SkillLevel::Level1 => self.level1.clone(),
-            SkillLevel::Level2 => self.level2.clone(),
-        }
-    }
-}
-
-#[derive(Clone, Debug)]
-pub struct SkillMatch {
-    pub skill: Skill,
-    pub final_score: f64,
-    pub bm25_score: f64,
-    pub matched_by: MatchStrategy,
-}
-
-#[derive(Clone, Debug)]
-pub enum MatchStrategy {
-    Keyword,
-    BM25,
-    Vector,
-}
-
-#[derive(Clone, Debug, Default)]
-pub struct MatchConfig {
-    pub max_level0_inject: usize,
-    pub bm25_weight: f64,
-    pub priority_coefficient: f64,
-    pub min_match_score: f64,
-}
-
-impl MatchConfig {
-    pub fn new() -> Self {
-        Self {
-            max_level0_inject: 5,
-            bm25_weight: 1.0,
-            priority_coefficient: 0.1,
-            min_match_score: 0.5,
-        }
-    }
-}
-
-#[derive(Clone, Debug)]
-pub struct SkillPaths {
-    pub user_dir: PathBuf,
-    pub project_dir: PathBuf,
-    pub builtin_dir: PathBuf,
-}
-
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct SkillStateStore {
-    #[serde(default)]
-    pub disabled_skills: std::collections::HashSet<String>,
-}
-
-impl SkillStateStore {
-    pub fn load(path: &std::path::Path) -> Result<Self, Error> {
-        if path.exists() {
-            let content = std::fs::read_to_string(path)?;
-            Ok(serde_json::from_str(&content)?)
-        } else {
-            Ok(Self {
-                disabled_skills: std::collections::HashSet::new(),
-            })
-        }
+    /// `description` is OPTIONAL — aligned with the
+    /// Anthropic Agent Skills open standard, where only
+    /// `name` is required. Missing `description` MUST
+    /// deserialize into `None`, not panic or yield
+    /// an empty-string.
+    #[test]
+    fn missing_description_field_yields_none() {
+        let yaml = "name: x\n";
+        let parsed: SkillMetadata = serde_yaml::from_str(yaml).expect("parse");
+        assert_eq!(parsed.name, "x");
+        assert!(
+            parsed.description.is_none(),
+            "missing description must deserialize as None; got {:?}",
+            parsed.description
+        );
     }
 
-    pub fn save(&self, path: &std::path::Path) -> Result<(), Error> {
-        if let Some(parent) = path.parent() {
-            std::fs::create_dir_all(parent)?;
-        }
-        let content = serde_json::to_string_pretty(self)?;
-        std::fs::write(path, content)?;
-        Ok(())
+    /// `description: ""` (explicit empty) deserialises as
+    /// `Some("")` — the YAML layer preserves the empty
+    /// string. The loader (`SkillLoader::parse_frontmatter`)
+    /// is what normalises blank strings to `None` so callers
+    /// don't need to distinguish "missing" from "blank".
+    /// Pin both: raw deserialisation preserves, the loader
+    /// normalises.
+    #[test]
+    fn empty_description_is_preserved_through_yaml() {
+        let yaml = "name: x\ndescription: \"\"\n";
+        let parsed: SkillMetadata = serde_yaml::from_str(yaml).expect("parse");
+        assert_eq!(
+            parsed.description.as_deref(),
+            Some(""),
+            "serde_yaml preserves empty strings; normalisation \
+             happens in SkillLoader, not at the type layer"
+        );
     }
-}
 
-#[derive(Clone, Debug, Serialize)]
-pub struct SkillUsageStats {
-    pub skill_name: String,
-    pub use_count: usize,
-    pub success_count: usize,
-    pub failure_count: usize,
-    pub last_used: DateTime<Utc>,
-    pub context_summary: Option<String>,
-}
+    /// `metadata` is `#[serde(default)]` — a
+    /// frontmatter without `metadata:` MUST
+    /// deserialize into an empty HashMap, not
+    /// panic. This is the forward-compat
+    /// contract that lets skills opt out of
+    /// metadata cleanly.
+    #[test]
+    fn missing_metadata_defaults_to_empty_hashmap() {
+        let yaml = "name: x\ndescription: y\n";
+        let parsed: SkillMetadata = serde_yaml::from_str(yaml).expect("parse");
+        assert_eq!(parsed.metadata.len(), 0);
+    }
 
-/// Aggregated usage statistics for a skill including match and activation counts.
-#[derive(Clone, Debug, Default, Serialize, Deserialize)]
-pub struct SkillUsageRecord {
-    pub skill_name: String,
-    pub match_count: usize,
-    pub activation_count: usize,
-    pub estimated_token_cost: usize,
-    pub last_matched: Option<DateTime<Utc>>,
-    pub last_activated: Option<DateTime<Utc>>,
-}
+    /// `metadata` is also a valid round-trip
+    /// for arbitrary JSON values — this is the
+    /// extension point projects use to add
+    /// custom fields without changing this
+    /// struct.
+    #[test]
+    fn metadata_with_arbitrary_json_values_round_trips() {
+        let yaml = r#"
+name: x
+description: y
+metadata:
+  category: tooling
+  priority: 5
+  enabled: true
+  tags: [rust, ai]
+"#;
+        let parsed: SkillMetadata = serde_yaml::from_str(yaml).expect("parse");
+        assert_eq!(
+            parsed.metadata.get("category").unwrap(),
+            &serde_json::json!("tooling")
+        );
+        assert_eq!(
+            parsed.metadata.get("priority").unwrap(),
+            &serde_json::json!(5)
+        );
+        assert_eq!(
+            parsed.metadata.get("enabled").unwrap(),
+            &serde_json::json!(true)
+        );
+        // YAML arrays become JSON arrays.
+        assert_eq!(
+            parsed.metadata.get("tags").unwrap(),
+            &serde_json::json!(["rust", "ai"])
+        );
+    }
 
-/// Aggregated global skill statistics.
-#[derive(Clone, Debug, Default, Serialize, Deserialize)]
-pub struct SkillGlobalStats {
-    pub total_skills: usize,
-    pub active_skills: usize,
-    pub total_token_usage: usize,
-    pub total_matches: usize,
-    pub total_activations: usize,
+    /// JSON round-trip MUST also work (forward-
+    /// compat with non-YAML frontmatter
+    /// dialects, e.g. `.json` skill manifests).
+    #[test]
+    fn round_trip_through_json_is_identity() {
+        let original = SkillMetadata {
+            name: "x".to_string(),
+            description: Some("y".to_string()),
+            metadata: HashMap::new(),
+        };
+        let json = serde_json::to_string(&original).expect("serialize");
+        let parsed: SkillMetadata = serde_json::from_str(&json).expect("parse");
+        assert_eq!(parsed.name, original.name);
+        assert_eq!(parsed.description.as_deref(), Some("y"));
+    }
+
+    /// `description: None` serialises WITHOUT the
+    /// `description` key (Anthropic convention —
+    /// a missing key reads back as missing, not
+    /// as `null`).
+    #[test]
+    fn missing_description_does_not_serialize_as_null() {
+        let m = SkillMetadata {
+            name: "x".to_string(),
+            description: None,
+            metadata: HashMap::new(),
+        };
+        let yaml = serde_yaml::to_string(&m).expect("serialize");
+        assert!(
+            !yaml.contains("description"),
+            "missing description must not serialise; got:\n{yaml}"
+        );
+    }
 }

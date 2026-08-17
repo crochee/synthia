@@ -1,22 +1,25 @@
-pub mod agent_metrics;
-pub mod compaction_analytics;
-pub mod context_trace;
-pub mod events;
 pub mod metrics;
-pub mod sensitive;
+pub mod propagation;
 pub mod span;
-pub mod span_context;
 pub mod tracer;
 
-pub use agent_metrics::{
-    AgentMetricsConfig,
-    AgentMetricsReport,
-    EnhancedMetricsCollector,
+#[cfg(feature = "otel")]
+pub use metrics::TelemetryMetrics;
+pub use propagation::{
+    ExtractedTraceContext,
+    InjectedTraceContext,
+    TRACEPARENT_HEADER,
+    TRACESTATE_HEADER,
+    X_TRACE_ID_HEADER,
+    extract_trace_context,
+    format_span_id,
+    format_trace_id,
+    inject_trace_context,
+    parse_span_id,
+    parse_trace_id,
+    parse_trace_state,
+    register_global_propagator,
 };
-pub use compaction_analytics::{CompactionAnalyticsAttempt, CompactionTrigger};
-pub use context_trace::{ApiCallTrace, ContextTracer, compute_prefix_hash};
-pub use metrics::{MetricsCollector, MetricsReport};
-pub use sensitive::*;
 #[cfg(feature = "otel")]
 pub use span::SpanAttributesProcessor;
 pub use span::{
@@ -32,7 +35,6 @@ pub use span::{
     create_step_span,
     create_tool_execution_span,
 };
-pub use span_context::*;
 use synthia_core::Error;
 pub use tracer::*;
 use tracing_subscriber::{
@@ -115,7 +117,7 @@ pub fn init_tracing(
             #[cfg(feature = "otel")]
             {
                 init_otlp_tracing(config)
-                    .map_err(|e| Error::Telemetry(e.to_string()))
+                    .map_err(|e| Error::telemetry(e.to_string()))
             }
             #[cfg(not(feature = "otel"))]
             {
@@ -157,7 +159,7 @@ fn init_console_with_file(
         .with(console_layer)
         .try_init()
         .map_err(|e| {
-            Error::Telemetry(format!("Failed to init tracing: {e}"))
+            Error::telemetry(format!("Failed to init tracing: {e}"))
         })?;
 
     tracing::info!(

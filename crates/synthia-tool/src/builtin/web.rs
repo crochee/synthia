@@ -1,22 +1,28 @@
 use std::collections::HashSet;
 
-use async_trait::async_trait;
 use reqwest::Client;
+use schemars_derive::JsonSchema;
 use serde::Deserialize;
-use serde_json::json;
+use synthia_core::cap_to_char_boundary;
 
 use crate::{
-    builtin::utf8_safe::cap_to_char_boundary,
-    traits::Tool,
-    types::{ToolInput, ToolOutput},
+    traits::{ExecutionMode, Tool},
+    types::{Context, ToolOutput},
 };
 
 const MAX_RESPONSE_BYTES: usize = 64 * 1024;
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, JsonSchema)]
+#[schemars(extend("additionalProperties" = false))]
 struct WebFetchArgs {
+    #[schemars(description = "URL to fetch content from.")]
     url: String,
     #[serde(default)]
+    #[schemars(
+        range(min = 1),
+        extend("default" = MAX_RESPONSE_BYTES),
+        description = "Maximum response length to return (bytes). Default: 65536."
+    )]
     max_length: Option<usize>,
 }
 
@@ -62,7 +68,7 @@ impl Default for WebFetchTool {
     }
 }
 
-#[async_trait]
+#[async_trait::async_trait]
 impl Tool for WebFetchTool {
     fn name(&self) -> &str {
         "web_fetch"
@@ -73,43 +79,33 @@ impl Tool for WebFetchTool {
     }
 
     fn parameters(&self) -> serde_json::Value {
-        json!({
-            "type": "object",
-            "required": ["url"],
-            "properties": {
-                "url": {
-                    "type": "string",
-                    "description": "URL to fetch content from"
-                },
-                "max_length": {
-                    "type": "integer",
-                    "description": "Maximum content length to return"
-                }
+        // Schema is generated from `WebFetchArgs` via `schemars`,
+        // so the type and the LLM-facing schema cannot drift —
+        // including `additionalProperties: false` and the
+        // `max_length` default, all declared inline via
+        // `#[schemars(extend(...))]`.
+        serde_json::to_value(schemars::schema_for!(WebFetchArgs))
+            .expect("WebFetchArgs schema is always serializable")
+    }
+
+    fn mode(&self) -> ExecutionMode {
+        // web_fetch hits external services; treat as
+        // sequential so the orchestrator does not parallelise
+        // it with sibling mutating tools in the same batch.
+        ExecutionMode::Sequential
+    }
+
+    async fn call(
+        &self,
+        input: serde_json::Value,
+        _context: &Context,
+    ) -> ToolOutput {
+        let args: WebFetchArgs = match serde_json::from_value(input) {
+            Ok(a) => a,
+            Err(e) => {
+                return ToolOutput::error(format!("Invalid arguments: {}", e));
             }
-        })
-    }
-
-    fn requires_permission(&self) -> bool {
-        true
-    }
-
-    fn is_concurrency_safe(&self) -> bool {
-        // Pure GET request — no shared mutable state. Multiple parallel
-        // fetches to different URLs are safe.
-        true
-    }
-
-    async fn call(&self, input: ToolInput) -> ToolOutput {
-        let args: WebFetchArgs =
-            match serde_json::from_value(input.input.clone()) {
-                Ok(a) => a,
-                Err(e) => {
-                    return ToolOutput::error(format!(
-                        "Invalid arguments: {}",
-                        e
-                    ));
-                }
-            };
+        };
 
         if args.url.is_empty() {
             return ToolOutput::error("Missing URL parameter");
@@ -186,12 +182,19 @@ impl WebFetchTool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::types::Context;
 
-    #[test]
-    fn test_web_fetch_is_concurrency_safe() {
-        // Pure GET — parallel fetches to different URLs are safe.
+    fn make_context() -> Context {
+        Context::new("s1".to_string(), std::path::PathBuf::from("/tmp"))
+    }
+
+    #[tokio::test]
+    async fn test_web_fetch_empty_url_returns_error() {
         let tool = WebFetchTool::new();
-        assert!(tool.is_concurrency_safe());
+        let output = tool
+            .call(serde_json::json!({"url": ""}), &make_context())
+            .await;
+        assert!(output.is_error.unwrap_or(false));
     }
 
     #[test]
@@ -208,5 +211,53 @@ mod tests {
         let tool = WebFetchTool::new().with_allowed_hosts(hosts);
         assert!(tool.is_url_allowed("https://allowed.example/path"));
         assert!(!tool.is_url_allowed("https://blocked.example/path"));
+    }
+
+    /// Pin the JSON-Schema shape for `web_fetch` so future drift in
+    /// either the schema, the typed `WebFetchArgs`, or the runtime
+    /// `#[serde(default)]` semantics breaks here instead of at
+    /// the LLM boundary.
+    #[test]
+    fn parameters_schema_is_self_consistent() {
+        let tool = WebFetchTool::new();
+        let params = tool.parameters();
+        assert_eq!(params["type"], "object");
+        let required: Vec<&str> = params["required"]
+            .as_array()
+            .expect("required")
+            .iter()
+            .filter_map(|v| v.as_str())
+            .collect();
+        assert_eq!(required, vec!["url"]);
+
+        let props = params["properties"].as_object().expect("properties");
+        let url = props["url"].as_object().expect("url");
+        assert_eq!(url["type"], "string");
+        assert!(url["description"].as_str().is_some());
+
+        let max_len = props["max_length"].as_object().expect("max_length");
+        let ty = &max_len["type"];
+        assert!(
+            ty == "integer"
+                || ty.as_array().is_some_and(|arr| {
+                    arr.iter().any(|v| v == "integer")
+                        && arr.iter().any(|v| v == "null")
+                }),
+            "max_length type should be integer or [integer, null], got: {ty}"
+        );
+        assert_eq!(
+            max_len["minimum"].as_f64().unwrap() as u64,
+            1,
+            "max_length must require a positive integer"
+        );
+        assert_eq!(
+            max_len["default"], MAX_RESPONSE_BYTES,
+            "max_length schema default must match runtime default"
+        );
+
+        assert_eq!(
+            params["additionalProperties"], false,
+            "additional fields must be rejected to match serde_json::from_value"
+        );
     }
 }

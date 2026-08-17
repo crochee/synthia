@@ -34,15 +34,15 @@ The current `main_loop.rs` is 1077 lines with `run_with_steps` spanning L101-936
 
 **Options**:
 
-1. **Re-export pattern**: `synthia-extension-v2` re-exports `HookOutcome` from `synthia-hook` and uses it directly. Extension callbacks return `HookOutcome` instead of `ExtensionOutcome`.
+1. **Re-export pattern**: `synthia-extension-hook` re-exports `HookOutcome` from `synthia-hook` and uses it directly. Extension callbacks return `HookOutcome` instead of `ExtensionOutcome`.
    - ✅ Zero duplication, single type to match on
-   - ❌ Creates `synthia-extension-v2 → synthia-hook` dependency
+   - ❌ Creates `synthia-extension-hook → synthia-hook` dependency
 
 2. **Bridge enum**: Define `UnifiedOutcome` in `synthia-agent` that converts from both.
    - ✅ No cross-crate dependency
    - ❌ Third enum to maintain, conversion boilerplate
 
-3. **Into conversion**: `impl From<ExtensionOutcome> for HookOutcome` in `synthia-extension-v2`.
+3. **Into conversion**: `impl From<ExtensionOutcome> for HookOutcome` in `synthia-extension-hook`.
    - ✅ Ergonomic, no new types
    - ❌ Still two source types, but convertible
 

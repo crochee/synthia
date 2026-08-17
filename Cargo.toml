@@ -2,73 +2,29 @@
 members = [
     "crates/synthia-core",
     "crates/synthia-telemetry",
-    "crates/synthia-hook",
     "crates/synthia-provider",
-    "crates/synthia-context",
     "crates/synthia-tool",
-    "crates/synthia-permission",
-    "crates/synthia-tool-orchestrator",
-    "crates/synthia-sandbox",
-    "crates/synthia-tool-bash",
-    "crates/synthia-tool-exec-base",
-    "crates/synthia-mcp",
-    "crates/synthia-command",
     "crates/synthia-skill",
     "crates/synthia-session",
-    "crates/synthia-memory",
-    "crates/synthia-task",
     "crates/synthia-agent",
-    "crates/synthia-evaluation",
-    "crates/synthia-cli",
     "crates/synthia-server",
-    "crates/synthia-job",
-    "crates/synthia-e2e",
-    "crates/synthia-plugin",
-    "crates/synthia-message-proxy",
-    "crates/synthia-cache-mark",
-    "crates/synthia-protocol",
-    "crates/synthia-service",
-    "crates/synthia-event-v2",
-    "crates/synthia-extension-v2",
-    "crates/synthia-goal-service",
-    "crates/synthia-tool-materialization",
-    "crates/synthia-a2a",
     "test-support",
 ]
 resolver = "2"
 
-[package]
-name = "synthia-examples"
-version.workspace = true
-edition.workspace = true
-
-[dependencies]
-synthia-agent = { path = "crates/synthia-agent" }
+[workspace.dependencies]
+synthia-core = { path = "crates/synthia-core" }
+synthia-telemetry = { path = "crates/synthia-telemetry" }
 synthia-provider = { path = "crates/synthia-provider" }
 synthia-tool = { path = "crates/synthia-tool" }
 synthia-skill = { path = "crates/synthia-skill" }
-synthia-context = { path = "crates/synthia-context" }
-synthia-hook = { path = "crates/synthia-hook" }
 synthia-session = { path = "crates/synthia-session" }
-synthia-plugin = { path = "crates/synthia-plugin" }
-tracing = "0.1"
-tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+synthia-agent = { path = "crates/synthia-agent" }
+synthia-server = { path = "crates/synthia-server" }
 test-support = { path = "test-support" }
-tokio.workspace = true
-futures.workspace = true
-serde_json.workspace = true
-tokio-util.workspace = true
-dotenv = "0.15"
-anyhow.workspace = true
-
-[workspace.dependencies]
-synthia-core = { path = "crates/synthia-core" }
-synthia-context = { path = "crates/synthia-context" }
-synthia-protocol = { path = "crates/synthia-protocol" }
-synthia-service = { path = "crates/synthia-service" }
 
 # Async runtime
-tokio = { version = "1", features = ["full"] }
+tokio = { version = "1.53", features = ["full"] }
 tokio-stream = { version = "0.1", features = ["sync"] }
 tokio-util = "0.7"
 async-trait = "0.1"
@@ -76,91 +32,96 @@ futures = "0.3"
 async-stream = "0.3"
 
 # Serialization
-serde = { version = "1", features = ["derive"] }
-serde_json = "1"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
 toml = "0.8"
+schemars = { version = "1.2", features = ["derive", "preserve_order"] }
+schemars_derive = "1.2"
 
 # Error handling
-thiserror = "2"
-anyhow = "1"
+thiserror = "2.0"
+anyhow = "1.0"
 
 # Utilities
-ulid = { version = "1", features = ["serde"] }
+ulid = { version = "3.0", features = ["serde"] }
 chrono = { version = "0.4", features = ["serde"] }
-uuid = { version = "1", features = ["v4", "serde"] }
-indexmap = "2"
+uuid = { version = "1.24", features = ["v4", "serde"] }
+indexmap = "2.14"
 parking_lot = "0.12"
 
 # HTTP server
 axum = { version = "0.8", features = ["ws"] }
 tower = "0.5"
-tower-http = { version = "0.6", features = ["trace"] }
-hyper = "1"
+tower-http = { version = "0.7", features = ["trace", "cors", "fs"] }
+http = "1.5"
 
 # HTTP client
-reqwest = { version = "0.12", features = ["json", "stream"] }
-percent-encoding = "2"
+reqwest = { version = "0.13", features = ["json", "stream"] }
 
 # Tracing
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
-opentelemetry = "0.27"
-opentelemetry-otlp = "0.27"
-tracing-opentelemetry = "0.28"
+opentelemetry = "0.32"
+opentelemetry-otlp = "0.32"
+tracing-opentelemetry = "0.33"
 
-# MCP
-rmcp = { version = "0.1", features = ["server", "client", "transport-child-process"] }
-
-# Schema
-schemars = "0.8"
+# Encoding
+base64 = "0.22"
 
 # Additional utilities
-dashmap = "5"
-regex = "1"
-glob = "0.3"
-lazy_static = "1"
+dashmap = "6.2"
+regex = "1.13"
+lazy_static = "1.5"
 sha2 = "0.10"
 hex = "0.4"
-tokio-tungstenite = "0.24"
-semver = "1"
+tokio-tungstenite = "0.29"
 
 # Testing
-mockall = "0.13"
-tempfile = "3"
+tempfile = "3.8"
 wiremock = "0.6"
-rand = "0.8"
-dotenv = "0.15"
+dotenvy = "0.15"
 http-body-util = "0.1"
 
 # CLI
-clap = { version = "4", features = ["derive"] }
-crossterm = "0.28"
-rustyline = "15"
-
-# Database (for memory cold storage)
-sqlx = { version = "0.8", features = ["runtime-tokio", "sqlite"] }
-rusqlite = { version = "0.32", features = ["bundled"] }
+clap = { version = "4.6", features = ["derive"] }
 
 # YAML parsing
 serde_yaml = "0.9"
-
-# File watching
-notify = "7"
 
 [workspace.package]
 version = "0.1.0"
 edition = "2024"
 rust-version = "1.95"
 
-[dev-dependencies]
-synthia-hook = { path = "crates/synthia-hook" }
-synthia-tool = { path = "crates/synthia-tool" }
-synthia-provider = { path = "crates/synthia-provider" }
-synthia-telemetry = { path = "crates/synthia-telemetry" }
-synthia-memory = { path = "crates/synthia-memory" }
-tokio.workspace = true
-futures.workspace = true
-serde_json.workspace = true
-serde.workspace = true
-async-trait.workspace = true
-tempfile.workspace = true
+# --- Release profile ---
+#
+# Optimised for low-latency request handling on a single
+# long-lived server process. Compared to Cargo's defaults we:
+#   - drop `debug` symbols (`0` ⇒ fastest link, smallest binary).
+#     Profile-guided optimisation requires symbols so we keep
+#     `1` if/when PGO is wired in; until then `0` wins on
+#     cold-start time and RSS, which is the metric that matters
+#     for a chat server that streams many small responses.
+#   - enable thin LTO (`"thin"`) — full LTO gives ~5% throughput
+#     on hot paths but blows the build time from minutes to hours;
+#     thin LTO is the sweet spot for a server binary that still
+#     builds in seconds.
+#   - set `codegen-units = 1` so the compiler can inline across
+#     crate boundaries (the LTO step). The default of 16 enables
+#     faster parallel compilation but leaves ~10% of optimisations
+#     on the table.
+#   - bump `opt-level = 3` (Cargo's default) to keep the
+#     tightest scalar / loop optimisations on.
+#
+# `panic = "abort"` is intentionally left at the default
+# ("unwind") — turning it to abort would shrink the binary by a
+# few hundred KB at the cost of an opaque crash dump, and the
+# server-side middleware already converts panics to JSON 500s
+# before they ever reach the unwinder (see
+# `middleware/error_handler.rs`).
+[profile.release]
+opt-level = 3
+lto = "thin"
+codegen-units = 1
+debug = 0
+strip = "symbols"

@@ -1,22 +1,32 @@
-import type { HTMLAttributes, ReactNode } from 'react';
-import './Card.css';
+import { Card as RadixCard, Heading, Text } from '@radix-ui/themes';
+import type { ReactNode } from 'react';
 
-export interface CardProps extends HTMLAttributes<HTMLDivElement> {
-  title?: string;
-  glow?: 'green' | 'cyan' | 'red' | 'none';
+export interface CardProps {
+  title?: ReactNode;
+  /** Visual variant — Radix `variant` prop on Card */
+  variant?: 'surface' | 'classic' | 'ghost';
   children: ReactNode;
+  className?: string;
 }
 
 /**
- * Neon Terminal-styled content card.
- * Renders a bordered container with optional title and glow effect.
+ * Wrapper around Radix Themes' Card primitive.
+ *
+ * - `variant="surface"` (default) = white card with subtle border.
+ * - `variant="classic"` = background-tinted card.
+ * - `variant="ghost"` = borderless card for embedded use.
  */
-export function Card({ title, glow = 'green', className, children, ...rest }: CardProps) {
-  const classes = ['nt-card', `nt-card--glow-${glow}`, className].filter(Boolean).join(' ');
+export function Card({ title, variant = 'surface', className, children }: CardProps) {
   return (
-    <div className={classes} {...rest}>
-      {title && <div className="nt-card__title">{title}</div>}
-      <div className="nt-card__body">{children}</div>
-    </div>
+    <RadixCard variant={variant} className={className}>
+      {title && (
+        <Heading as="h3" size="3" mb="2" weight="medium">
+          {title}
+        </Heading>
+      )}
+      <Text as="div" size="2">
+        {children}
+      </Text>
+    </RadixCard>
   );
 }

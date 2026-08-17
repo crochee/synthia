@@ -9,8 +9,11 @@
 //!   `anthropic-version`, `content-type`, and
 //!   `anthropic-beta` headers plus optional `x-api-key`
 //!   auth. The outgoing body is logged at
-//!   `tracing::info!` level under the
-//!   `synthia_provider::anthropic::debug` target.
+//!   `tracing::debug!` level under the
+//!   `synthia_provider::anthropic::debug` target
+//!   (downgraded from `info!` to avoid leaking user
+//!   prompts / system prompts / API keys into production
+//!   logs at default verbosity).
 
 use synthia_core::Error;
 
@@ -26,9 +29,8 @@ impl AnthropicProvider {
         let body = self.transform_request(request);
         let body_json = serde_json::to_string(&body).unwrap_or_default();
 
-        tracing::info!(target: "synthia_provider::anthropic::debug",
+        tracing::debug!(target: "synthia_provider::anthropic::debug",
             url = %url,
-            body = %body_json,
             body_len = body_json.len(),
             "Anthropic outgoing request body"
         );

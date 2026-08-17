@@ -1,7 +1,6 @@
 use std::time::Duration;
 
 use synthia_core::Error;
-use tracing::{error, warn};
 
 #[derive(Debug, Clone, Default)]
 pub enum RetryPolicy {
@@ -52,104 +51,6 @@ impl Default for RetryConfig {
     }
 }
 
-pub struct RetryExecutor {
-    config: RetryConfig,
-}
-
-impl RetryExecutor {
-    pub fn new(config: RetryConfig) -> Self {
-        Self { config }
-    }
-
-    pub fn from_policy(policy: RetryPolicy) -> Self {
-        Self::new(policy.config())
-    }
-
-    pub async fn execute<F, Fut, T>(
-        &self,
-        operation_name: &str,
-        operation: F,
-    ) -> Result<T, Error>
-    where
-        F: FnMut() -> Fut,
-        Fut: std::future::Future<Output = Result<T, Error>>,
-    {
-        let mut operation = operation;
-        let mut attempts = 0u32;
-        let mut delay_ms = self.config.initial_interval_ms;
-        let start = std::time::Instant::now();
-
-        loop {
-            attempts += 1;
-
-            match operation().await {
-                Ok(result) => return Ok(result),
-                Err(e) => {
-                    if !e.is_retryable() || attempts >= self.config.max_attempts
-                    {
-                        if attempts >= self.config.max_attempts {
-                            error!(
-                                attempts,
-                                error = %e,
-                                operation = operation_name,
-                                "All retries exhausted after {} attempts",
-                                attempts
-                            );
-                        }
-                        return Err(e);
-                    }
-
-                    let elapsed_ms = start.elapsed().as_millis() as u64;
-                    if elapsed_ms >= self.config.max_elapsed_ms {
-                        error!(
-                            attempts,
-                            elapsed_ms,
-                            error = %e,
-                            operation = operation_name,
-                            "Retry exhausted: max elapsed time exceeded"
-                        );
-                        return Err(Error::RetryExhausted {
-                            attempts,
-                            last_error: Box::new(e),
-                        });
-                    }
-
-                    if e.is_rate_limited()
-                        && let Error::RateLimited(Some(retry_after)) = &e
-                    {
-                        warn!(
-                            retry_after_secs = retry_after.as_secs(),
-                            operation = operation_name,
-                            attempt = attempts,
-                            "Rate limited, waiting for Retry-After"
-                        );
-                        tokio::time::sleep(*retry_after).await;
-                        continue;
-                    }
-
-                    let jitter =
-                        (rand::random::<f64>() * 0.1 * delay_ms as f64) as u64;
-                    let actual_delay =
-                        (delay_ms + jitter).min(self.config.max_interval_ms);
-
-                    warn!(
-                        attempt = attempts,
-                        max_attempts = self.config.max_attempts,
-                        delay_ms = actual_delay,
-                        error = %e,
-                        operation = operation_name,
-                        "Retrying operation"
-                    );
-
-                    delay_ms = (delay_ms * 2).min(self.config.max_interval_ms);
-                    tokio::time::sleep(Duration::from_millis(actual_delay))
-                        .await;
-                }
-            }
-        }
-    }
-}
-
 pub fn is_retryable_error(status: u16) -> bool {
     matches!(status, 429 | 500 | 502 | 503 | 504)
 }
@@ -194,14 +95,14 @@ where
 
                 let elapsed_ms = start.elapsed().as_millis() as u64;
                 if elapsed_ms >= config.max_elapsed_ms {
-                    return Err(Error::RetryExhausted {
-                        attempts,
-                        last_error: Box::new(e),
-                    });
+                    return Err(Error::retry_exhausted(attempts, e));
                 }
 
                 if e.is_rate_limited()
-                    && let Error::RateLimited(Some(retry_after)) = &e
+                    && let Error::RateLimited {
+                        retry_after: Some(retry_after),
+                        ..
+                    } = &e
                 {
                     tokio::time::sleep(*retry_after).await;
                     continue;
@@ -243,14 +144,15 @@ where
 
                 let elapsed_ms = start.elapsed().as_millis() as u64;
                 if elapsed_ms >= config.max_elapsed_ms {
-                    return Err(Error::RetryExhausted {
-                        attempts,
-                        last_error: Box::new(e),
-                    });
+                    return Err(Error::retry_exhausted(attempts, e));
                 }
 
                 if e.is_rate_limited() {
-                    if let Error::RateLimited(Some(duration)) = &e {
+                    if let Error::RateLimited {
+                        retry_after: Some(duration),
+                        ..
+                    } = &e
+                    {
                         tokio::time::sleep(*duration).await;
                         continue;
                     }

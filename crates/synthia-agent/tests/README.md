@@ -9,9 +9,8 @@ The `synthia-agent/tests/` directory contains end-to-end (E2E) and integration t
 ```
 tests/
 ├── test_support.rs           # Shared test infrastructure (FakeProvider, mock tools)
-├── guardian_permission_gate.rs # Guardian blocking behavior tests
 ├── react_loop_test.rs        # Core ReAct loop tests
-├── e2e_llm_test.rs          # E2E tests with real LLM (may be ignored)
+├── e2e_llm_test.rs          # E2E tests with real LLM (some #[ignore]d)
 ├── e2e_event_sequence_test.rs # Event ordering E2E tests
 └── e2e_*.rs                 # Scenario-specific E2E tests
 ```

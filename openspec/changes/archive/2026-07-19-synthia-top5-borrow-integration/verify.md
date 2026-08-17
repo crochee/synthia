@@ -26,7 +26,7 @@
 > **Constraint (verbatim from `.trae/rules/rust.md`)**: "测试不能一次性执行所有测试用例，必须分批次执行，每个批次执行按模块进行"
 
 - **Batches** (in dependency order):
-  1. `cargo test -p synthia-event-v2` + `-p synthia-extension-v2`
+  1. `cargo test -p synthia-event-v2` + `-p synthia-extension-hook`
   2. `cargo test -p synthia-goal-service` + `-p synthia-tool-materialization`
   3. `cargo test -p synthia-service` + `-p synthia-tool` (modified existing)
   4. `cargo test -p synthia-hook` (modified existing)
@@ -49,7 +49,7 @@
 
 ### Gate G5 — Public API stability
 
-- **Command**: `cargo public-api -p synthia-event-v2 -p synthia-extension-v2 -p synthia-goal-service -p synthia-tool-materialization` (diff vs `2f0a9ad`)
+- **Command**: `cargo public-api -p synthia-event-v2 -p synthia-extension-hook -p synthia-goal-service -p synthia-tool-materialization` (diff vs `2f0a9ad`)
 - **Expected**:
   - new crates: zero public API change vs empty baseline (only additions)
   - modified crates (`synthia-tool`, `synthia-agent`, `synthia-session`, `synthia-protocol`, `synthia-hook`, `synthia-service`): only ADDITIONS, no breaking removals
@@ -82,10 +82,10 @@ Each ADDED Requirement in each spec.md MUST have ≥ 1 matching test:
 | event-v2-system | Projector + CommitGuard facade | `crates/synthia-event-v2/tests/projector_commit_guard.rs` | ☐ PENDING |
 | event-v2-system | CleanupTask with 7-day retention | `crates/synthia-event-v2/tests/cleanup_retention.rs` | ☐ PENDING |
 | event-v2-system | gRPC message-proxy bridge | `crates/synthia-event-v2/tests/grpc_bridge.rs` | ☐ PENDING |
-| extension-system | Extension trait with 19 typed events | `crates/synthia-extension-v2/tests/trait_19_events.rs` | ☐ PENDING |
-| extension-system | ExtensionManifest declarative registration | `crates/synthia-extension-v2/tests/manifest_parse.rs` | ☐ PENDING |
-| extension-system | typed capability-scoped sandbox | `crates/synthia-extension-v2/tests/sandbox_capability.rs` | ☐ PENDING |
-| extension-system | ExtensionRegistry double-registration | `crates/synthia-extension-v2/tests/registry_double.rs` | ☐ PENDING |
+| extension-system | Extension trait with 19 typed events | `crates/synthia-extension-hook/tests/trait_19_events.rs` | ☐ PENDING |
+| extension-system | ExtensionManifest declarative registration | `crates/synthia-extension-hook/tests/manifest_parse.rs` | ☐ PENDING |
+| extension-system | typed capability-scoped sandbox | `crates/synthia-extension-hook/tests/sandbox_capability.rs` | ☐ PENDING |
+| extension-system | ExtensionRegistry double-registration | `crates/synthia-extension-hook/tests/registry_double.rs` | ☐ PENDING |
 | extension-system | backward compat with 1-line stub | `crates/synthia-extension/tests/still_compiles.rs` | ☐ PENDING |
 | service-registry-completion | OutputBound::Service trait | `crates/synthia-service/tests/output_bound.rs` | ☐ PENDING |
 | service-registry-completion | Capability typed contract | `crates/synthia-service/tests/capability_contract.rs` | ☐ PENDING |
@@ -109,7 +109,7 @@ Each ADDED Requirement in each spec.md MUST have ≥ 1 matching test:
 | tool-output-sanitizer | ToolContext::take_output | `crates/synthia-tool/tests/take_output.rs` | ☐ PENDING |
 | tool-output-sanitizer | CachePolicyApplier Arc::ptr_eq preserved | `crates/synthia-tool-materialization/tests/arc_ptr_eq.rs` | ☐ PENDING |
 | custom-event-renderer | AgentEvent::Custom variant | `crates/synthia-agent/tests/event_custom.rs` | ☐ PENDING |
-| custom-event-renderer | EventRenderer registry | `crates/synthia-extension-v2/tests/event_renderer.rs` | ☐ PENDING |
+| custom-event-renderer | EventRenderer registry | `crates/synthia-extension-hook/tests/event_renderer.rs` | ☐ PENDING |
 | custom-event-renderer | projection to AgentMessage | `crates/synthia-protocol/tests/custom_projection.rs` | ☐ PENDING |
 
 ---

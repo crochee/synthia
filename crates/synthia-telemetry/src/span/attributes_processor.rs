@@ -30,26 +30,22 @@
 //! `agent.id` and `turn.id` are synthia-specific attributes not present in
 //! `opentelemetry-semantic-conventions` 0.27, so string literals are used.
 
-use opentelemetry::{
-    Context,
-    KeyValue,
-    trace::{Span as OtelSpan, TraceResult},
-};
-use opentelemetry_sdk::{
-    export::trace::SpanData,
-    trace::{Span, SpanProcessor},
-};
-// OpenTelemetry semantic convention attribute keys.
-// `session.id` / `user.id` live under the `attribute` module; `gen_ai.*` are
-// re-exported under `trace`. Aliased with an `_ATTR` suffix to avoid colliding
-// with the task-local names below.
+use opentelemetry::{Context, KeyValue, trace::Span as SpanTrait};
+use opentelemetry_sdk::trace::{Span, SpanData, SpanProcessor};
+// OpenTelemetry semantic convention attribute keys. Aliased with an `_ATTR`
+// suffix to avoid colliding with the task-local names below.
+//
+// `GEN_AI_*` are flagged `#[deprecated]` in the `opentelemetry-semantic-conventions`
+// crate (the GenAI conventions moved to a separate repository), but the key
+// strings (`"gen_ai.system"`, `"gen_ai.request.model"`) remain the agreed
+// wire names for backend compatibility — keeping them rather than swapping
+// to the new `gen_ai.provider.name` keys preserves telemetry consumers.
+#[allow(deprecated)]
 use opentelemetry_semantic_conventions::attribute::{
-    SESSION_ID as SESSION_ID_ATTR,
-    USER_ID as USER_ID_ATTR,
-};
-use opentelemetry_semantic_conventions::trace::{
     GEN_AI_REQUEST_MODEL as GEN_AI_REQUEST_MODEL_ATTR,
     GEN_AI_SYSTEM as GEN_AI_SYSTEM_ATTR,
+    SESSION_ID as SESSION_ID_ATTR,
+    USER_ID as USER_ID_ATTR,
 };
 
 /// Custom attribute key for the agent instance ID.
@@ -106,10 +102,10 @@ tokio::task_local! {
 /// # Example
 ///
 /// ```ignore
-/// use opentelemetry_sdk::trace::TracerProvider;
+/// use opentelemetry_sdk::trace::SdkTracerProvider;
 /// use synthia_telemetry::SpanAttributesProcessor;
 ///
-/// let provider = TracerProvider::builder()
+/// let provider = SdkTracerProvider::builder()
 ///     .with_span_processor(SpanAttributesProcessor::new())
 ///     .build();
 /// ```
@@ -130,6 +126,7 @@ impl SpanAttributesProcessor {
 }
 
 impl SpanProcessor for SpanAttributesProcessor {
+    #[allow(deprecated)]
     fn on_start(&self, span: &mut Span, _cx: &Context) {
         // Each task-local is tried independently via `try_get` (returns
         // `Result<String, AccessError>`). A missing task-local means the
@@ -139,21 +136,27 @@ impl SpanProcessor for SpanAttributesProcessor {
         // `ERROR` log. This ensures consumers can rely on the 6 attributes
         // always being present on spans emitted by this processor.
         let session_id = SESSION_ID.try_get().unwrap_or_default();
-        span.set_attribute(KeyValue::new(SESSION_ID_ATTR, session_id));
+        SpanTrait::set_attribute(
+            span,
+            KeyValue::new(SESSION_ID_ATTR, session_id),
+        );
         let turn_id = TURN_ID.try_get().unwrap_or_default();
-        span.set_attribute(KeyValue::new(TURN_ID_ATTR, turn_id));
+        SpanTrait::set_attribute(span, KeyValue::new(TURN_ID_ATTR, turn_id));
         let agent_id = AGENT_ID.try_get().unwrap_or_default();
-        span.set_attribute(KeyValue::new(AGENT_ID_ATTR, agent_id));
+        SpanTrait::set_attribute(span, KeyValue::new(AGENT_ID_ATTR, agent_id));
         let user_id = USER_ID.try_get().unwrap_or_default();
-        span.set_attribute(KeyValue::new(USER_ID_ATTR, user_id));
+        SpanTrait::set_attribute(span, KeyValue::new(USER_ID_ATTR, user_id));
         let gen_ai_system = GEN_AI_SYSTEM.try_get().unwrap_or_default();
-        span.set_attribute(KeyValue::new(GEN_AI_SYSTEM_ATTR, gen_ai_system));
+        SpanTrait::set_attribute(
+            span,
+            KeyValue::new(GEN_AI_SYSTEM_ATTR, gen_ai_system),
+        );
         let gen_ai_request_model =
             GEN_AI_REQUEST_MODEL.try_get().unwrap_or_default();
-        span.set_attribute(KeyValue::new(
-            GEN_AI_REQUEST_MODEL_ATTR,
-            gen_ai_request_model,
-        ));
+        SpanTrait::set_attribute(
+            span,
+            KeyValue::new(GEN_AI_REQUEST_MODEL_ATTR, gen_ai_request_model),
+        );
     }
 
     fn on_end(&self, _span: SpanData) {
@@ -162,13 +165,21 @@ impl SpanProcessor for SpanAttributesProcessor {
         // in `init_otlp_tracing`.
     }
 
-    fn force_flush(&self) -> TraceResult<()> {
+    fn force_flush(&self) -> opentelemetry_sdk::error::OTelSdkResult {
         // Nothing to flush — the processor holds no buffered state.
         Ok(())
     }
 
-    fn shutdown(&self) -> TraceResult<()> {
+    fn shutdown(&self) -> opentelemetry_sdk::error::OTelSdkResult {
         // Nothing to shut down — the processor holds no resources.
+        Ok(())
+    }
+
+    fn shutdown_with_timeout(
+        &self,
+        _timeout: std::time::Duration,
+    ) -> opentelemetry_sdk::error::OTelSdkResult {
+        // Same as `shutdown` — no resources to release.
         Ok(())
     }
 }

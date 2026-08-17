@@ -80,9 +80,28 @@ pub(crate) fn count_message_tokens(
     total
 }
 
+/// Estimate tokens for a list of messages by **text-only**
+/// extraction then summing per-message char-based
+/// estimates. Returns `0` for an empty `messages` slice
+/// (no allocation, no work).
+///
+/// Scope: this helper is the cheap, conservative estimate
+/// used by the high-level observability / quota layers
+/// where the caller only needs a rough magnitude. For
+/// provider-accurate counts (handling images, tool calls,
+/// audio, etc.) use
+/// [`crate::token_counter::TokenCounter::count_message`]
+/// or [`crate::token_counter::count_message_tokens`]
+/// directly — those understand every `ContentPart`
+/// variant. Mixing the two levels here would require a
+/// `TokenCounter` instance and is intentionally out of
+/// scope for this estimator.
 pub fn estimate_messages_token_count(
     messages: &[crate::types::Message],
 ) -> usize {
+    if messages.is_empty() {
+        return 0;
+    }
     messages
         .iter()
         .map(|m| {
@@ -208,5 +227,53 @@ mod tests {
         let tokens = counter.count_message(&msg);
         // 30 chars / 4 = 7.5, ceil = 8
         assert_eq!(tokens, 8);
+    }
+
+    /// `estimate_messages_token_count` MUST return `0` for
+    /// an empty `messages` slice. This pins the no-op
+    /// behavior so a future refactor (e.g. changing the
+    /// iterator chain to `.filter(|m| !m.content.is_empty())`)
+    /// doesn't accidentally allocate or do work for the
+    /// common "agent has not yet emitted any messages"
+    /// observability poll.
+    #[test]
+    fn estimate_messages_token_count_is_zero_for_empty_slice() {
+        let empty: &[Message] = &[];
+        assert_eq!(estimate_messages_token_count(empty), 0);
+    }
+
+    /// `estimate_messages_token_count` is a TEXT-ONLY
+    /// estimator: a message containing only an image must
+    /// contribute `0` tokens to the total estimate. This
+    /// is intentional — the high-level estimator is a
+    /// rough magnitude gauge for quota dashboards, not a
+    /// provider-accurate count. Provider-accurate counts
+    /// (with image / audio / tool-call awareness) MUST go
+    /// through [`TokenCounter::count_message`] or
+    /// [`count_message_tokens`] — those are tested
+    /// separately above and handle every `ContentPart`
+    /// variant. Pinning this expectation here prevents a
+    /// future refactor from silently turning the helper
+    /// into a partial-implementation count that
+    /// under-counts (e.g. summing 0 for images and then
+    /// pretending the total is correct).
+    #[test]
+    fn estimate_messages_token_count_is_zero_for_image_only_message() {
+        use crate::types::{Content, ContentPart, ImageContent, ImageDetail};
+        let msg = Message {
+            role: crate::types::Role::User,
+            content: Content::Single(ContentPart::Image(ImageContent {
+                data: "BASE64DATA".to_string(),
+                mime_type: "image/png".to_string(),
+                detail: Some(ImageDetail::High),
+            })),
+            tool_call_id: None,
+            name: None,
+            ..Default::default()
+        };
+        // High-detail image — provider would still charge
+        // some tokens, but this helper is text-only, so
+        // it returns 0.
+        assert_eq!(estimate_messages_token_count(&[msg]), 0);
     }
 }

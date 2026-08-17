@@ -1,5 +1,5 @@
 import { NavLink } from 'react-router-dom';
-import './Sidebar.css';
+import { Box, Flex, Text, Button } from '@radix-ui/themes';
 
 interface NavItem {
   path: string;
@@ -8,40 +8,72 @@ interface NavItem {
 }
 
 const NAV_ITEMS: NavItem[] = [
-  { path: '/chat', label: 'CHAT', shortcut: 'C' },
-  { path: '/tools', label: 'TOOLS', shortcut: 'T' },
-  { path: '/skills', label: 'SKILLS', shortcut: 'K' },
-  { path: '/tasks', label: 'TASKS', shortcut: 'A' },
-  { path: '/memory', label: 'MEMORY', shortcut: 'M' },
-  { path: '/jobs', label: 'JOBS', shortcut: 'J' },
-  { path: '/mcp', label: 'MCP', shortcut: 'X' },
-  { path: '/settings', label: 'SETTINGS', shortcut: 'S' },
+  { path: '/chat', label: 'Chat', shortcut: 'C' },
+  { path: '/tools', label: 'Tools', shortcut: 'T' },
+  { path: '/agents', label: 'Agents', shortcut: 'G' },
+  { path: '/skills', label: 'Skills', shortcut: 'K' },
+  { path: '/tasks', label: 'Tasks', shortcut: 'A' },
 ];
 
 /**
- * Side navigation with terminal-style menu items.
- * Uses NavLink from react-router to highlight the active route.
+ * Side navigation using Radix Themes' Button + active NavLink styling.
+ * The active indicator is a 3px left border applied via inline style.
+ *
+ * Each item exposes a `g+<shortcut>` accelerator via the
+ * `aria-keyshortcuts` attribute so screen readers announce
+ * the binding alongside the label. The visual `<kbd>` element
+ * mirrors the same key for sighted users. Bindings are
+ * implemented globally by `useKeyboardShortcuts`.
  */
 export function Sidebar() {
   return (
-    <nav className="nt-sidebar" aria-label="Primary navigation">
-      <div className="nt-sidebar__nav">
-        {NAV_ITEMS.map((item) => (
-          <NavLink
-            key={item.path}
-            to={item.path}
-            className={({ isActive }: { isActive: boolean }) =>
-              `nt-sidebar__item ${isActive ? 'is-active' : ''}`
-            }
-          >
-            <span className="nt-sidebar__shortcut">[{item.shortcut}]</span>
-            <span className="nt-sidebar__label">{item.label}</span>
-          </NavLink>
-        ))}
-      </div>
-      <div className="nt-sidebar__footer">
-        <span className="nt-sidebar__version">v0.1.0</span>
-      </div>
-    </nav>
+    <Box
+      asChild
+      style={{
+        width: 220,
+        background: 'var(--bg-secondary)',
+        borderRight: '1px solid var(--border-subtle)',
+        flexShrink: 0,
+      }}
+    >
+      <nav aria-label="Primary navigation">
+        <Flex direction="column" gap="1" p="3">
+          {NAV_ITEMS.map((item) => (
+            <NavLink key={item.path} to={item.path} style={{ textDecoration: 'none' }}>
+              {({ isActive }) => (
+                <Button
+                  variant={isActive ? 'solid' : 'ghost'}
+                  color={isActive ? 'blue' : 'gray'}
+                  size="2"
+                  aria-keyshortcuts={`G ${item.shortcut}`}
+                  aria-current={isActive ? 'page' : undefined}
+                  style={{
+                    width: '100%',
+                    justifyContent: 'flex-start',
+                    borderLeft: isActive ? '3px solid var(--accent-primary)' : '3px solid transparent',
+                  }}
+                >
+                  <Flex align="center" justify="between" width="100%">
+                    <Text size="2" weight="medium">
+                      {item.label}
+                    </Text>
+                    <Text size="1" color="gray">
+                      <kbd style={{ fontFamily: 'inherit', fontSize: 'inherit' }}>
+                        g {item.shortcut}
+                      </kbd>
+                    </Text>
+                  </Flex>
+                </Button>
+              )}
+            </NavLink>
+          ))}
+        </Flex>
+        <Box px="4" py="3" style={{ borderTop: '1px solid var(--border-subtle)' }}>
+          <Text size="1" color="gray" style={{ fontStyle: 'italic' }}>
+            v0.1.0
+          </Text>
+        </Box>
+      </nav>
+    </Box>
   );
 }

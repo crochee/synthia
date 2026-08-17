@@ -1,4 +1,10 @@
 {
+  "name": "synthia-frontend-root",
+  "private": true,
+  "description": "Synthia frontend workspace root — see ./synthia-web/",
+  "workspaces": [
+    "synthia-web"
+  ],
   "dependencies": {
     "react-router-dom": "^7.18.1"
   }

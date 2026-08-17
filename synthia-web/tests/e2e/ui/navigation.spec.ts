@@ -11,11 +11,11 @@ test.describe('UI navigation', () => {
     await page.waitForURL(/\/chat/);
   });
 
-  test('sidebar exposes all 8 routes', async ({ page }) => {
+  test('sidebar exposes all 6 routes', async ({ page }) => {
     await page.goto('/chat');
     const sidebar = page.getByRole('navigation', { name: /primary navigation/i });
     await sidebar.waitFor({ state: 'visible' });
-    for (const label of ['CHAT', 'TOOLS', 'SKILLS', 'TASKS', 'MEMORY', 'JOBS', 'MCP', 'SETTINGS']) {
+    for (const label of ['CHAT', 'TOOLS', 'AGENTS', 'SKILLS', 'TASKS', 'SESSIONS']) {
       await expect(sidebar.getByText(label)).toBeVisible();
     }
   });
@@ -26,11 +26,7 @@ test.describe('UI navigation', () => {
     const visits = [
       { label: 'TOOLS', url: /\/tools$/ },
       { label: 'SKILLS', url: /\/skills$/ },
-      { label: 'SETTINGS', url: /\/settings$/ },
       { label: 'TASKS', url: /\/tasks$/ },
-      { label: 'MEMORY', url: /\/memory$/ },
-      { label: 'JOBS', url: /\/jobs$/ },
-      { label: 'MCP', url: /\/mcp$/ },
     ];
     for (const { label, url } of visits) {
       await page

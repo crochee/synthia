@@ -4,108 +4,20 @@ version.workspace = true
 edition.workspace = true
 
 [dependencies]
-synthia-core = { path = "../synthia-core" }
-synthia-provider = { path = "../synthia-provider" }
-synthia-hook = { path = "../synthia-hook" }
-synthia-tool = { path = "../synthia-tool" }
-synthia-tool-orchestrator = { path = "../synthia-tool-orchestrator" }
-synthia-tool-bash = { path = "../synthia-tool-bash" }
-synthia-permission = { path = "../synthia-permission" }
-synthia-sandbox = { path = "../synthia-sandbox" }
-synthia-command = { path = "../synthia-command" }
-synthia-service = { path = "../synthia-service" }
-synthia-goal-service = { path = "../synthia-goal-service" }
-synthia-session = { path = "../synthia-session" }
-synthia-memory = { path = "../synthia-memory" }
-synthia-context = { path = "../synthia-context" }
-synthia-skill = { path = "../synthia-skill" }
-synthia-telemetry = { path = "../synthia-telemetry" }
-synthia-mcp = { path = "../synthia-mcp" }
-synthia-task = { path = "../synthia-task" }
-synthia-plugin = { path = "../synthia-plugin" }
-synthia-guardian = { path = "../synthia-guardian" }
-synthia-model-router = { path = "../synthia-model-router" }
-uuid.workspace = true
 async-trait.workspace = true
+synthia-core.workspace = true
+synthia-provider.workspace = true
+synthia-tool.workspace = true
+chrono.workspace = true
 serde.workspace = true
-ulid.workspace = true
 serde_json.workspace = true
-thiserror.workspace = true
-anyhow.workspace = true
 tokio.workspace = true
 tokio-util.workspace = true
-tracing.workspace = true
-opentelemetry = { workspace = true, optional = true }
-opentelemetry-otlp = { workspace = true, optional = true }
-opentelemetry_sdk = { version = "0.27", features = ["rt-tokio"], optional = true }
-tracing-opentelemetry = { workspace = true, optional = true }
-opentelemetry-stdout = { version = "0.27", optional = true }
-metrics = "0.24"
-metrics-exporter-prometheus = { version = "0.16", optional = true }
-futures.workspace = true
 tokio-stream.workspace = true
-async-stream.workspace = true
-chrono.workspace = true
-toml.workspace = true
-notify.workspace = true
-indexmap.workspace = true
+tracing.workspace = true
+futures.workspace = true
 parking_lot.workspace = true
-dashmap.workspace = true
-sha2.workspace = true
-serde_yaml.workspace = true
-regex.workspace = true
-tiktoken-rs = "0.5"
-nix = { version = "0.29", features = ["signal", "process"] }
-
-[features]
-observability = [
-    "dep:tracing-opentelemetry",
-    "dep:opentelemetry",
-    "dep:opentelemetry-otlp",
-    "dep:opentelemetry_sdk",
-    "dep:opentelemetry-stdout",
-    "dep:metrics-exporter-prometheus",
-]
-# Enable OpenTelemetry context injection via `synthia-telemetry`'s
-# `SpanAttributesProcessor`. When enabled, `Agent::run_stream`
-# populates six `tokio::task_local`
-# variables (session.id / user.id / agent.id / turn.id / gen_ai.system
-# / gen_ai.request.model) so the processor can inject standard span
-# attributes on `on_start`.
-#
-# `synthia-telemetry` is a required dependency (used unconditionally for
-# the non-otel `SpanContext` type), so this feature flips the telemetry
-# crate's `otel` sub-feature on. It also enables `dep:opentelemetry` so
-# that the agent can record cache-token counters directly via
-# `opentelemetry::global::meter("synthia")` (mirroring the pruning
-# engine pattern), since the `metrics::counter!` facade is a no-op
-# without a Prometheus recorder.
-otel = ["synthia-telemetry/otel", "dep:opentelemetry"]
 
 [dev-dependencies]
-tempfile.workspace = true
-futures.workspace = true
-reqwest.workspace = true
-dotenv.workspace = true
-synthia-session = { path = "../synthia-session" }
-synthia-hook = { path = "../synthia-hook" }
-synthia-tool = { path = "../synthia-tool" }
-synthia-tool-bash = { path = "../synthia-tool-bash" }
-synthia-provider = { path = "../synthia-provider" }
-synthia-sandbox = { path = "../synthia-sandbox" }
-test-support = { path = "../../test-support" }
-notify.workspace = true
+test-support.workspace = true
 tracing-subscriber.workspace = true
-criterion = { version = "0.5", features = ["html_reports"] }
-
-[[bench]]
-name = "loop"
-harness = false
-
-[[bench]]
-name = "session"
-harness = false
-
-[[bench]]
-name = "event_writer"
-harness = false

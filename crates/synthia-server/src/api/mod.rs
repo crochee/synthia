@@ -1,18 +1,34 @@
-//! Shared API utilities for `synthia-server` V2 endpoints.
+//! HTTP-wire API namespace.
+//!
+//! Owns everything that touches the v1 wire contract:
+//!
+//! - [`v1`]: list response envelope, page query params, opaque
+//!   cursor encoding, request-parameter validation helpers
+//!   (resource-name regex, sort whitelist, API-key masking).
+//! - [`error`]: HTTP-wire error types — [`ErrorCode`] (stable
+//!   snake_case classifier) and [`UserError`] (the
+//!   `{code, message, result?}` envelope) with the
+//!   `IntoResponse` impl. The V1 envelope
+//!   (`{ error: { type, message } }`) emitted by
+//!   `crate::error::ServerError` is a separate, older shape and
+//!   remains untouched by this module.
 
-pub mod envelope;
 pub mod error;
-pub mod pagination;
-pub mod validation;
+pub mod v1;
 
-pub use envelope::{ApiResponse, json_data};
-pub use error::{ApiError, ErrorDetail};
-pub use pagination::{
-    Cursor,
-    Direction,
-    PaginatedResponse,
-    PaginationLinks,
-    PaginationMeta,
-    paginate_with_cursor,
+pub use error::{ErrorCode, UserError};
+pub use v1::{
+    DEFAULT_LIMIT,
+    List,
+    MAX_LIMIT,
+    PageQuery,
+    ResolvedPage,
+    TaskPageQuery,
+    api_key_mask,
+    decode_cursor,
+    encode_cursor,
+    next_cursor,
+    resolve_page,
+    validate_resource_name,
+    validate_sort,
 };
-pub use validation::{validate_content_not_empty, validate_priority};

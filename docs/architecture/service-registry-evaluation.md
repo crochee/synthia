@@ -6,13 +6,15 @@
 
 **`synthia-service::registry`**:
 - `ServiceRegistry` — capability-based service registry
-- Consumers: `synthia-agent`, `synthia-extension-v2`
+- Consumers: `synthia-agent`, `synthia-extension-hook`
 - Provides service discovery and capability matching
 
-**`synthia-core::registry::ExtensionRegistry`**:
+**`synthia-agent::extension::ExtensionRegistry`** (defined in `crates/synthia-agent/src/extension.rs`):
 - Composite of ToolRegistry + FragmentRegistry + SkillRegistry + PluginRegistry
 - Active in E2E wiring path (AppState → AgentFactory → Controller → main_loop)
 - Manages runtime extension registration and lookup
+
+> Note: `FragmentRegistry` now lives at `synthia-context::fragment::FragmentRegistry` after the Wave 2 relocation.
 
 ### Responsibility Boundary
 

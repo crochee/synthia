@@ -193,3 +193,158 @@ pub fn create_compaction_span(
         )
         .build()
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Root session span MUST carry the
+    /// session_id attribute and have no
+    /// parent_span_id (empty string).
+    #[test]
+    fn session_span_root_carries_session_id_with_no_parent() {
+        let (ctx, _guard) = create_session_span("sess-1");
+        assert_eq!(
+            ctx.attributes.get("session_id"),
+            Some(&"sess-1".to_string())
+        );
+        // No parent for the root span.
+        assert!(ctx.parent_span_id.is_empty());
+        // Trace ID is freshly generated.
+        assert!(!ctx.trace_id.is_empty());
+    }
+
+    /// Invocation span MUST inherit
+    /// session_id from its parent + stamp
+    /// `invocation_id` and `iteration_number`.
+    #[test]
+    fn invocation_span_inherits_session_id_and_stamps_iteration() {
+        let (parent, _guard) = create_session_span("sess-7");
+        let (ctx, _) = create_invocation_span(&parent, "inv-3", 5);
+        assert_eq!(
+            ctx.attributes.get("session_id"),
+            Some(&"sess-7".to_string())
+        );
+        assert_eq!(
+            ctx.attributes.get("invocation_id"),
+            Some(&"inv-3".to_string())
+        );
+        assert_eq!(
+            ctx.attributes.get("iteration_number"),
+            Some(&"5".to_string())
+        );
+        // Parent linkage.
+        assert_eq!(ctx.parent_span_id, parent.span_id);
+    }
+
+    /// Step span (LlmCall/ToolExecution/etc.)
+    /// MUST inherit session_id from parent +
+    /// stamp iteration_number.
+    #[test]
+    fn step_span_inherits_session_id_and_stamps_iteration() {
+        let (parent, _guard) = create_session_span("sess-9");
+        let (ctx, _) =
+            create_step_span(&parent, SpanKind::LlmCall, "llm_call", 2);
+        assert_eq!(
+            ctx.attributes.get("session_id"),
+            Some(&"sess-9".to_string())
+        );
+        assert_eq!(
+            ctx.attributes.get("iteration_number"),
+            Some(&"2".to_string())
+        );
+    }
+
+    /// LLM call span MUST stamp the 5
+    /// standard attributes: model,
+    /// prefix_hash, tokens_in, tokens_out,
+    /// latency_ms.
+    #[test]
+    fn llm_call_span_stamps_all_required_attributes() {
+        let (parent, _guard) = create_session_span("sess-1");
+        let (ctx, _) = create_llm_call_span(
+            &parent,
+            1,
+            "claude-opus-4-7",
+            "abc123",
+            100,
+            50,
+            250,
+        );
+        assert_eq!(
+            ctx.attributes.get("model"),
+            Some(&"claude-opus-4-7".to_string())
+        );
+        assert_eq!(
+            ctx.attributes.get("prefix_hash"),
+            Some(&"abc123".to_string())
+        );
+        assert_eq!(ctx.attributes.get("tokens_in"), Some(&"100".to_string()));
+        assert_eq!(ctx.attributes.get("tokens_out"), Some(&"50".to_string()));
+        assert_eq!(ctx.attributes.get("latency_ms"), Some(&"250".to_string()));
+    }
+
+    /// Tool execution span MUST stamp
+    /// tool_name, tool_call_id.
+    #[test]
+    fn tool_execution_span_stamps_all_required_attributes() {
+        let (parent, _guard) = create_session_span("sess-1");
+        let (ctx, _) = create_tool_execution_span(&parent, 1, "bash", "call-1");
+        assert_eq!(ctx.attributes.get("tool_name"), Some(&"bash".to_string()));
+        assert_eq!(
+            ctx.attributes.get("tool_call_id"),
+            Some(&"call-1".to_string())
+        );
+    }
+
+    /// Context assembly span MUST stamp
+    /// token_count.
+    #[test]
+    fn context_assembly_span_stamps_token_count() {
+        let (parent, _guard) = create_session_span("sess-1");
+        let (ctx, _) = create_context_assembly_span(&parent, 3, 800);
+        assert_eq!(ctx.attributes.get("token_count"), Some(&"800".to_string()));
+    }
+
+    /// Guardian check span MUST stamp
+    /// iteration_number only.
+    #[test]
+    fn guardian_check_span_stamps_iteration_only() {
+        let (parent, _guard) = create_session_span("sess-1");
+        let (ctx, _) = create_guardian_check_span(&parent, 7);
+        assert_eq!(
+            ctx.attributes.get("iteration_number"),
+            Some(&"7".to_string())
+        );
+    }
+
+    /// Compaction span MUST stamp
+    /// old_tokens, new_tokens.
+    #[test]
+    fn compaction_span_stamps_old_and_new_token_counts() {
+        let (parent, _guard) = create_session_span("sess-1");
+        let (ctx, _) = create_compaction_span(&parent, 1, 5000, 2000);
+        assert_eq!(ctx.attributes.get("old_tokens"), Some(&"5000".to_string()));
+        assert_eq!(ctx.attributes.get("new_tokens"), Some(&"2000".to_string()));
+    }
+
+    /// When a child span is created with a
+    /// parent that has no `session_id`
+    /// attribute, the child MUST still
+    /// carry an empty (but present)
+    /// `session_id` attribute rather than
+    /// omit it entirely.
+    #[test]
+    fn step_span_with_parent_missing_session_id_carries_empty_session_id() {
+        let parent = SpanContext::root("trace-1");
+        // Intentionally do NOT set session_id
+        // on parent.
+        let (ctx, _) =
+            create_step_span(&parent, SpanKind::LlmCall, "llm_call", 0);
+        assert!(
+            ctx.attributes.contains_key("session_id"),
+            "session_id attribute MUST always be present (even if empty)"
+        );
+        assert_eq!(ctx.attributes.get("session_id"), Some(&String::new()));
+    }
+}

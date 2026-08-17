@@ -51,20 +51,99 @@ describe('fix card #004 — SSE artifact-update lastChunk', () => {
     expect(blob).toContain('lastChunk');
   });
 
-  it('backend mapping emits ArtifactUpdate with last_chunk for ToolResult', () => {
-    // Verify by reading the Rust source. The function
-    // `tool_result_to_artifact` must produce an `Artifact` and the
-    // `AgentEvent::Model(ContentPart::ToolResult)` arm must push
-    // `StreamResponse::ArtifactUpdate(TaskArtifactUpdateEvent {
-    //   last_chunk: Some(true), ... })`.
+  it('backend mapping routes tool_call / tool_result to Message channel only (A2A v1.0 §3.7)', () => {
+    // Per A2A v1.0 §3.7 ("Messages and Artifacts"), tool
+    // calls and tool results are communication turns on the
+    // `Message` channel, not tangible deliverables. The MVP
+    // therefore routes them through
+    // `Message(agent) + Part::data` and never through
+    // `ArtifactUpdate`. The same `mapping.rs` legitimately
+    // DOES emit `StreamResponse::ArtifactUpdate` for
+    // tangible deliverables (ResourceLink / Image / Audio) —
+    // we check the tool-control-flow arm in isolation.
     const mappingPath = join(
       ROOT,
-      'crates/synthia-a2a/src/mapping.rs',
+      'crates/synthia-server/src/a2a/mapping.rs',
     );
     const src = readFileSync(mappingPath, 'utf8');
-    expect(src).toContain('StreamResponse::ArtifactUpdate');
-    expect(src).toContain('last_chunk: Some(true)');
-    expect(src).toContain('tool_result_to_artifact');
+    // Extract each `ContentPart::Xxx` variant arm by
+    // stopping at the first `\n            },?` — the
+    // closing brace of the arrow body. We deliberately
+    // ignore any `// comment` text in front of the next
+    // sibling because a comment is NOT code emission.
+    function extractArm(variant: string): string {
+      const startMarker = `ContentPart::${variant}(`;
+      const start = src.indexOf(startMarker);
+      if (start === -1) {
+        throw new Error(`variant ${variant} not found in mapping.rs`);
+      }
+      const fromVariant = src.slice(start);
+      // Stop at the FIRST sibling `ContentPart::Xxx(` opening
+      // after the start marker — that marks the boundary of
+      // the current arm regardless of whether the original
+      // source uses a blank line between siblings.
+      const siblingRe = /\n\s{12}ContentPart::/g;
+      siblingRe.lastIndex = 0;
+      let end = fromVariant.length;
+      let m = siblingRe.exec(fromVariant);
+      if (m && m.index !== undefined) {
+        end = m.index;
+      }
+      const armText = fromVariant.slice(0, end);
+      // Strip `// ...` line comments so a doc-comment that
+      // legitimately mentions `ArtifactUpdate` (explaining
+      // what the NEXT sibling does) does not pollute the
+      // assertion.
+      return armText
+        .split('\n')
+        .filter((line) => !line.trim().startsWith('//'))
+        .join('\n');
+    }
+    const toolUseArm = extractArm('ToolUse');
+    const toolResultArm = extractArm('ToolResult');
+    // ToolUse arm MUST go through Message(Part::data), never ArtifactUpdate.
+    expect(
+      toolUseArm,
+      'ToolUse arm must NOT emit StreamResponse::ArtifactUpdate',
+    ).not.toContain('ArtifactUpdate');
+    // ToolResult arm MUST go through Message(Part::data), never ArtifactUpdate.
+    expect(
+      toolResultArm,
+      'ToolResult arm must NOT emit StreamResponse::ArtifactUpdate',
+    ).not.toContain('ArtifactUpdate');
+    // The legacy helper name must be gone.
+    expect(
+      src,
+      'mapping.rs must not reference tool_result_to_responses — the legacy artifact-path helper is gone',
+    ).not.toContain('tool_result_to_responses');
+    // SessionEnded must still flow through System path → StatusUpdate.
+    expect(src).toMatch(/AgentEvent::System\([\s\S]*?SessionEnded/);
+  });
+
+  it('backend mapping routes tangible deliverables (ResourceLink / Image / Audio) to ArtifactUpdate', () => {
+    // The complementary contract: per A2A v1.0 §3.7, tangible
+    // deliverables belong on the `Artifact` channel. The MVP
+    // routes `ContentPart::Resource` (the canonical
+    // pointer-to-external-resource carrier) and the
+    // image/audio content variants to
+    // `StreamResponse::ArtifactUpdate`.
+    const mappingPath = join(
+      ROOT,
+      'crates/synthia-server/src/a2a/mapping.rs',
+    );
+    const src = readFileSync(mappingPath, 'utf8');
+    expect(
+      src,
+      'ContentPart::Resource arm must route to ArtifactUpdate',
+    ).toMatch(/ContentPart::Resource[\s\S]{0,200}?StreamResponse::ArtifactUpdate/);
+    expect(
+      src,
+      'ContentPart::Image arm must route to ArtifactUpdate',
+    ).toMatch(/ContentPart::Image[\s\S]{0,200}?StreamResponse::ArtifactUpdate/);
+    expect(
+      src,
+      'ContentPart::Audio arm must route to ArtifactUpdate',
+    ).toMatch(/ContentPart::Audio[\s\S]{0,200}?StreamResponse::ArtifactUpdate/);
   });
 
   it('frontend reads lastChunk from artifactUpdate event', () => {

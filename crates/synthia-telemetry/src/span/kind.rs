@@ -59,3 +59,77 @@ impl SpanKind {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// `name()` is the stable label that shows up
+    /// in `tracing::info_span!` calls and OTel
+    /// export tags. A refactor that changes a
+    /// label silently breaks observability
+    /// dashboards and trace filtering. Pin all 7
+    /// mappings.
+    #[test]
+    fn name_returns_stable_label_for_every_variant() {
+        assert_eq!(SpanKind::Session.name(), "session");
+        assert_eq!(SpanKind::Invocation.name(), "invocation");
+        assert_eq!(SpanKind::LlmCall.name(), "llm_call");
+        assert_eq!(SpanKind::ToolExecution.name(), "tool_execution");
+        assert_eq!(SpanKind::ContextAssembly.name(), "context_assembly");
+        assert_eq!(SpanKind::GuardianCheck.name(), "guardian_check");
+        assert_eq!(SpanKind::Compaction.name(), "compaction");
+    }
+
+    /// `name()` MUST return `'static str` so the
+    /// result is usable directly in
+    /// `tracing::info_span!(name, ...)` without
+    /// allocation. Compile-time check via
+    /// explicit binding.
+    #[test]
+    fn name_returns_static_str_for_all_variants() {
+        let kind = SpanKind::Compaction;
+        let label: &'static str = kind.name();
+        assert_eq!(label, "compaction");
+    }
+
+    /// Pin that the set of distinct names is
+    /// exactly 7 — adding a new variant MUST
+    /// either bump this or break the test
+    /// (forcing a deliberate choice about OTel
+    /// tag compatibility).
+    #[test]
+    fn name_distinct_count_is_exactly_seven() {
+        let kinds = [
+            SpanKind::Session,
+            SpanKind::Invocation,
+            SpanKind::LlmCall,
+            SpanKind::ToolExecution,
+            SpanKind::ContextAssembly,
+            SpanKind::GuardianCheck,
+            SpanKind::Compaction,
+        ];
+        let mut names: Vec<&str> = kinds.iter().map(|k| k.name()).collect();
+        names.sort();
+        names.dedup();
+        assert_eq!(
+            names.len(),
+            7,
+            "SpanKind::name() produced duplicate labels: {names:?}"
+        );
+    }
+
+    /// `SpanKind` derives `Copy` — pin this so a
+    /// refactor that accidentally removes
+    /// `Copy` (e.g. adds a `String` payload)
+    /// breaks loudly at the call sites that
+    /// rely on it.
+    #[test]
+    fn span_kind_is_copy_and_eq() {
+        let a = SpanKind::LlmCall;
+        let b = a; // Copy
+        assert_eq!(a, b);
+        // Both still usable after the copy.
+        assert_eq!(a.name(), b.name());
+    }
+}

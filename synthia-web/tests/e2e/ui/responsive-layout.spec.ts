@@ -59,11 +59,11 @@ for (const vp of VIEWPORTS) {
       expect(box!.height).toBeGreaterThan(20);
     });
 
-    test('all 8 sidebar entries remain reachable', async ({ page }) => {
+    test('all 5 sidebar entries remain reachable', async ({ page }) => {
       await page.goto('/chat');
       const sidebar = page.getByRole('navigation', { name: /primary navigation/i });
       await sidebar.waitFor({ state: 'visible' });
-      for (const label of ['CHAT', 'TOOLS', 'SKILLS', 'TASKS', 'MEMORY', 'JOBS', 'MCP', 'SETTINGS']) {
+      for (const label of ['CHAT', 'TOOLS', 'SKILLS', 'TASKS', 'SETTINGS']) {
         await expect(sidebar.getByText(label)).toBeAttached();
       }
     });

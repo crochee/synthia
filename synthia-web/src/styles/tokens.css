@@ -1,55 +1,97 @@
 /**
- * Neon Terminal design tokens.
+ * Design tokens — "Linear Restrained" light theme.
  *
- * Defines the canonical CSS custom properties (variables) used
- * across the synthia-web UI. These tokens are imported once in
- * `main.tsx` and made available globally.
+ * Bright micro-cool gray surface (#fafafa), pure-white cards,
+ * modern blue primary (#2563eb), near-black body text. Crisp
+ * Inter Variable typography. The terminal flavor survives in
+ * monospace code blocks, metadata strips, and inline status
+ * pills — page-level headings are now Inter 600.
  *
- * Visual identity:
- *   - Deep dark blue-black background (#0a0a1a) gives the
- *     "terminal" feel
- *   - Neon green (#00ff88) is the primary accent
- *   - Neon cyan (#00ddff) is the secondary accent
- *   - Monospace fonts reinforce the developer-tool aesthetic
- *   - Glow effects (box-shadow + text-shadow) create depth
+ * Imported once in `main.tsx` after `fonts.css`.
+ *
+ *   - Background:    #fafafa (micro-cool gray) for the app shell
+ *   - Surface:       #ffffff for cards; #f4f4f5 for sunken surfaces
+ *   - Primary:       #2563eb — used for headings, links, active nav,
+ *                    primary actions
+ *   - Secondary:     cyan/violet/rose/amber/red — state semantics only
+ *   - Text:          #18181b (near-black), #52525b (secondary),
+ *                    #a1a1aa (muted)
+ *   - Borders:       1px hairlines in rgba(0,0,0,0.06/0.12)
  */
 
 :root {
   /* ---- Backgrounds ---- */
-  --bg-primary: #0a0a1a;
-  --bg-secondary: #0f0f2a;
-  --bg-tertiary: #1a1a3a;
-  --bg-elevated: #15152a;
+  --bg-primary: #fafafa;
+  --bg-secondary: #ffffff;
+  --bg-tertiary: #f4f4f5;
+  --bg-elevated: #ffffff;
+
+  /* ---- Brand ---- */
+  --brand-primary: #2563eb; /* logo mark fill + stroke */
+  --brand-accent: #0891b2; /* logo cyan arc */
+  --brand-wordmark: #18181b; /* wordmark ink (light theme) */
 
   /* ---- Accents ---- */
-  --accent-green: #00ff88;
-  --accent-cyan: #00ddff;
-  --accent-purple: #aa55ff;
-  --accent-magenta: #ff00aa;
-  --accent-yellow: #ffdd00;
-  --accent-red: #ff0055;
+  --accent-primary: #2563eb; /* modern blue — primary */
+  --accent-primary-hover: #1d4ed8;
+  --accent-primary-active: #1e40af;
+  --accent-primary-subtle: #eff6ff;
+
+  --accent-cyan: #0891b2; /* code, secondary actions */
+  --accent-purple: #7c3aed; /* badges, tags */
+  --accent-magenta: #e11d48; /* destructive */
+  --accent-yellow: #b45309; /* warnings, built-in badges */
+  --accent-red: #dc2626; /* errors */
+  --accent-success: #16a34a; /* success */
+
+  /* Legacy aliases — preserved so components that still reference
+   * the pre-rename names continue to render the new blue. Remove
+   * in a follow-up sweep. */
+  --accent-green: var(--accent-primary);
+  --accent-green-hover: var(--accent-primary-hover);
+  --accent-green-active: var(--accent-primary-active);
+  --accent-green-subtle: var(--accent-primary-subtle);
 
   /* ---- Text ---- */
-  --text-primary: #e0e0e0;
-  --text-secondary: #888888;
-  --text-muted: #555555;
-  --text-inverse: #0a0a1a;
+  --text-primary: #18181b; /* near-black */
+  --text-secondary: #52525b;
+  --text-muted: #a1a1aa;
+  --text-inverse: #fafafa;
 
   /* ---- Borders ---- */
-  --border-primary: rgba(0, 255, 136, 0.3);
-  --border-secondary: rgba(0, 221, 255, 0.3);
-  --border-subtle: rgba(255, 255, 255, 0.1);
+  --border-primary: rgba(37, 99, 235, 0.32);
+  --border-secondary: rgba(8, 145, 178, 0.32);
+  --border-subtle: rgba(0, 0, 0, 0.06);
+  --border-strong: rgba(0, 0, 0, 0.12);
 
-  /* ---- Glow effects (use as box-shadow / text-shadow values) ---- */
-  --glow-green: 0 0 10px rgba(0, 255, 136, 0.4);
-  --glow-green-strong: 0 0 20px rgba(0, 255, 136, 0.6);
-  --glow-cyan: 0 0 10px rgba(0, 221, 255, 0.4);
-  --glow-cyan-strong: 0 0 20px rgba(0, 221, 255, 0.6);
-  --glow-red: 0 0 10px rgba(255, 0, 85, 0.4);
+  /* ---- Subtle shadow scale (no glow) ---- */
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.04);
+  --shadow-md: 0 1px 3px rgba(0, 0, 0, 0.06), 0 1px 2px rgba(0, 0, 0, 0.04);
+  --shadow-lg: 0 4px 12px rgba(0, 0, 0, 0.06);
+
+  --scrollbar-thumb: rgba(0, 0, 0, 0.16);
+  --scrollbar-thumb-hover: rgba(0, 0, 0, 0.32);
+
+  /* Backwards-compat: any rule that still references a glow var
+   * must not paint a dark halo on the light surface. */
+  --glow-green: 0 0 0 transparent;
+  --glow-green-strong: 0 0 0 transparent;
+  --glow-cyan: 0 0 0 transparent;
+  --glow-cyan-strong: 0 0 0 transparent;
+  --glow-red: 0 0 0 transparent;
 
   /* ---- Typography ---- */
-  --font-mono: 'JetBrains Mono', 'Fira Code', 'Courier New', 'Menlo', monospace;
-  --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  /*
+   * Self-hosted variable fonts. Leading entries resolve once the
+   * woff2 from /public/fonts/ loads; system fallbacks keep text
+   * visible during the swap window.
+   */
+  --font-sans:
+    'Inter var', 'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto,
+    'Helvetica Neue', Arial, sans-serif;
+  --font-mono:
+    'JetBrains Mono', ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, 'Liberation Mono',
+    monospace;
 
   --fs-xs: 11px;
   --fs-sm: 12px;
@@ -62,11 +104,12 @@
 
   --fw-normal: 400;
   --fw-medium: 500;
+  --fw-semibold: 600;
   --fw-bold: 700;
 
-  --lh-tight: 1.2;
-  --lh-normal: 1.5;
-  --lh-loose: 1.8;
+  --lh-tight: 1.25;
+  --lh-normal: 1.55;
+  --lh-loose: 1.75;
 
   /* ---- Spacing ---- */
   --spacing-xs: 4px;
@@ -77,10 +120,10 @@
   --spacing-2xl: 48px;
   --spacing-3xl: 64px;
 
-  /* ---- Border radius ---- */
+  /* ---- Border radius (tighter) ---- */
   --radius-sm: 4px;
-  --radius-md: 8px;
-  --radius-lg: 12px;
+  --radius-md: 6px;
+  --radius-lg: 10px;
   --radius-pill: 999px;
 
   /* ---- Transitions ---- */
@@ -93,6 +136,47 @@
   --z-dropdown: 100;
   --z-modal: 1000;
   --z-toast: 10000;
+
+  /* ---- Chat surface tokens (concentrate hardcoded hex values
+   * from ChatPage.css here so dark-mode and theme-swap passes
+   * only need to touch this block). ---- */
+  --color-chat-message-user-border: var(--accent-green);
+  --color-chat-message-user-bg: rgba(15, 118, 110, 0.04);
+  --color-chat-message-assistant-border: var(--accent-cyan);
+  --color-chat-message-assistant-bg: rgba(14, 116, 144, 0.04);
+
+  --color-thinking-fg: var(--accent-yellow);
+  --color-thinking-bg: transparent;
+
+  --color-tool-call-border: var(--accent-yellow);
+  --color-tool-call-bg: rgba(180, 83, 9, 0.05);
+  --color-tool-call-fg: var(--accent-yellow);
+
+  --color-tool-result-border: var(--accent-green);
+  --color-tool-result-bg: rgba(15, 118, 110, 0.05);
+  --color-tool-result-fg: #115e58; /* dark teal — kept as literal for AA contrast on light */
+
+  --color-tool-block-error-bg: rgba(220, 38, 38, 0.06);
+  --color-tool-block-error-fg: var(--accent-red);
+  --color-tool-block-timeout-bg: rgba(180, 83, 9, 0.08);
+  --color-tool-block-timeout-fg: var(--accent-yellow);
+
+  --color-md-fg: var(--text-primary);
+  --color-md-strong: var(--accent-green);
+  --color-md-em: var(--accent-yellow);
+  --color-md-link: var(--accent-cyan);
+  --color-md-blockquote-border: var(--accent-purple);
+  --color-md-blockquote-bg: rgba(109, 40, 217, 0.05);
+  --color-md-code-bg: rgba(14, 116, 144, 0.12);
+  --color-md-th-bg: rgba(14, 116, 144, 0.08);
+
+  --color-artifact-border: var(--accent-primary);
+  --color-artifact-bg: var(--bg-secondary);
+
+  --color-input-bg: var(--bg-secondary);
+  --color-input-border: var(--border-strong);
+  --color-input-focus-border: var(--accent-green);
+  --color-input-focus-ring: rgba(15, 118, 110, 0.12);
 }
 
 /* ---- Global resets that lean on the tokens ---- */
@@ -108,10 +192,26 @@ body,
 body {
   font-family: var(--font-sans);
   font-size: var(--fs-base);
+  line-height: var(--lh-normal);
   color: var(--text-primary);
   background: var(--bg-primary);
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  font-feature-settings: 'cv11', 'ss01', 'ss03';
+  font-variant-numeric: tabular-nums;
+}
+
+code,
+pre,
+kbd,
+samp,
+.mono {
+  text-rendering: optimizeLegibility;
+  font-feature-settings:
+    'liga' 0,
+    'calt' 1;
 }
 
 * {
@@ -119,12 +219,13 @@ body {
 }
 
 a {
-  color: var(--accent-cyan);
+  color: var(--accent-primary);
   text-decoration: none;
 }
 
 a:hover {
-  text-shadow: var(--glow-cyan);
+  text-decoration: underline;
+  text-underline-offset: 3px;
 }
 
 code,
@@ -133,7 +234,7 @@ kbd {
   font-family: var(--font-mono);
 }
 
-/* ---- Scrollbar (terminal-style) ---- */
+/* ---- Scrollbar (subtle on light surfaces) ---- */
 
 ::-webkit-scrollbar {
   width: 8px;
@@ -141,22 +242,233 @@ kbd {
 }
 
 ::-webkit-scrollbar-track {
-  background: var(--bg-secondary);
+  background: transparent;
 }
 
 ::-webkit-scrollbar-thumb {
-  background: var(--accent-green);
+  background: var(--scrollbar-thumb);
   border-radius: var(--radius-sm);
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: var(--accent-cyan);
-  box-shadow: var(--glow-cyan);
+  background: var(--scrollbar-thumb-hover);
 }
 
 /* ---- Selection ---- */
 
 ::selection {
-  background: var(--accent-green);
-  color: var(--text-inverse);
+  background: var(--accent-primary-subtle);
+  color: var(--text-primary);
+}
+
+/* ---- Keyboard focus ring (Hi-DPI crispness) ---- */
+
+button:focus-visible,
+a:focus-visible,
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible {
+  outline: 2px solid var(--accent-primary);
+  outline-offset: 2px;
+  border-radius: var(--radius-sm);
+}
+
+/* ---- Skeleton shimmer (used by <SkeletonList />) ----
+ *
+ * Pure-CSS placeholder driven by a single keyframe so the
+ * animation runs entirely off the React tree. Respects
+ * `prefers-reduced-motion` by shortening the duration to 0
+ * so the bars remain visible but stop shimmering for users
+ * who opt out of motion.
+ */
+
+@keyframes nt-skeleton-shimmer {
+  0% {
+    background-position: -200% 0;
+  }
+  100% {
+    background-position: 200% 0;
+  }
+}
+
+.nt-skeleton-row {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-xs);
+  padding: var(--spacing-md);
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  min-height: 92px;
+}
+
+.nt-skeleton-bar {
+  display: block;
+  height: 12px;
+  border-radius: var(--radius-sm);
+  background: linear-gradient(
+    90deg,
+    var(--bg-tertiary) 0%,
+    var(--border-subtle) 50%,
+    var(--bg-tertiary) 100%
+  );
+  background-size: 200% 100%;
+  animation: nt-skeleton-shimmer 1.4s ease-in-out infinite;
+}
+
+.nt-skeleton-bar--title {
+  height: 16px;
+  width: var(--skeleton-width, 60%);
+}
+
+.nt-skeleton-bar--line {
+  width: var(--skeleton-width, 80%);
+}
+
+.nt-skeleton-bar--short {
+  width: 40%;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .nt-skeleton-bar {
+    animation-duration: 0s;
+  }
+  /* Honour the OS-level request for no animation: collapse
+   * every transition (hover fades, stop-button lift, etc.) to
+   * a 0-duration change. The cursor still updates, the colors
+   * still swap, but the user gets no animation between them. */
+  *,
+  *::before,
+  *::after {
+    transition-duration: 0.001ms !important;
+    animation-duration: 0.001ms !important;
+  }
+}
+
+/* ---- Dark theme override ----
+ *
+ * Apply by setting `<html data-theme="dark">` (or `system` via
+ * `useTheme.ts`). The override below re-uses the existing token
+ * surface; any new surface token added to `:root` should also
+ * be re-stated here so dark-mode callers don't fall back to
+ * the light defaults. The override is intentionally small —
+ * every visual change comes from flipping these 8 base
+ * variables, the rest of the cascade follows.
+ *
+ * v1 stays light-only by default; this block is the seam for
+ * Stage 5 theme toggle work.
+ *
+ * The `system` choice from the theme toggle relies on
+ * `useTheme` removing the `data-theme` attribute so the cascade
+ * falls through to the OS `prefers-color-scheme` media query.
+ * We register the same set of overrides inside that media
+ * block so the dark cascade activates automatically — without
+ * this block, picking `system` while the OS reports dark
+ * would still leave the page in the light defaults.
+ */
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']) {
+    --bg-primary: #0b0d12;
+    --bg-secondary: #11141a;
+    --bg-tertiary: #1a1e26;
+    --bg-elevated: #161a22;
+
+    --text-primary: #e6e8ee;
+    --text-secondary: #aab0bd;
+    --text-muted: #6c7382;
+    --text-inverse: #0b0d12;
+
+    --border-subtle: rgba(255, 255, 255, 0.08);
+    --border-strong: rgba(255, 255, 255, 0.16);
+
+    --brand-wordmark: #e6e8ee; /* logo wordmark ink (dark theme) */
+
+    /* Chat surfaces — same logic, inverted backgrounds. */
+    --color-chat-message-user-bg: rgba(37, 99, 235, 0.08);
+    --color-chat-message-assistant-bg: rgba(8, 145, 178, 0.06);
+    --color-thinking-fg: #f0c674;
+    --color-tool-call-fg: #f0c674;
+    --color-tool-call-bg: rgba(240, 198, 116, 0.06);
+    --color-tool-result-fg: #6dd6c1;
+    --color-tool-result-bg: rgba(109, 214, 193, 0.06);
+    --color-tool-block-error-bg: rgba(248, 113, 113, 0.08);
+    --color-tool-block-error-fg: #fca5a5;
+    --color-tool-block-timeout-fg: #f0c674;
+    --color-tool-block-timeout-bg: rgba(240, 198, 116, 0.06);
+    --color-md-code-bg: rgba(255, 255, 255, 0.08);
+    --color-md-th-bg: rgba(255, 255, 255, 0.06);
+
+    --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
+    --shadow-md: 0 1px 3px rgba(0, 0, 0, 0.5), 0 1px 2px rgba(0, 0, 0, 0.3);
+    --shadow-lg: 0 4px 12px rgba(0, 0, 0, 0.5);
+
+    --color-input-bg: var(--bg-secondary);
+    --color-input-border: var(--border-strong);
+    --color-input-focus-border: #60a5fa;
+    --color-input-focus-ring: rgba(96, 165, 250, 0.25);
+
+    --scrollbar-thumb: rgba(255, 255, 255, 0.16);
+    --scrollbar-thumb-hover: rgba(255, 255, 255, 0.32);
+  }
+}
+
+/* Explicit dark theme override — activates when the user picks
+ * `dark` in the theme toggle (which sets `<html data-theme="dark">`).
+ * Because of CSS cascade order, this rule wins over the
+ * `prefers-color-scheme` block above as long as both selectors
+ * would match — i.e. on systems where the OS also reports dark,
+ * the explicit choice takes precedence (the user's "dark"
+ * preference overrides the OS). On light-mode systems where the
+ * user has explicitly picked dark, this rule alone provides the
+ * dark cascade without any media-query gymnastics. */
+:root[data-theme='dark'] {
+  --bg-primary: #0b0d12;
+  --bg-secondary: #11141a;
+  --bg-tertiary: #1a1e26;
+  --bg-elevated: #161a22;
+
+  --text-primary: #e6e8ee;
+  --text-secondary: #aab0bd;
+  --text-muted: #6c7382;
+  --text-inverse: #0b0d12;
+
+  --border-subtle: rgba(255, 255, 255, 0.08);
+  --border-strong: rgba(255, 255, 255, 0.16);
+
+  --brand-wordmark: #e6e8ee; /* logo wordmark ink (dark theme) */
+
+  --color-chat-message-user-bg: rgba(37, 99, 235, 0.08);
+  --color-chat-message-assistant-bg: rgba(8, 145, 178, 0.06);
+  --color-thinking-fg: #f0c674;
+  --color-tool-call-fg: #f0c674;
+  --color-tool-call-bg: rgba(240, 198, 116, 0.06);
+  --color-tool-result-fg: #6dd6c1;
+  --color-tool-result-bg: rgba(109, 214, 193, 0.06);
+  --color-tool-block-error-bg: rgba(248, 113, 113, 0.08);
+  --color-tool-block-timeout-bg: rgba(240, 198, 116, 0.08);
+
+  --accent-primary: #60a5fa;
+  --accent-primary-hover: #3b82f6;
+  --accent-primary-active: #2563eb;
+  --accent-primary-subtle: rgba(96, 165, 250, 0.12);
+  --accent-cyan: #22d3ee;
+  --accent-purple: #a78bfa;
+  --accent-magenta: #fb7185;
+  --accent-yellow: #f0c674;
+  --accent-red: #f87171;
+  --accent-success: #4ade80;
+  --accent-green: #34d399;
+
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
+  --shadow-md: 0 1px 3px rgba(0, 0, 0, 0.5), 0 1px 2px rgba(0, 0, 0, 0.3);
+  --shadow-lg: 0 4px 12px rgba(0, 0, 0, 0.5);
+
+  --color-input-bg: var(--bg-secondary);
+  --color-input-border: var(--border-strong);
+  --color-input-focus-border: #60a5fa;
+  --color-input-focus-ring: rgba(96, 165, 250, 0.25);
+
+  --scrollbar-thumb: rgba(255, 255, 255, 0.16);
+  --scrollbar-thumb-hover: rgba(255, 255, 255, 0.32);
 }

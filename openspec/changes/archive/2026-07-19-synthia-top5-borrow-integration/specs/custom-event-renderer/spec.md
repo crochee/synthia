@@ -5,7 +5,7 @@
 
 ## Purpose
 
-在 `synthia-agent::events::AgentEvent` 加 `Custom` variant，并在 `synthia-extension-v2` 下提供 `EventRenderer` registry + builtin JSON renderer，将 Custom event 投影到 `AgentMessage`。
+在 `synthia-agent::events::AgentEvent` 加 `Custom` variant，并在 `synthia-extension-hook` 下提供 `EventRenderer` registry + builtin JSON renderer，将 Custom event 投影到 `AgentMessage`。
 
 ## ADDED Requirements
 
@@ -27,7 +27,7 @@ The existing `AgentEvent` enum (28-variant) MUST gain a `Custom { event_type: St
 
 ### Requirement: EventRenderer registry
 
-The `synthia-extension-v2` crate MUST expose an `EventRendererRegistry` keyed by `event_type` string.
+The `synthia-extension-hook` crate MUST expose an `EventRendererRegistry` keyed by `event_type` string.
 
 #### Scenario: builtin json renderer
 

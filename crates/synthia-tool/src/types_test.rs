@@ -2,13 +2,7 @@ use std::path::PathBuf;
 
 use synthia_provider::types::Message;
 
-use crate::types::{
-    DispatchMode,
-    ToolExecutionContext,
-    ToolInput,
-    ToolOutput,
-    TruncatedBy,
-};
+use crate::types::{Context, DispatchMode, ToolOutput, TruncatedBy};
 
 #[test]
 fn dispatch_mode_variants() {
@@ -26,42 +20,24 @@ fn dispatch_mode_serialize_deserialize() {
 }
 
 #[test]
-fn tool_execution_context_new() {
-    let ctx = ToolExecutionContext::new(
-        "session-123".to_string(),
-        PathBuf::from("/workspace"),
-    );
+fn context_new() {
+    let ctx =
+        Context::new("session-123".to_string(), PathBuf::from("/workspace"));
     assert_eq!(ctx.session_id, "session-123");
     assert_eq!(ctx.workspace_root, PathBuf::from("/workspace"));
     assert_eq!(ctx.caller_agent, "default");
     assert_eq!(ctx.dispatch_mode, DispatchMode::Fork);
     assert!(ctx.messages.is_empty());
+    assert_eq!(ctx.output_bound.per_call_max_bytes, 50 * 1024);
 }
 
 #[test]
-fn tool_execution_context_with_messages() {
+fn context_with_messages() {
     let msg = Message::user("hello");
-    let ctx = ToolExecutionContext::new(
-        "session-123".to_string(),
-        PathBuf::from("/workspace"),
-    )
-    .with_messages(vec![msg.clone()]);
+    let ctx =
+        Context::new("session-123".to_string(), PathBuf::from("/workspace"))
+            .with_messages(vec![msg.clone()]);
     assert_eq!(ctx.messages.len(), 1);
-}
-
-#[test]
-fn tool_input_structure() {
-    let ctx = ToolExecutionContext::new(
-        "session-123".to_string(),
-        PathBuf::from("/workspace"),
-    );
-    let input = ToolInput {
-        name: "test_tool".to_string(),
-        input: serde_json::json!({"arg": "value"}),
-        context: ctx,
-    };
-    assert_eq!(input.name, "test_tool");
-    assert_eq!(input.input["arg"], "value");
 }
 
 #[test]
@@ -130,6 +106,20 @@ fn tool_output_with_truncated_by_bytes() {
             assert_eq!(total, 1_000_000);
         }
         other => panic!("expected Bytes truncation, got {other:?}"),
+    }
+}
+
+#[test]
+fn tool_output_with_truncated_by_spilled_to() {
+    let output =
+        ToolOutput::text("hi").with_truncated_by(TruncatedBy::SpilledTo {
+            path: "/tmp/spill.txt".to_string(),
+        });
+    match output.truncated_by {
+        Some(TruncatedBy::SpilledTo { path }) => {
+            assert_eq!(path, "/tmp/spill.txt");
+        }
+        other => panic!("expected SpilledTo truncation, got {other:?}"),
     }
 }
 

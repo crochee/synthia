@@ -27,17 +27,6 @@ impl FakeProvider {
             stream_call_count: std::sync::atomic::AtomicUsize::new(0),
         }
     }
-
-    pub fn with_response(response: CompletionResponse) -> Self {
-        Self::new(vec![response])
-    }
-
-    /// Configure streaming chunks. Each call to stream() will return
-    /// the next entry from this vector as an async stream.
-    pub fn with_stream_chunks(mut self, chunks: Vec<Vec<StreamChunk>>) -> Self {
-        self.stream_chunks = Arc::new(Mutex::new(chunks));
-        self
-    }
 }
 
 #[async_trait]
@@ -75,7 +64,7 @@ impl ModelProvider for FakeProvider {
         if count < self.responses.len() {
             Ok(self.responses[count].clone())
         } else {
-            Err(Error::RateLimited(None))
+            Err(Error::rate_limited(None))
         }
     }
 

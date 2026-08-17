@@ -4,39 +4,34 @@ version.workspace = true
 edition.workspace = true
 
 [dependencies]
-synthia-core = { path = "../synthia-core" }
-synthia-permission = { path = "../synthia-permission" }
-synthia-provider = { path = "../synthia-provider" }
-synthia-sandbox = { path = "../synthia-sandbox" }
+synthia-core.workspace = true
+synthia-provider.workspace = true
 async-trait.workspace = true
 serde.workspace = true
 serde_json.workspace = true
-thiserror.workspace = true
-anyhow.workspace = true
+schemars = { workspace = true, features = ["preserve_order"] }
+# schemars 1.2.2 has a `#[cfg(feature = "schemars_derive")]` gate on
+# its `pub use schemars_derive::*`, but that gate is broken: Cargo
+# only forwards `feature="default"` to the rustc invocation, so the
+# `schemars_derive` feature is never activated for transitive
+# consumers. We depend on the derive crate directly and import the
+# macro via `use schemars_derive::JsonSchema`. Remove the direct
+# dep once upstream aligns the gate with the documented `derive`
+# feature name.
+schemars_derive.workspace = true
 tracing.workspace = true
 tokio.workspace = true
-tokio-util.workspace = true
-futures.workspace = true
+tokio-stream.workspace = true
 reqwest.workspace = true
-toml = "0.8"
-url = "2"
-chrono.workspace = true
+url = "2.5"
 parking_lot.workspace = true
-dashmap.workspace = true
-priority-queue = "2"
-regex.workspace = true
-glob.workspace = true
-schemars = { version = "0.8", features = ["preserve_order"] }
-semver = "1"
-uuid = { version = "1", features = ["v4"] }
-
-[target.'cfg(target_os = "linux")'.dependencies]
-libc = "0.2"
+chrono.workspace = true
+futures.workspace = true
 
 [dev-dependencies]
 tempfile.workspace = true
+test-support.workspace = true
 tracing-subscriber.workspace = true
 
 [features]
 default = []
-otel = []

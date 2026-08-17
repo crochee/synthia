@@ -1,7 +1,7 @@
 import { Outlet } from 'react-router-dom';
+import { Box, Flex } from '@radix-ui/themes';
 import { Header } from './Header';
 import { Sidebar } from './Sidebar';
-import './MainLayout.css';
 
 export interface MainLayoutProps {
   isServerAvailable: boolean;
@@ -9,19 +9,20 @@ export interface MainLayoutProps {
 
 /**
  * Primary application layout: header on top, sidebar on left,
- * routed page content in the main area. Used as the React Router
- * layout route parent.
+ * routed page content in the main area.
  */
 export function MainLayout({ isServerAvailable }: MainLayoutProps) {
   return (
-    <div className="nt-layout">
+    <Box style={{ height: '100vh', background: 'var(--bg-primary)' }}>
       <Header isServerAvailable={isServerAvailable} />
-      <div className="nt-layout__body">
+      <Flex style={{ height: 'calc(100vh - 56px)' }}>
         <Sidebar />
-        <main className="nt-layout__main">
-          <Outlet />
-        </main>
-      </div>
-    </div>
+        <Box asChild style={{ flex: 1, overflow: 'auto' }}>
+          <main>
+            <Outlet />
+          </main>
+        </Box>
+      </Flex>
+    </Box>
   );
 }

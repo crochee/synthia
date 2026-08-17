@@ -53,13 +53,9 @@ test.describe('API performance', () => {
 
   const endpoints: Array<{ label: string; path: string; coldStart?: boolean }> = [
     { label: 'health', path: '/health', coldStart: true },
-    { label: 'providers', path: '/api/providers' },
-    { label: 'skills', path: '/api/skills' },
-    { label: 'tools', path: '/api/tools' },
-    { label: 'settings', path: '/api/settings' },
-    { label: 'jobs', path: '/api/jobs' },
-    { label: 'tasks', path: '/api/tasks' },
-    { label: 'mcp servers', path: '/api/mcp/servers' },
+    { label: 'skills', path: '/api/v1/skills' },
+    { label: 'tools', path: '/api/v1/tools' },
+    { label: 'tasks', path: '/api/v1/tasks' },
     { label: 'agent card', path: '/.well-known/agent-card.json' },
   ];
 
@@ -83,9 +79,7 @@ test.describe('API performance', () => {
 
       const serverMs = serverDurationFrom(response);
       const effectiveServerMs = serverMs ?? e2eDuration;
-      const serverThreshold = coldStart
-        ? COLD_START_SERVER_THRESHOLD_MS
-        : SERVER_THRESHOLD_MS;
+      const serverThreshold = coldStart ? COLD_START_SERVER_THRESHOLD_MS : SERVER_THRESHOLD_MS;
 
       expect(
         e2eDuration,
@@ -107,13 +101,13 @@ test.describe('API performance', () => {
 
   test('sustained burst keeps server P95 < 300ms', async ({ request }) => {
     // Warm-up: throw away the first call so we don't measure JIT cold start.
-    await request.get(`${SERVER_URL}/api/providers`);
+    await request.get(`${SERVER_URL}/api/v1/skills`);
 
     const e2eSamples: number[] = [];
     const serverSamples: number[] = [];
     for (let i = 0; i < BURST_SAMPLE_COUNT; i++) {
       const start = Date.now();
-      const response = await request.get(`${SERVER_URL}/api/providers`);
+      const response = await request.get(`${SERVER_URL}/api/v1/skills`);
       const e2eDuration = Date.now() - start;
       expect(response.ok(), `request ${i} failed`).toBe(true);
       const serverMs = serverDurationFrom(response);
@@ -128,20 +122,19 @@ test.describe('API performance', () => {
     const p95Index = Math.ceil(BURST_SAMPLE_COUNT * 0.95) - 1;
 
     const e2eP95 = e2eSamples[p95Index]!;
-    const serverP95 = serverSamples.length > 0 ? serverSamples[p95Index] ?? 0 : null;
+    const serverP95 = serverSamples.length > 0 ? (serverSamples[p95Index] ?? 0) : null;
 
     test.info().annotations.push({
       type: 'perf',
       description:
-        `providers burst e2e_p95=${e2eP95}ms ` +
+        `skills burst e2e_p95=${e2eP95}ms ` +
         (serverP95 != null ? `server_p95=${serverP95}ms ` : '') +
         `(n=${BURST_SAMPLE_COUNT})`,
     });
 
-    expect(
-      e2eP95,
-      `e2e P95 ${e2eP95}ms exceeds ${BURST_P95_E2E_THRESHOLD_MS}ms`,
-    ).toBeLessThan(BURST_P95_E2E_THRESHOLD_MS);
+    expect(e2eP95, `e2e P95 ${e2eP95}ms exceeds ${BURST_P95_E2E_THRESHOLD_MS}ms`).toBeLessThan(
+      BURST_P95_E2E_THRESHOLD_MS,
+    );
 
     if (serverP95 != null) {
       expect(
@@ -156,15 +149,16 @@ test.describe('API performance', () => {
     for (const q of queries) {
       const start = Date.now();
       const response = await request.get(
-        `${SERVER_URL}/api/memory/search?q=${encodeURIComponent(q)}`,
+        `${SERVER_URL}/api/v1/memory/search?q=${encodeURIComponent(q)}`,
       );
       const e2eDuration = Date.now() - start;
       expect(response.ok(), `query=${q}`).toBe(true);
       const body = await response.json();
-      expect(body.status).toBe('ok');
+      // v1 bare response: List<T> shape `{ data, next_cursor, total }`.
+      // No envelope `status` field. The endpoint always returns
+      // `data: []` when no skills match; just keep it cheap.
+      expect(Array.isArray(body.data)).toBe(true);
       const serverMs = serverDurationFrom(response);
-      // The endpoint always returns `{ results: [], count: 0 }` for
-      // the placeholder; just make sure it stays cheap.
       expect(e2eDuration, `query=${q} e2e=${e2eDuration}ms`).toBeLessThan(E2E_THRESHOLD_MS);
       if (serverMs != null) {
         expect(serverMs, `query=${q} server=${serverMs}ms`).toBeLessThan(SERVER_THRESHOLD_MS);

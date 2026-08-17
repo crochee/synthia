@@ -89,7 +89,7 @@ Six critical-path spans are created by the agent runtime, all
 | `llm.call`        | `synthia-provider` | LLM provider call (Anthropic / OpenAI)    |
 | `tool.execute`    | `synthia-tool`     | Tool execution in the registry            |
 | `compaction`      | `synthia-context`  | Context compaction                        |
-| `guardian.check`  | `synthia-guardian` | Guardian reviewer check                   |
+| `guardian.check`  | `synthia-agent`    | Agent-loop permission / loop-detection check |
 
 Span creation is a **bystander observation**: it never modifies the
 `CompletionRequest` payload (messages / system / tools), so the KV-cache prefix

@@ -5,14 +5,12 @@ use crate::types::*;
 impl CompletionRequest {
     pub fn validate(&self) -> Result<(), Error> {
         if self.model.trim().is_empty() {
-            return Err(Error::Validation(
-                "model must be non-empty".to_string(),
-            ));
+            return Err(Error::validation("model must be non-empty"));
         }
 
         if self.messages.is_empty() {
-            return Err(Error::Validation(
-                "messages must have at least one message".into(),
+            return Err(Error::validation(
+                "messages must have at least one message",
             ));
         }
 
@@ -26,7 +24,7 @@ impl CompletionRequest {
                 }),
             };
             if !has_text && matches!(&msg.content, Content::Single(_)) {
-                return Err(Error::Validation(format!(
+                return Err(Error::validation(format!(
                     "message {} has empty content",
                     i
                 )));
@@ -35,7 +33,7 @@ impl CompletionRequest {
 
         for (i, tool) in self.tools.iter().enumerate() {
             if tool.name.trim().is_empty() {
-                return Err(Error::Validation(format!(
+                return Err(Error::validation(format!(
                     "tool {} has empty name",
                     i
                 )));
@@ -49,8 +47,8 @@ impl CompletionRequest {
         let mut last_role: Option<Role> = None;
         for msg in messages {
             if last_role == Some(Role::Tool) && msg.role != Role::User {
-                return Err(Error::Validation(
-                    "Tool message must be followed by User message".into(),
+                return Err(Error::validation(
+                    "Tool message must be followed by User message",
                 ));
             }
             last_role = Some(msg.role);

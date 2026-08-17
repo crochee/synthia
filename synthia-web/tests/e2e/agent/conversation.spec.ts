@@ -49,7 +49,11 @@ test.describe('Agent conversation', () => {
     const count = await assistantMessages.count();
     expect(count).toBeGreaterThan(0);
 
-    // Verify segments container exists
+    // Verify segments container exists. ChatPage keeps its own
+    // BEM class `nt-chat__segment` for segment internals (the
+    // chat page is intentionally not part of the Radix Themes
+    // migration — it owns its own CSS), so the legacy class
+    // selector still matches the rendered DOM.
     const lastMessage = assistantMessages.last();
     const segments = lastMessage.locator('.nt-chat__segment');
     await expect(segments.first()).toBeVisible();
@@ -64,21 +68,25 @@ test.describe('Agent conversation', () => {
     await chat.sendMessage('What is 1+1?');
     await chat.waitForAssistantReply(90_000);
 
-    // Check if any thinking segments exist
-    const thinkingSegments = page.locator('.nt-chat__segment--thinking');
+    // Check if any thinking segments exist — ChatPage renders each
+    // thinking segment's header as a `<button>` whose visible
+    // label is `思考…`, so we locate by accessible name rather
+    // than by the legacy `nt-chat__segment--thinking` class.
+    const thinkingSegments = page
+      .getByTestId('chat-messages')
+      .getByRole('button', { name: /^思考/ });
     const thinkingCount = await thinkingSegments.count();
 
     if (thinkingCount > 0) {
       // If thinking segments exist, verify they are collapsible
-      const header = thinkingSegments.first().locator('.nt-chat__segment-header');
+      const header = thinkingSegments.first();
       await expect(header).toBeVisible();
 
-      // Click to expand
+      // Click to expand — the header toggles `aria-expanded`.
       await header.click();
 
-      // Verify content is visible after click
-      const content = thinkingSegments.first().locator('.nt-chat__segment-content');
-      await expect(content).toBeVisible();
+      // Verify the segment is now expanded (`aria-expanded="true"`).
+      await expect(header).toHaveAttribute('aria-expanded', 'true');
     } else {
       // No thinking segments for this simple query - that's OK
       // The important thing is the UI is ready for when they do appear

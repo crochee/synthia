@@ -1,4 +1,4 @@
-use synthia_session::store::SERVER_DEFAULT_USER_ID;
+use synthia_session::manager::SERVER_DEFAULT_USER_ID;
 
 use super::*;
 use crate::config::AuthConfig;

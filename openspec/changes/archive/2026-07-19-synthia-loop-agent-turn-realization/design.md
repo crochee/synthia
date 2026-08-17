@@ -48,12 +48,12 @@ Change #1 delivered 8 infrastructure capabilities that are **defined but not con
 
 ### D1: HookOutcome ↔ ExtensionOutcome Bridge
 
-**Choice**: `impl From<ExtensionOutcome> for HookOutcome` in `synthia-extension-v2`
+**Choice**: `impl From<ExtensionOutcome> for HookOutcome` in `synthia-extension-hook`
 
-**Why**: Avoids adding `synthia-hook` as a dependency of `synthia-extension-v2` while providing ergonomic conversion. The canonical type is `HookOutcome`; extension callbacks convert before returning. No new types needed.
+**Why**: Avoids adding `synthia-hook` as a dependency of `synthia-extension-hook` while providing ergonomic conversion. The canonical type is `HookOutcome`; extension callbacks convert before returning. No new types needed.
 
 **Alternatives considered**:
-- Re-export pattern (synthia-extension-v2 re-exports HookOutcome) → adds cross-crate dependency
+- Re-export pattern (synthia-extension-hook re-exports HookOutcome) → adds cross-crate dependency
 - Bridge enum `UnifiedOutcome` in synthia-agent → third enum to maintain
 - Shared enum in new crate → over-engineering for 2 types
 

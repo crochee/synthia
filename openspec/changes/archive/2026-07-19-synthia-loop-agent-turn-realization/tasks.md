@@ -22,7 +22,7 @@
 
 ### Task 1.1: PR-1.1 — From<ExtensionOutcome> for HookOutcome bridge ✅
 
-- **WHERE**: `crates/synthia-extension-v2/src/lib.rs`
+- **WHERE**: `crates/synthia-extension-hook/src/lib.rs`
 - **HOW**: add `impl From<ExtensionOutcome> for HookOutcome` with `synthia-hook` as dependency in Cargo.toml
 - **WHY**: canonical type is HookOutcome; extension callbacks convert before returning (D1)
 - **EXPECTED**: 3 conversion tests (Allow, Deny, ForwardToMainAgent) pass
@@ -108,7 +108,7 @@
 
 ### Task 5.1: PR-5.1 — ExtensionRegistry double-registration fix ✅
 
-- **WHERE**: `crates/synthia-extension-v2/src/registry.rs`
+- **WHERE**: `crates/synthia-extension-hook/src/registry.rs`
 - **HOW**: in `register()`, after writing to `self.extensions`, call `ServiceRegistry::register_with_capability::<Extension>()`; on ServiceRegistry failure, rollback the ExtensionRegistry entry
 - **WHY**: G8 — doc comment says it registers with ServiceRegistry but it doesn't
 - **EXPECTED**: double-registration integration test + rollback-on-failure test pass
@@ -170,9 +170,9 @@
 
 ### Task 8.2: cargo test split (per Rust project rules — never run all at once) ✅
 
-- **HOW**: per-module, starting with new/modified crates in dependency order: synthia-hook, synthia-extension-v2, synthia-agent, synthia-service, synthia-goal-service
+- **HOW**: per-module, starting with new/modified crates in dependency order: synthia-hook, synthia-extension-hook, synthia-agent, synthia-service, synthia-goal-service
 - **EXPECTED**: every batch green; no pre-existing failures
-- **RESULT**: all tests pass — synthia-hook (46), synthia-extension-v2 (24), synthia-service (4), synthia-goal-service (5), synthia-agent (all)
+- **RESULT**: all tests pass — synthia-hook (46), synthia-extension-hook (24), synthia-service (4), synthia-goal-service (5), synthia-agent (all)
 
 ### Task 8.3: main_loop line count verification ✅
 

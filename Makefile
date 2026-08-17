@@ -31,7 +31,7 @@ dev: ## Start backend (:8080) and frontend (:5173) in parallel
 	@$(MAKE) -j2 dev-server dev-web
 
 dev-server: ## Start backend only (cargo run with hot reload on file changes)
-	cargo run -p $(SERVER_CRATE)
+	cargo run -p $(SERVER_CRATE) -- --config config.yaml
 
 dev-web: ## Start frontend only (vite dev server)
 	cd $(WEB_DIR) && npm run dev -- --port $(WEB_PORT)
@@ -58,7 +58,7 @@ build-release: ## Build release binaries
 
 # ---- Test ----
 
-.PHONY: test test-rust test-web test-e2e test-unit
+.PHONY: test test-rust test-web test-e2e test-unit test-wire
 
 test: test-rust test-web ## Run all tests (Rust + frontend unit)
 
@@ -67,6 +67,9 @@ test-rust: ## Run all Rust tests in the workspace
 
 test-unit: ## Run only Rust library unit tests
 	cargo test --workspace --lib
+
+test-wire: ## Run synthia-core tests under --features http,axum (wire contract gate)
+	cargo test -p synthia-core --features http,axum
 
 test-web: ## Run frontend unit tests
 	cd $(WEB_DIR) && npm test

@@ -20,7 +20,10 @@
  *   - no defaults; callers pass `signal` themselves if they need abort
  */
 
-export interface SSEEvent {
+// Internal type used only by `sse-harness.ts`; `export`
+// removed during the 2026-08-15 optimization pass (knip
+// flagged as unused export after the vitest config was removed).
+interface SSEEvent {
   /** Value of the `event:` field, or `"message"` if absent. */
   event: string;
   /** Concatenated `data:` lines, joined by "\n" per the spec. */

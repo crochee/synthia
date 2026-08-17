@@ -4,49 +4,43 @@ version.workspace = true
 edition.workspace = true
 
 [dependencies]
-synthia-agent = { path = "../synthia-agent" }
-synthia-a2a = { path = "../synthia-a2a" }
+synthia-agent.workspace = true
 a2a-lf = "0.3"
 a2a-server-lf = "0.4"
-synthia-command = { path = "../synthia-command" }
-synthia-context = { path = "../synthia-context" }
-synthia-hook = { path = "../synthia-hook" }
-synthia-job = { path = "../synthia-job" }
-synthia-mcp = { path = "../synthia-mcp" }
-synthia-permission = { path = "../synthia-permission" }
-synthia-tool-orchestrator = { path = "../synthia-tool-orchestrator" }
-synthia-sandbox = { path = "../synthia-sandbox" }
-synthia-provider = { path = "../synthia-provider" }
-synthia-session = { path = "../synthia-session" }
-synthia-core = { path = "../synthia-core" }
-synthia-tool = { path = "../synthia-tool" }
-synthia-protocol = { path = "../synthia-protocol" }
+synthia-provider.workspace = true
+synthia-session.workspace = true
+synthia-skill.workspace = true
+synthia-core.workspace = true
+synthia-telemetry.workspace = true
+synthia-tool.workspace = true
 async-trait.workspace = true
 chrono.workspace = true
 axum.workspace = true
+opentelemetry.workspace = true
+opentelemetry_sdk = { version = "0.32", features = ["rt-tokio"] }
 tower.workspace = true
 tower-http = { workspace = true, features = ["cors", "fs"] }
 tokio.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+toml.workspace = true
 anyhow.workspace = true
-base64 = "0.22"
-thiserror.workspace = true
 tracing.workspace = true
-tracing-subscriber = { workspace = true, features = ["env-filter"] }
 futures.workspace = true
-tokio-stream.workspace = true
 tokio-util.workspace = true
 async-stream.workspace = true
 dashmap.workspace = true
+parking_lot.workspace = true
 serde_yaml.workspace = true
-rmcp = { workspace = true }
-dotenv = "0.15"
-clap = { version = "4.5", features = ["derive"] }
+dotenvy.workspace = true
+clap = { version = "4.6", features = ["derive"] }
 uuid = { workspace = true, features = ["v4"] }
 sha2.workspace = true
 hex.workspace = true
-test-support = { path = "../../test-support", optional = true }
+base64.workspace = true
+regex.workspace = true
+schemars.workspace = true
+test-support = { workspace = true, optional = true }
 
 [features]
 test-utils = ["dep:test-support"]
@@ -57,11 +51,8 @@ tempfile.workspace = true
 http-body-util.workspace = true
 tower = { workspace = true, features = ["util"] }
 axum.workspace = true
-test-support = { path = "../../test-support" }
-filetime = "0.2"
+test-support.workspace = true
 chrono.workspace = true
-serial_test = "3"
-tokio-tungstenite.workspace = true
 
 [dev-dependencies.synthia-server]
 path = "."

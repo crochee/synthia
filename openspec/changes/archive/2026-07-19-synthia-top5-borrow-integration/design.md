@@ -200,7 +200,7 @@ impl ScopedToolRegistry {
 
 ## D7 — Extension 是否独立 crate？
 
-**Decision**：**是，独立 `synthia-extension-v2`**（与现有 `synthia-extension` 并存 3 月）。
+**Decision**：**是，独立 `synthia-extension-hook`**（与现有 `synthia-extension` 并存 3 月）。
 
 **Rationale**：
 - 现有 `synthia-extension/src/lib.rs` 1 行 stub，需要保留兼容
@@ -209,7 +209,7 @@ impl ScopedToolRegistry {
 
 **Structure**：
 ```
-synthia-extension-v2/
+synthia-extension-hook/
 ├── src/
 │   ├── lib.rs           # Extension trait + ExtensionManifest + 19 typed events
 │   ├── manifest.rs      # ExtensionManifest (replaces stub)
@@ -223,7 +223,7 @@ synthia-extension-v2/
 
 ## D8 — CustomEvent 落地位置？
 
-**Decision**：**`synthia-agent::events::AgentEvent::Custom` 新 variant + `synthia-extension-v2::EventRenderer` registry**。
+**Decision**：**`synthia-agent::events::AgentEvent::Custom` 新 variant + `synthia-extension-hook::EventRenderer` registry**。
 
 **Rationale**：
 - pi-mono `extensions/types.ts` Custom 50 行
@@ -245,7 +245,7 @@ synthia-extension-v2/
 default = ["event-v2", "extension-v1", "hook-unified", "goal-service-v1",
            "tool-materialization-v1", "tool-output-sanitizer-v1", "custom-event-v1"]
 event-v2 = ["dep:synthia-event-v2"]
-extension-v1 = ["dep:synthia-extension-v2"]
+extension-v1 = ["dep:synthia-extension-hook"]
 hook-unified = ["dep:synthia-hook"]  # 替换双系统的统一 trait
 goal-service-v1 = ["dep:synthia-goal-service"]
 tool-materialization-v1 = ["dep:synthia-tool-materialization"]
@@ -279,7 +279,7 @@ custom-event-v1 = []
 - PR-1.5: `Projector` trait + `CommitGuard` + `aggregate_events()` facade + 投影到 protocol header
 
 ### Extension (PR-2.1 ~ PR-2.4)
-- PR-2.1: 创建 `synthia-extension-v2` skeleton + `Extension` trait + manifest 替换 1 行 stub
+- PR-2.1: 创建 `synthia-extension-hook` skeleton + `Extension` trait + manifest 替换 1 行 stub
 - PR-2.2: 19 typed events payload struct
 - PR-2.3: typed sandbox infrastructure (capability-scoped)
 - PR-2.4: `ExtensionRegistry` + 双注册 (ServiceRegistry + ExtensionRegistry)

@@ -29,15 +29,13 @@ export abstract class BasePage {
   }
 
   /** Click a sidebar link by its visible shortcut letter. */
-  async navigateByShortcut(shortcut: 'C' | 'T' | 'K' | 'A' | 'M' | 'J' | 'X' | 'S') {
+  async navigateByShortcut(shortcut: 'C' | 'T' | 'K' | 'A' | 'J' | 'S') {
     const map: Record<typeof shortcut, string> = {
       C: 'CHAT',
       T: 'TOOLS',
       K: 'SKILLS',
       A: 'TASKS',
-      M: 'MEMORY',
       J: 'JOBS',
-      X: 'MCP',
       S: 'SETTINGS',
     };
     await this.sidebar.getByText(map[shortcut]).click();

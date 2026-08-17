@@ -1,8 +1,11 @@
+@import '../styles/artifact-card.css';
+
 .nt-chat {
   display: flex;
   flex-direction: column;
   height: 100%;
   font-family: var(--font-mono);
+  position: relative;
 }
 
 .nt-chat__messages {
@@ -20,16 +23,19 @@
   background: var(--bg-secondary);
   border-left: 3px solid;
   word-wrap: break-word;
+  border-top: 1px solid var(--border-subtle);
+  border-right: 1px solid var(--border-subtle);
+  border-bottom: 1px solid var(--border-subtle);
 }
 
 .nt-chat__message--user {
-  border-left-color: var(--accent-green);
-  background: rgba(0, 255, 136, 0.03);
+  border-left-color: var(--color-chat-message-user-border);
+  background: var(--color-chat-message-user-bg);
 }
 
 .nt-chat__message--assistant {
-  border-left-color: var(--accent-cyan);
-  background: rgba(0, 221, 255, 0.03);
+  border-left-color: var(--color-chat-message-assistant-border);
+  background: var(--color-chat-message-assistant-bg);
 }
 
 .nt-chat__message-meta {
@@ -44,23 +50,23 @@
   color: var(--text-secondary);
   text-transform: uppercase;
   letter-spacing: 0.05em;
+  font-weight: var(--fw-medium);
 }
 
 .nt-chat__message--user .nt-chat__message-role {
   color: var(--accent-green);
-  text-shadow: var(--glow-green);
 }
 
 .nt-chat__message--assistant .nt-chat__message-role {
   color: var(--accent-cyan);
-  text-shadow: var(--glow-cyan);
 }
 
 .nt-chat__message-status {
   font-size: var(--fs-xs);
   padding: 2px 6px;
   border-radius: var(--radius-sm);
-  background: rgba(255, 255, 255, 0.05);
+  background: var(--bg-tertiary);
+  color: var(--text-secondary);
 }
 
 .status-submitted,
@@ -105,21 +111,27 @@
 
 .nt-chat__input {
   width: 100%;
-  background: var(--bg-secondary);
-  border: 1px solid var(--border-primary);
+  background: var(--color-input-bg);
+  border: 1px solid var(--color-input-border);
   border-radius: var(--radius-sm);
   color: var(--text-primary);
   font-family: var(--font-mono);
-  font-size: var(--fs-base);
-  padding: var(--spacing-sm);
-  resize: vertical;
+  font-size: var(--fs-md);
+  line-height: 1.5;
+  padding: var(--spacing-sm) var(--spacing-md);
+  resize: none; /* auto-grow is owned by the component */
   min-height: 60px;
+  max-height: 240px;
+  overflow-y: auto;
+  transition:
+    border-color var(--transition-fast),
+    box-shadow var(--transition-fast);
 }
 
 .nt-chat__input:focus {
   outline: none;
-  border-color: var(--accent-cyan);
-  box-shadow: var(--glow-cyan);
+  border-color: var(--color-input-focus-border);
+  box-shadow: 0 0 0 3px var(--color-input-focus-ring);
 }
 
 .nt-chat__input:disabled {
@@ -132,24 +144,139 @@
   margin: 0;
 }
 
-/* 普通文本 - 与用户输入保持一致：使用 --text-primary (灰白)
- * 让 assistant 的最终答案读起来和用户自己输入的消息同色调，
- * 强调"对话"而非"AI 输出"。思考/工具则保留各自的强调色。 */
+/* Stream error banner — sits between the message list and the
+ * input form. Subtle red border + warm background so it reads
+ * as "something needs your attention" without being loud. */
+.nt-chat__error-banner {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  margin-top: var(--spacing-md);
+  padding: var(--spacing-sm) var(--spacing-md);
+  background: var(--color-tool-block-error-bg);
+  border: 1px solid var(--color-tool-block-error-fg);
+  border-radius: var(--radius-md);
+  color: var(--color-tool-block-error-fg);
+  font-family: var(--font-sans);
+  font-size: var(--fs-sm);
+  flex-wrap: wrap;
+}
+
+.nt-chat__error-banner-text {
+  flex: 1 1 auto;
+  min-width: 0;
+  word-break: break-word;
+}
+
+/* Floating "Stop" pill — sits in the bottom-right corner
+ * during streaming so the user can abort the assistant turn
+ * without losing context. Visually anchored on top of the
+ * message list (z-index above messages), pill-shaped so it
+ * reads as an inline control rather than a modal CTA.
+ *
+ * The button flips its label to a small filled square when
+ * hovered (handled inline by the JSX), keeping the icon
+ * stable so screen readers always announce "Stop generating".
+ */
+.nt-chat__stop-button {
+  position: absolute;
+  right: var(--spacing-md);
+  bottom: 96px;
+  z-index: 5;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border: 1px solid var(--border-strong);
+  border-radius: 999px;
+  background: var(--bg-elevated);
+  color: var(--text-primary);
+  font-family: var(--font-sans);
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-medium);
+  cursor: pointer;
+  box-shadow: var(--shadow-md);
+  transition:
+    background-color var(--transition-fast),
+    transform var(--transition-fast);
+}
+
+.nt-chat__stop-button:hover {
+  background: var(--color-tool-block-error-bg);
+  border-color: var(--color-tool-block-error-fg);
+  color: var(--color-tool-block-error-fg);
+  transform: translateY(-1px);
+}
+
+.nt-chat__stop-button:focus-visible {
+  outline: 2px solid var(--accent-primary);
+  outline-offset: 2px;
+}
+
+/* Inline "Copy" button next to the role label on each
+ * message. Hidden until the user hovers the message so the
+ * transcript reads clean by default but the action is one
+ * mouse-step away when needed.
+ *
+ * The button is memoised via `data-testid="copy-message"` on
+ * the ChatMessageView side; the CSS-only hover treatment
+ * avoids the React overhead of a separate hovered-state
+ * flag in the message list.
+ */
+.nt-chat__message-actions {
+  display: inline-flex;
+  gap: 4px;
+  margin-left: var(--spacing-sm);
+  opacity: 0;
+  transition: opacity var(--transition-fast);
+}
+
+.nt-chat__message:hover .nt-chat__message-actions,
+.nt-chat__message:focus-within .nt-chat__message-actions {
+  opacity: 1;
+}
+
+.nt-chat__copy-button {
+  border: 1px solid var(--border-subtle);
+  background: var(--bg-secondary);
+  color: var(--text-secondary);
+  border-radius: var(--radius-sm);
+  padding: 2px 8px;
+  font-family: var(--font-mono);
+  font-size: var(--fs-sm);
+  cursor: pointer;
+  transition:
+    background-color var(--transition-fast),
+    color var(--transition-fast);
+}
+
+.nt-chat__copy-button:hover:not(:disabled) {
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+}
+
+.nt-chat__copy-button:focus-visible {
+  outline: 2px solid var(--accent-primary);
+  outline-offset: 2px;
+}
+
+.nt-chat__copy-button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
 .nt-chat__segment--text,
 .nt-chat__segment--text_delta {
   color: var(--text-primary);
   font-weight: 400;
 }
 
-/* 思考 - 暖琥珀色调，与正文冷色形成对照，明确区分为
- * "元信息"而非正文。去掉 italic：字色已经够区分，
- * 斜体在小字号下反而让可读性下降。 */
 .nt-chat__segment--thinking {
   margin: 0;
 }
 
 .nt-chat__segment--thinking .nt-chat__segment-content {
-  color: #d9b173;
+  color: var(--color-thinking-fg);
   font-size: 0.92em;
   font-style: normal;
   font-weight: 400;
@@ -158,75 +285,71 @@
   margin-top: 0.15rem;
 }
 
-/* 思考 header 也跟着用琥珀色，让折叠状态和展开状态统一。 */
 .nt-chat__segment--thinking .nt-chat__segment-label {
-  color: rgba(217, 177, 115, 0.9);
+  color: var(--color-thinking-fg);
 }
 
-.nt-chat__segment--thinking .nt-chat__segment-header:hover .nt-chat__segment-label {
-  color: rgba(217, 177, 115, 1);
+.nt-chat__segment--thinking .chat-toggle:hover .nt-chat__segment-label {
+  color: var(--color-thinking-fg);
+  filter: brightness(0.85);
 }
 
-/* 工具调用 - 终端代码块风格：深色背景 + 黄色左边框 */
+/* 工具调用 - 浅色 amber 边框的卡片 */
 .nt-chat__segment--tool_call {
-  background: rgba(255, 200, 50, 0.04);
-  border-left: 2px solid rgba(255, 200, 50, 0.55);
+  background: var(--color-tool-call-bg);
+  border-left: 2px solid var(--color-tool-call-border);
   border-radius: 3px;
   padding: 0.25rem 0 0.25rem 0.6rem;
   margin: 0.25rem 0;
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-family: var(--font-mono);
 }
 
 .nt-chat__segment--tool_call .nt-chat__segment-content {
   font-size: 0.85em;
-  color: #f0d68a;
+  color: var(--color-tool-call-fg);
   white-space: pre-wrap;
   word-break: break-word;
   margin-top: 0.2rem;
-  background: rgba(0, 0, 0, 0.25);
+  background: var(--bg-tertiary);
   padding: 0.4rem 0.5rem;
   border-radius: 3px;
   max-height: 24em;
   overflow-y: auto;
 }
 
-/* 工具结果 - 终端输出风格：绿色左边框区分于 call */
+/* 工具结果 - 浅色 teal 边框 */
 .nt-chat__segment--tool_result {
-  background: rgba(0, 255, 136, 0.04);
-  border-left: 2px solid rgba(0, 255, 136, 0.55);
+  background: var(--color-tool-result-bg);
+  border-left: 2px solid var(--color-tool-result-border);
   border-radius: 3px;
   padding: 0.25rem 0 0.25rem 0.6rem;
   margin: 0.25rem 0;
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-family: var(--font-mono);
 }
 
 .nt-chat__segment--tool_result .nt-chat__segment-content {
   font-size: 0.85em;
-  color: #aef0c5;
+  color: var(--color-tool-result-fg);
   white-space: pre-wrap;
   word-break: break-word;
   margin-top: 0.2rem;
-  background: rgba(0, 0, 0, 0.25);
+  background: var(--bg-tertiary);
   padding: 0.4rem 0.5rem;
   border-radius: 3px;
   max-height: 28em;
   overflow-y: auto;
 }
 
-/* 工具 header - 用更紧凑的标签样式 + 状态色 */
 .nt-chat__segment--tool_call .nt-chat__segment-label,
 .nt-chat__segment--tool_result .nt-chat__segment-label,
 .nt-chat__segment--tool_block .nt-chat__segment-label {
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-family: var(--font-mono);
   font-size: 0.92em;
   font-weight: 500;
   letter-spacing: 0.03em;
 }
 
-/* Header size for tool blocks — visibly larger than thinking
- * so the user can spot the tool name at a glance. The icon
- * gets the same bump to stay proportional. */
-.nt-chat__segment--tool_block .nt-chat__segment-header {
+.nt-chat__segment--tool_block .chat-toggle {
   font-size: 0.92em;
 }
 
@@ -234,27 +357,20 @@
   font-size: 1em;
 }
 
-/* tool_block header uses a bright cyan tint so it stands
- * apart from the cool white body text and the warm amber
- * thinking label. The colour-coded yellow/green lives on the
- * inner sub-blocks (request/result), so the header stays
- * neutral-but-not-white to avoid three nearly-identical
- * greys in the same message. */
 .nt-chat__segment--tool_block .nt-chat__segment-label {
-  color: rgba(0, 221, 255, 0.95);
+  color: var(--accent-cyan);
 }
 
 .nt-chat__segment--tool_call .nt-chat__segment-label {
-  color: rgba(255, 200, 50, 0.95);
+  color: var(--accent-yellow);
 }
 
 .nt-chat__segment--tool_result .nt-chat__segment-label {
-  color: rgba(0, 255, 136, 0.95);
+  color: var(--accent-green);
 }
 
-/* tool_block - 整体块：单一 header + 内部两个子块（黄/绿） */
 .nt-chat__segment--tool_block {
-  border-left: 2px solid rgba(120, 120, 120, 0.5);
+  border-left: 2px solid var(--border-strong);
   padding-left: 0.6rem;
   margin: 0.3rem 0;
 }
@@ -267,72 +383,92 @@
 }
 
 .nt-chat__tool-block-label {
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-family: var(--font-mono);
   font-size: 0.7em;
   margin-bottom: 0.2rem;
   letter-spacing: 0.04em;
 }
 
 .nt-chat__tool-block-call .nt-chat__tool-block-label {
-  color: rgba(255, 200, 50, 0.85);
+  color: var(--accent-yellow);
 }
 
 .nt-chat__tool-block-result .nt-chat__tool-block-label {
-  color: rgba(0, 255, 136, 0.85);
+  color: var(--accent-green);
 }
 
 .nt-chat__tool-block-call {
-  background: rgba(255, 200, 50, 0.04);
-  border-left: 2px solid rgba(255, 200, 50, 0.55);
+  background: var(--color-tool-call-bg);
+  border-left: 2px solid var(--color-tool-call-border);
   padding: 0.3rem 0.5rem;
   border-radius: 3px;
 }
 
 .nt-chat__tool-block-result {
-  background: rgba(0, 255, 136, 0.04);
-  border-left: 2px solid rgba(0, 255, 136, 0.55);
+  background: var(--color-tool-result-bg);
+  border-left: 2px solid var(--color-tool-result-border);
   padding: 0.3rem 0.5rem;
   border-radius: 3px;
 }
 
 .nt-chat__tool-block-result--pending {
   opacity: 0.55;
-  border-left-color: rgba(120, 120, 120, 0.4);
+  border-left-color: var(--border-strong);
+}
+
+.nt-chat__tool-block-result--error {
+  background: var(--color-tool-block-error-bg);
+  border-left-color: var(--color-tool-block-error-fg);
+}
+
+.nt-chat__tool-block-result--error .nt-chat__tool-block-label,
+.nt-chat__tool-block-result--error .nt-chat__tool-block-pre {
+  color: var(--color-tool-block-error-fg);
+}
+
+.nt-chat__tool-block-result--timeout {
+  border-left-color: var(--color-tool-block-timeout-fg);
+  background: var(--color-tool-block-timeout-bg);
+  color: var(--color-tool-block-timeout-fg);
+  font-style: italic;
+}
+
+.nt-chat__segment--tool_block-timeout > .chat-toggle {
+  color: var(--accent-yellow);
 }
 
 .nt-chat__tool-block-pre {
   margin: 0;
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-  font-size: 0.82em;
+  font-family: var(--font-mono);
+  font-size: 0.95em;
+  line-height: 1.55;
   white-space: pre-wrap;
   word-break: break-word;
-  color: #e8e8e8;
-  background: rgba(0, 0, 0, 0.25);
-  padding: 0.35rem 0.45rem;
+  color: var(--text-primary);
+  background: var(--bg-tertiary);
+  padding: 0.5rem 0.6rem;
   border-radius: 3px;
   max-height: 28em;
   overflow-y: auto;
 }
 
 .nt-chat__tool-block-call .nt-chat__tool-block-pre {
-  color: #f0d68a;
+  color: var(--color-tool-call-fg);
 }
 
 .nt-chat__tool-block-result .nt-chat__tool-block-pre {
-  color: #aef0c5;
+  color: var(--color-tool-result-fg);
 }
 
-/* 进度 - 极简，仅左侧细线 */
 .nt-chat__segment--progress {
-  border-left: 2px solid rgba(120, 120, 120, 0.4);
+  border-left: 2px solid var(--border-strong);
   padding: 0.2rem 0 0.2rem 0.6rem;
   margin: 0.15rem 0;
-  color: #8a8a8a;
+  color: var(--text-muted);
   font-size: 0.9em;
 }
 
-/* 可折叠分段头部 - 紧凑、不抢眼 */
-.nt-chat__segment-header {
+.chat-toggle {
   display: inline-flex;
   align-items: center;
   gap: 0.25rem;
@@ -342,13 +478,13 @@
   padding: 0;
   margin: 0;
   font-size: 0.75em;
-  color: #888;
+  color: var(--text-secondary);
   font-family: inherit;
   line-height: 1.4;
 }
 
-.nt-chat__segment-header:hover {
-  color: #555;
+.chat-toggle:hover {
+  color: var(--text-primary);
 }
 
 .nt-chat__segment-icon {
@@ -365,14 +501,23 @@
   font-weight: 400;
 }
 
-/* 分段内容 - 紧凑、内联 */
 .nt-chat__segment-content {
   white-space: pre-wrap;
   word-break: break-word;
 }
 
-/* 流式光标 - 在 working 状态下显示 */
-.nt-chat__message--assistant .nt-chat__message-content::after {
+/* Cursor caret. Scoped to the streaming state so the
+ * pseudo-element is *absent* once the SSE stream has ended —
+ * not just transparent. Otherwise the underlying
+ * `nt-chat-cursor-blink` animation keeps ticking in the
+ * background and the browser paints one final cycle
+ * between the last streamed token and the next paint, so
+ * the message tail twinkles for a few hundred milliseconds
+ * after "会话结束". Mounting the whole rule under
+ * `[data-streaming='true']` collapses both the rule and the
+ * animation when the assistant turn transitions out of
+ * `working`, leaving the rendered text static. */
+.nt-chat__message--assistant[data-streaming='true'] .nt-chat__message-content::after {
   content: '';
   display: inline-block;
   width: 0.5em;
@@ -381,11 +526,6 @@
   margin-left: 0.15em;
   vertical-align: text-bottom;
   animation: nt-chat-cursor-blink 1s steps(2) infinite;
-  opacity: 0;
-}
-
-.nt-chat__message--assistant[data-streaming='true'] .nt-chat__message-content::after {
-  opacity: 1;
 }
 
 @keyframes nt-chat-cursor-blink {
@@ -399,15 +539,184 @@
   }
 }
 
-/* Typewriter caret — blinks while a text segment is still
- * being revealed (typed out), disappears once revealed length
- * catches up to the full content. */
-.nt-chat__caret {
-  display: inline-block;
-  width: 0.5em;
-  height: 1em;
-  background: var(--accent-cyan);
-  margin-left: 0.1em;
-  vertical-align: text-bottom;
-  animation: nt-chat-cursor-blink 1s steps(2) infinite;
+/* ---- Markdown rendered content (chat messages) ----
+ *
+ * Scoped to .nt-chat__message-content so the markdown tree only
+ * inherits the chat color/typography stack. */
+
+.nt-chat__message-content .nt-chat__md {
+  white-space: normal;
+  word-break: normal;
 }
+
+.nt-chat__message-content .nt-chat__md > *:first-child {
+  margin-top: 0;
+}
+.nt-chat__message-content .nt-chat__md > *:last-child {
+  margin-bottom: 0;
+}
+
+.nt-chat__message-content .nt-chat__md h1,
+.nt-chat__message-content .nt-chat__md h2,
+.nt-chat__message-content .nt-chat__md h3,
+.nt-chat__message-content .nt-chat__md h4,
+.nt-chat__message-content .nt-chat__md h5,
+.nt-chat__message-content .nt-chat__md h6 {
+  font-family: var(--font-mono);
+  color: var(--color-md-link);
+  margin: 0.9em 0 0.4em;
+  line-height: var(--lh-tight);
+}
+.nt-chat__message-content .nt-chat__md h1 {
+  font-size: 1.4em;
+}
+.nt-chat__message-content .nt-chat__md h2 {
+  font-size: 1.25em;
+}
+.nt-chat__message-content .nt-chat__md h3 {
+  font-size: 1.1em;
+}
+.nt-chat__message-content .nt-chat__md h4,
+.nt-chat__message-content .nt-chat__md h5,
+.nt-chat__message-content .nt-chat__md h6 {
+  font-size: 1em;
+}
+
+.nt-chat__message-content .nt-chat__md p {
+  margin: 0 0 0.6em;
+  white-space: pre-wrap;
+}
+
+.nt-chat__message-content .nt-chat__md strong {
+  color: var(--color-md-strong);
+  font-weight: 600;
+}
+
+.nt-chat__message-content .nt-chat__md em {
+  color: var(--color-md-em);
+  font-style: italic;
+}
+
+.nt-chat__message-content .nt-chat__md ul,
+.nt-chat__message-content .nt-chat__md ol {
+  margin: 0.4em 0 0.7em;
+  padding-left: 1.5em;
+}
+.nt-chat__message-content .nt-chat__md li {
+  margin: 0.15em 0;
+}
+.nt-chat__message-content .nt-chat__md li > p {
+  margin: 0.1em 0;
+}
+
+.nt-chat__message-content .nt-chat__md blockquote {
+  margin: 0.5em 0;
+  padding: 0.2em 0.8em;
+  border-left: 3px solid var(--color-md-blockquote-border);
+  color: var(--text-secondary);
+  background: var(--color-md-blockquote-bg);
+}
+
+.nt-chat__message-content .nt-chat__md hr {
+  border: 0;
+  border-top: 1px dashed var(--border-subtle);
+  margin: 0.9em 0;
+}
+
+.nt-chat__message-content .nt-chat__md a {
+  color: var(--color-md-link);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.nt-chat__message-content .nt-chat__md :not(pre) > code {
+  background: var(--color-md-code-bg);
+  color: var(--color-md-link);
+  padding: 1px 5px;
+  border-radius: 3px;
+  font-size: 0.92em;
+  word-break: break-word;
+}
+
+/* Fenced code blocks: tinted paper surface. */
+.nt-chat__message-content .nt-chat__md pre {
+  margin: 0.6em 0;
+  padding: 0.7em 0.9em;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-subtle);
+  border-radius: 4px;
+  overflow-x: auto;
+  font-size: 0.88em;
+  line-height: 1.45;
+}
+.nt-chat__message-content .nt-chat__md pre code {
+  background: transparent;
+  padding: 0;
+  color: inherit;
+  font-size: inherit;
+  white-space: pre;
+}
+
+.nt-chat__message-content .nt-chat__md table {
+  border-collapse: collapse;
+  margin: 0.6em 0;
+  font-size: 0.92em;
+}
+.nt-chat__message-content .nt-chat__md th,
+.nt-chat__message-content .nt-chat__md td {
+  border: 1px solid var(--border-subtle);
+  padding: 4px 8px;
+  text-align: left;
+}
+.nt-chat__message-content .nt-chat__md th {
+  background: var(--color-md-th-bg);
+  color: var(--color-md-link);
+  font-weight: 600;
+}
+
+.nt-chat__message-content .nt-chat__md input[type='checkbox'] {
+  margin-right: 0.4em;
+  accent-color: var(--accent-green);
+}
+
+.nt-chat__segment--thinking .nt-chat__md h1,
+.nt-chat__segment--thinking .nt-chat__md h2,
+.nt-chat__segment--thinking .nt-chat__md h3,
+.nt-chat__segment--thinking .nt-chat__md h4,
+.nt-chat__segment--thinking .nt-chat__md h5,
+.nt-chat__segment--thinking .nt-chat__md h6 {
+  color: var(--color-thinking-fg);
+}
+.nt-chat__segment--thinking .nt-chat__md strong {
+  color: var(--color-thinking-fg);
+}
+.nt-chat__segment--thinking .nt-chat__md a {
+  color: var(--color-thinking-fg);
+}
+
+/* --- artifact card overlay (Task 8, spec §4.2) --- */
+
+.nt-chat__segment--artifact {
+  border-left: 3px solid var(--color-artifact-border);
+  background: var(--color-artifact-bg);
+  margin-top: 0.5rem;
+  border-radius: var(--radius-sm);
+}
+
+.nt-chat__artifact-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: 600;
+  color: var(--color-artifact-border);
+  background: transparent;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+}
+
+.nt-chat__artifact-streaming {
+  opacity: 0.7;
+}
+
+/* (Removed A2A conversion panel CSS — see optimization-report-2026-08-15.md.) */

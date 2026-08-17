@@ -709,12 +709,15 @@ async fn test_message_content_transforms() {
 
     let tool_result_part = ContentPart::ToolResult(ToolResult {
         tool_use_id: "call_123".to_string(),
+        tool_name: None,
         content: vec![ContentPart::Text(TextContent {
             text: "Result content".to_string(),
             cache_control: None,
         })],
         structured_content: None,
         is_error: Some(false),
+        metadata: serde_json::Map::new(),
+        truncated_by: None,
     });
     assert!(matches!(tool_result_part, ContentPart::ToolResult(..)));
 
@@ -1116,7 +1119,6 @@ fn test_multimodal_content_serialization() {
 // =====================================================================
 
 #[tokio::test]
-#[allow(deprecated)]
 async fn test_anthropic_complete_with_stream_emits_v2_chunks() {
     use synthia_provider::StreamChunk;
     use tokio_util::sync::CancellationToken;
@@ -1664,7 +1666,7 @@ async fn test_openai_429_with_retry_after_returns_rate_limited_error() {
 
     let err = result.expect_err("429 must surface as Err, not Ok");
     assert!(
-        matches!(err, Error::RateLimited(Some(d)) if d == Duration::from_secs(30)),
+        matches!(err, Error::RateLimited { retry_after: Some(d), .. } if d == Duration::from_secs(30)),
         "expected RateLimited(Some(30s)), got: {err:?}"
     );
 }

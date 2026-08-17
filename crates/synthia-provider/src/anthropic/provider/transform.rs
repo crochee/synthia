@@ -18,8 +18,6 @@
 //!   non-alphanumeric / non-underscore / non-hyphen chars
 //!   with `_`.
 
-use synthia_cache_mark::{CacheControlMark, CacheScope, CacheTtl};
-
 use super::{
     super::types::{
         AnthropicAudioSource,
@@ -35,12 +33,9 @@ use super::{
     },
     core::AnthropicProvider,
 };
-use crate::types::{
-    AudioFormat,
-    CompletionRequest,
-    Content,
-    ContentPart,
-    Role,
+use crate::{
+    cache_mark::{CacheControlMark, CacheScope, CacheTtl},
+    types::{AudioFormat, CompletionRequest, Content, ContentPart, Role},
 };
 
 /// Map the provider-neutral [`CacheTtl`] class to an Anthropic
@@ -174,7 +169,13 @@ impl AnthropicProvider {
             .collect();
 
         AnthropicRequest {
-            model: request.model.clone(),
+            // Fall back to the provider-configured model name when
+            // the caller leaves `request.model` empty.
+            model: if request.model.is_empty() {
+                self.model_config.name.clone()
+            } else {
+                request.model.clone()
+            },
             system,
             messages,
             max_tokens: request.max_tokens.unwrap_or(4096),
@@ -391,5 +392,735 @@ fn build_anthropic_system(
         }]))
     } else {
         Some(AnthropicSystem::Text(text))
+    }
+}
+
+#[cfg(test)]
+mod transform_tests {
+    use std::sync::Arc;
+
+    use super::*;
+    use crate::{
+        ModelConfig,
+        types::{Message, TextContent, ToolChoice, ToolDefinition},
+    };
+
+    /// `cache_control_from_mark` is the
+    /// provider-neutral → Anthropic-cache-control
+    /// bridge. Pinning its behavior here keeps the
+    /// system-block cache marking deterministic
+    /// regardless of how `apply_cache_policy` evolves.
+    #[test]
+    fn cache_control_from_mark_default_scope_has_no_cache_namespace() {
+        let mark = CacheControlMark {
+            ttl: CacheTtl::Ephemeral,
+            scope: CacheScope::default(),
+            pinned: false,
+        };
+        let cc = cache_control_from_mark(&mark);
+        assert_eq!(cc.r#type, "ephemeral");
+        assert!(cc.ttl_seconds.is_none());
+        // Default scope MUST collapse to `None` so
+        // the wire format stays byte-identical to
+        // the pre-`cache_namespace` era.
+        assert!(cc.cache_namespace.is_none());
+    }
+
+    #[test]
+    fn cache_control_from_mark_non_default_scope_propagates() {
+        let mark = CacheControlMark {
+            ttl: CacheTtl::Extended,
+            scope: CacheScope("tenant-42".to_string()),
+            pinned: false,
+        };
+        let cc = cache_control_from_mark(&mark);
+        assert_eq!(cc.r#type, "ephemeral");
+        assert_eq!(cc.ttl_seconds, Some(300));
+        assert_eq!(
+            cc.cache_namespace.as_deref(),
+            Some("tenant-42"),
+            "non-default scope must propagate into cache_namespace"
+        );
+    }
+
+    #[test]
+    fn ttl_seconds_from_ttl_class_mapping() {
+        assert_eq!(ttl_seconds_from_ttl(CacheTtl::Ephemeral), None);
+        assert_eq!(ttl_seconds_from_ttl(CacheTtl::Extended), Some(300));
+        assert_eq!(ttl_seconds_from_ttl(CacheTtl::Long), Some(3600));
+    }
+
+    /// `representative_cache_mark` is the fallback
+    /// used to mark the system block. The system
+    /// block has no mark of its own, so we borrow
+    /// the last tool mark OR the last user message
+    /// mark. Tool marks take priority over message
+    /// marks, and the scan is in reverse so the
+    /// most-recent mark wins. Without this contract
+    /// the system block either gets a stale mark
+    /// (cache poisoning) or no mark at all (cache
+    /// miss on every turn).
+    #[test]
+    fn representative_cache_mark_priority_last_tool_over_messages() {
+        let tool_mark = CacheControlMark {
+            ttl: CacheTtl::Long,
+            scope: CacheScope("t".to_string()),
+            pinned: false,
+        };
+        let msg_mark = CacheControlMark {
+            ttl: CacheTtl::Ephemeral,
+            scope: CacheScope("m".to_string()),
+            pinned: false,
+        };
+        let tools = vec![ToolDefinition {
+            name: "t1".to_string(),
+            description: String::new(),
+            input_schema: serde_json::Value::Null,
+            cache_control: Some(tool_mark.clone()),
+        }];
+        let messages = vec![Message {
+            role: Role::User,
+            content: Content::Single(ContentPart::Text(TextContent {
+                text: "hi".to_string(),
+                cache_control: Some(msg_mark),
+            })),
+            tool_call_id: None,
+            name: None,
+            tool_result_cleared_at: None,
+        }];
+        let req = CompletionRequest {
+            model: "x".to_string(),
+            messages: Arc::new(messages),
+            tools: Arc::new(tools),
+            tool_choice: ToolChoice::Auto,
+            temperature: None,
+            max_tokens: None,
+            stop_sequences: vec![],
+            extra_body: None,
+            cache_policy: None,
+        };
+        let got = representative_cache_mark(&req).expect("must find a mark");
+        assert_eq!(
+            got.ttl,
+            CacheTtl::Long,
+            "tool mark must win over message mark"
+        );
+    }
+
+    #[test]
+    fn representative_cache_mark_picks_last_tool_in_reverse_order() {
+        let first = CacheControlMark {
+            ttl: CacheTtl::Ephemeral,
+            scope: CacheScope::default(),
+            pinned: false,
+        };
+        let last = CacheControlMark {
+            ttl: CacheTtl::Extended,
+            scope: CacheScope::default(),
+            pinned: false,
+        };
+        let tools = vec![
+            ToolDefinition {
+                name: "first".to_string(),
+                description: String::new(),
+                input_schema: serde_json::Value::Null,
+                cache_control: Some(first),
+            },
+            ToolDefinition {
+                name: "last".to_string(),
+                description: String::new(),
+                input_schema: serde_json::Value::Null,
+                cache_control: Some(last.clone()),
+            },
+        ];
+        let req = CompletionRequest {
+            model: "x".to_string(),
+            messages: Arc::new(vec![]),
+            tools: Arc::new(tools),
+            tool_choice: ToolChoice::Auto,
+            temperature: None,
+            max_tokens: None,
+            stop_sequences: vec![],
+            extra_body: None,
+            cache_policy: None,
+        };
+        let got = representative_cache_mark(&req).expect("must find a mark");
+        assert_eq!(
+            got.ttl,
+            CacheTtl::Extended,
+            "last tool mark must be returned (reverse scan)"
+        );
+    }
+
+    #[test]
+    fn representative_cache_mark_none_when_nothing_marked() {
+        let req = CompletionRequest {
+            model: "x".to_string(),
+            messages: Arc::new(vec![]),
+            tools: Arc::new(vec![ToolDefinition {
+                name: "t".to_string(),
+                description: String::new(),
+                input_schema: serde_json::Value::Null,
+                cache_control: None,
+            }]),
+            tool_choice: ToolChoice::Auto,
+            temperature: None,
+            max_tokens: None,
+            stop_sequences: vec![],
+            extra_body: None,
+            cache_policy: None,
+        };
+        assert!(
+            representative_cache_mark(&req).is_none(),
+            "no marks anywhere must return None"
+        );
+    }
+
+    /// `sanitize_tool_id` is the ONLY line of defense
+    /// between caller-controlled tool IDs and the
+    /// Anthropic wire format. Anthropic requires
+    /// tool IDs to match `[A-Za-z0-9_-]+`. Any other
+    /// character would produce a 400 from upstream.
+    /// Pin the contract character-by-character.
+    #[test]
+    fn sanitize_tool_id_replaces_invalid_chars_with_underscore() {
+        assert_eq!(
+            AnthropicProvider::sanitize_tool_id("toolu_01"),
+            "toolu_01",
+            "alphanumeric + underscore must be preserved"
+        );
+        assert_eq!(
+            AnthropicProvider::sanitize_tool_id("toolu-01"),
+            "toolu-01",
+            "dash must be preserved"
+        );
+        assert_eq!(
+            AnthropicProvider::sanitize_tool_id("toolu/01"),
+            "toolu_01",
+            "slash must be replaced"
+        );
+        assert_eq!(
+            AnthropicProvider::sanitize_tool_id("toolu 01"),
+            "toolu_01",
+            "space must be replaced"
+        );
+        assert_eq!(
+            AnthropicProvider::sanitize_tool_id("toolu\n01"),
+            "toolu_01",
+            "newline must be replaced"
+        );
+        // The OpenAI default fallback `call_{index}`
+        // round-trips through sanitize_tool_id.
+        assert_eq!(AnthropicProvider::sanitize_tool_id("call_0"), "call_0");
+    }
+
+    /// `transform_message` filters `Role::System`
+    /// entirely — system text goes through the
+    /// top-level `system` field, not the `messages`
+    /// array. Pin the filter so a refactor that
+    /// accidentally maps `System → "system"` (the
+    /// literal Anthropic role) wouldn't break the
+    /// wire contract.
+    #[test]
+    fn transform_message_filters_system_role_to_none() {
+        let provider = AnthropicProvider::new(ModelConfig {
+            name: "claude-3".to_string(),
+            provider: "anthropic".to_string(),
+            context_window: 200_000,
+            max_output_tokens: 4096,
+            supports_tools: true,
+            supports_streaming: true,
+            supports_reasoning: true,
+        });
+        let sys_msg = Message {
+            role: Role::System,
+            content: Content::Single(ContentPart::Text(TextContent {
+                text: "You are a helpful assistant.".to_string(),
+                cache_control: None,
+            })),
+            tool_call_id: None,
+            name: None,
+            tool_result_cleared_at: None,
+        };
+        let out = provider.transform_message(&sys_msg);
+        assert!(
+            out.is_none(),
+            "Role::System MUST be filtered to None; got {out:?}"
+        );
+    }
+
+    /// `Role::Tool` is mapped to `"user"` because
+    /// Anthropic's API accepts tool results inside a
+    /// user-role message (the `tool_result`
+    /// content block). Pin the mapping so a
+    /// refactor that maps `Tool → "tool"` doesn't
+    /// break the wire format (Anthropic rejects
+    /// unknown roles).
+    #[test]
+    fn transform_message_maps_tool_role_to_user() {
+        let provider = AnthropicProvider::new(ModelConfig {
+            name: "claude-3".to_string(),
+            provider: "anthropic".to_string(),
+            context_window: 200_000,
+            max_output_tokens: 4096,
+            supports_tools: true,
+            supports_streaming: true,
+            supports_reasoning: true,
+        });
+        let tool_msg = Message {
+            role: Role::Tool,
+            content: Content::Single(ContentPart::ToolResult(
+                crate::types::ToolResult {
+                    tool_use_id: "toolu_1".to_string(),
+                    tool_name: None,
+                    content: vec![ContentPart::Text(TextContent {
+                        text: "hi".to_string(),
+                        cache_control: None,
+                    })],
+                    structured_content: None,
+                    is_error: Some(false),
+                    metadata: serde_json::Map::new(),
+                    truncated_by: None,
+                },
+            )),
+            tool_call_id: None,
+            name: None,
+            tool_result_cleared_at: None,
+        };
+        let out = provider
+            .transform_message(&tool_msg)
+            .expect("Tool role must not be filtered");
+        assert_eq!(
+            out.role, "user",
+            "Role::Tool MUST map to \"user\" wire role (Anthropic rejects unknown roles); got {:?}",
+            out.role
+        );
+    }
+
+    /// `Content::Single` is normalized to a
+    /// single-element `content` array (Anthropic
+    /// always uses arrays). Pin this so a refactor
+    /// that returns `content` as a scalar breaks
+    /// loudly rather than silently.
+    #[test]
+    fn transform_message_single_content_normalizes_to_array() {
+        let provider = AnthropicProvider::new(ModelConfig {
+            name: "claude-3".to_string(),
+            provider: "anthropic".to_string(),
+            context_window: 200_000,
+            max_output_tokens: 4096,
+            supports_tools: true,
+            supports_streaming: true,
+            supports_reasoning: true,
+        });
+        let msg = Message {
+            role: Role::User,
+            content: Content::Single(ContentPart::Text(TextContent {
+                text: "hi".to_string(),
+                cache_control: None,
+            })),
+            tool_call_id: None,
+            name: None,
+            tool_result_cleared_at: None,
+        };
+        let out = provider
+            .transform_message(&msg)
+            .expect("User role must not be filtered");
+        assert_eq!(out.content.len(), 1, "Single must become 1-element array");
+    }
+
+    /// `Content::Multi(vec![])` — an empty multi
+    /// MUST become an empty content array. This is
+    /// rare but possible (e.g. a tool-only message
+    /// where the tool_use was extracted to a
+    /// separate variable).
+    #[test]
+    fn transform_message_empty_multi_becomes_empty_array() {
+        let provider = AnthropicProvider::new(ModelConfig {
+            name: "claude-3".to_string(),
+            provider: "anthropic".to_string(),
+            context_window: 200_000,
+            max_output_tokens: 4096,
+            supports_tools: true,
+            supports_streaming: true,
+            supports_reasoning: true,
+        });
+        let msg = Message {
+            role: Role::User,
+            content: Content::Multi(vec![]),
+            tool_call_id: None,
+            name: None,
+            tool_result_cleared_at: None,
+        };
+        let out = provider
+            .transform_message(&msg)
+            .expect("User role must not be filtered");
+        assert!(
+            out.content.is_empty(),
+            "empty Multi MUST become empty array; got {:?}",
+            out.content
+        );
+    }
+
+    /// `transform_part` AudioFormat mapping. Each
+    /// enum variant MUST serialize to its
+    /// corresponding lowercase string in the
+    /// Anthropic `format` field.
+    #[test]
+    fn transform_part_audio_format_mapping() {
+        let provider = AnthropicProvider::new(ModelConfig {
+            name: "claude-3".to_string(),
+            provider: "anthropic".to_string(),
+            context_window: 200_000,
+            max_output_tokens: 4096,
+            supports_tools: true,
+            supports_streaming: true,
+            supports_reasoning: true,
+        });
+        for (fmt, expected) in [
+            (Some(AudioFormat::Wav), Some("wav".to_string())),
+            (Some(AudioFormat::Mp3), Some("mp3".to_string())),
+            (Some(AudioFormat::Flac), Some("flac".to_string())),
+            (None, None),
+        ] {
+            let fmt_for_assert = fmt.clone();
+            let part = ContentPart::Audio(crate::types::AudioContent {
+                data: "abc".to_string(),
+                mime_type: "audio/wav".to_string(),
+                format: fmt,
+            });
+            let block = provider.transform_part(&part);
+            match block {
+                crate::anthropic::types::AnthropicContentBlock::Audio {
+                    source,
+                    ..
+                } => {
+                    assert_eq!(
+                        source.format, expected,
+                        "AudioFormat::{:?} must map to {:?}",
+                        fmt_for_assert, expected
+                    );
+                }
+                other => panic!("expected Audio block, got {other:?}"),
+            }
+        }
+    }
+
+    /// `transform_part` Image URL vs base64 detection
+    /// heuristic — a `data:` prefix OR length < 1000
+    /// is treated as base64. A long non-`data:`-prefixed
+    /// string is treated as a URL. Pin the threshold.
+    #[test]
+    fn transform_part_image_url_vs_base64_detection() {
+        let provider = AnthropicProvider::new(ModelConfig {
+            name: "claude-3".to_string(),
+            provider: "anthropic".to_string(),
+            context_window: 200_000,
+            max_output_tokens: 4096,
+            supports_tools: true,
+            supports_streaming: true,
+            supports_reasoning: true,
+        });
+        // Case 1: explicit data: prefix → base64.
+        let data_url = ContentPart::Image(crate::types::ImageContent {
+            data: "data:image/png;base64,iVBORw0KGgo=".to_string(),
+            mime_type: "image/png".to_string(),
+            detail: None,
+        });
+        match provider.transform_part(&data_url) {
+            crate::anthropic::types::AnthropicContentBlock::Image {
+                source,
+            } => {
+                assert_eq!(source.r#type, "base64");
+                assert_eq!(source.data, "iVBORw0KGgo=");
+            }
+            other => panic!("expected Image block, got {other:?}"),
+        }
+        // Case 2: short non-prefixed string → base64 (per length heuristic).
+        let short = ContentPart::Image(crate::types::ImageContent {
+            data: "abc123".to_string(),
+            mime_type: "image/png".to_string(),
+            detail: None,
+        });
+        match provider.transform_part(&short) {
+            crate::anthropic::types::AnthropicContentBlock::Image {
+                source,
+            } => {
+                assert_eq!(source.r#type, "base64");
+                assert_eq!(source.data, "abc123");
+            }
+            other => panic!("expected Image block, got {other:?}"),
+        }
+        // Case 3: long non-prefixed string → url.
+        // `.repeat(40)` pushes length past the 1000-char
+        // base64 heuristic threshold.
+        let long_url_data =
+            "https://example.com/very/long/url/path/to/an/image/file.png"
+                .repeat(40);
+        let long_url = ContentPart::Image(crate::types::ImageContent {
+            data: long_url_data.clone(),
+            mime_type: "image/png".to_string(),
+            detail: None,
+        });
+        match provider.transform_part(&long_url) {
+            crate::anthropic::types::AnthropicContentBlock::Image {
+                source,
+            } => {
+                assert_eq!(
+                    source.r#type, "url",
+                    "long non-prefixed string must be classified as url"
+                );
+                assert_eq!(source.data, long_url_data);
+            }
+            other => panic!("expected Image block, got {other:?}"),
+        }
+    }
+
+    /// `transform_part` ToolResult error formatting.
+    /// `is_error=true` MUST prefix the content with
+    /// `"Error: "`, otherwise the content is just
+    /// `{:?}`. Pin the contract so the agent
+    /// layer can rely on the prefix for
+    /// downstream filtering.
+    #[test]
+    fn transform_part_tool_result_error_prefix() {
+        let provider = AnthropicProvider::new(ModelConfig {
+            name: "claude-3".to_string(),
+            provider: "anthropic".to_string(),
+            context_window: 200_000,
+            max_output_tokens: 4096,
+            supports_tools: true,
+            supports_streaming: true,
+            supports_reasoning: true,
+        });
+        // Success path — no Error: prefix.
+        let ok = ContentPart::ToolResult(crate::types::ToolResult {
+            tool_use_id: "toolu_1".to_string(),
+            tool_name: None,
+            content: vec![ContentPart::Text(TextContent {
+                text: "tool returned ok".to_string(),
+                cache_control: None,
+            })],
+            structured_content: None,
+            is_error: Some(false),
+            metadata: serde_json::Map::new(),
+            truncated_by: None,
+        });
+        match provider.transform_part(&ok) {
+            crate::anthropic::types::AnthropicContentBlock::ToolResult {
+                content,
+                ..
+            } => {
+                assert_eq!(content.len(), 1);
+                let text = &content[0].text;
+                assert!(
+                    !text.starts_with("Error: "),
+                    "is_error=false MUST NOT add Error: prefix; got {text:?}"
+                );
+            }
+            other => panic!("expected ToolResult block, got {other:?}"),
+        }
+        // Error path — Error: prefix added.
+        let err = ContentPart::ToolResult(crate::types::ToolResult {
+            tool_use_id: "toolu_2".to_string(),
+            tool_name: None,
+            content: vec![ContentPart::Text(TextContent {
+                text: "tool failed".to_string(),
+                cache_control: None,
+            })],
+            structured_content: None,
+            is_error: Some(true),
+            metadata: serde_json::Map::new(),
+            truncated_by: None,
+        });
+        match provider.transform_part(&err) {
+            crate::anthropic::types::AnthropicContentBlock::ToolResult {
+                content,
+                ..
+            } => {
+                let text = &content[0].text;
+                assert!(
+                    text.starts_with("Error: "),
+                    "is_error=true MUST prefix Error: ; got {text:?}"
+                );
+            }
+            other => panic!("expected ToolResult block, got {other:?}"),
+        }
+    }
+
+    /// `transform_part` ResourceLink becomes a
+    /// `"[ResourceLink]"` text placeholder. The
+    /// Anthropic API has no native resource-link
+    /// content type, so the placeholder lets the
+    /// model know a resource was attached without
+    /// losing the part entirely. Pin the exact
+    /// placeholder string.
+    #[test]
+    fn transform_part_resource_link_becomes_placeholder_text() {
+        let provider = AnthropicProvider::new(ModelConfig {
+            name: "claude-3".to_string(),
+            provider: "anthropic".to_string(),
+            context_window: 200_000,
+            max_output_tokens: 4096,
+            supports_tools: true,
+            supports_streaming: true,
+            supports_reasoning: true,
+        });
+        let res = ContentPart::Resource(crate::types::ResourceLink {
+            uri: "file://docs/spec.md".to_string(),
+            name: "spec".to_string(),
+            title: Some("Spec".to_string()),
+            description: None,
+            mime_type: None,
+        });
+        match provider.transform_part(&res) {
+            crate::anthropic::types::AnthropicContentBlock::Text {
+                text,
+                cache_control,
+            } => {
+                assert_eq!(text, "[ResourceLink]");
+                assert!(cache_control.is_none());
+            }
+            other => panic!("expected Text placeholder, got {other:?}"),
+        }
+    }
+
+    /// `build_anthropic_system` has 6 critical
+    /// branches that no test pins today. The
+    /// `system_text: None` early-return, the
+    /// `cache_policy = None` default, the
+    /// `cache_policy.system = false` short-circuit,
+    /// the `cache_policy.system = true` structured
+    /// path with and without a representative
+    /// mark, and the empty-string passthrough.
+    /// A regression in any of these would either
+    /// produce a `system: ""` field that Anthropic
+    /// rejects or silently strip the cache
+    /// marking.
+    fn cp_with_system(b: bool) -> crate::cache_policy::CachePolicy {
+        crate::cache_policy::CachePolicy {
+            system: b,
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn build_anthropic_system_none_text_returns_none() {
+        let out = build_anthropic_system(None, None, None);
+        assert!(out.is_none(), "system_text=None MUST short-circuit to None");
+    }
+
+    #[test]
+    fn build_anthropic_system_none_cache_policy_uses_text_variant() {
+        let out = build_anthropic_system(Some("hi".to_string()), None, None);
+        match out {
+            Some(crate::anthropic::types::AnthropicSystem::Text(s)) => {
+                assert_eq!(s, "hi");
+            }
+            other => {
+                panic!("cache_policy=None MUST use Text variant; got {other:?}")
+            }
+        }
+    }
+
+    #[test]
+    fn build_anthropic_system_system_false_uses_text_variant() {
+        let cp = cp_with_system(false);
+        let out =
+            build_anthropic_system(Some("hi".to_string()), Some(&cp), None);
+        match out {
+            Some(crate::anthropic::types::AnthropicSystem::Text(s)) => {
+                assert_eq!(s, "hi");
+            }
+            other => panic!(
+                "policy.system=false MUST use Text variant even if mark exists; got {other:?}"
+            ),
+        }
+    }
+
+    #[test]
+    fn build_anthropic_system_system_true_uses_structured_with_default_mark() {
+        let cp = cp_with_system(true);
+        let out =
+            build_anthropic_system(Some("hi".to_string()), Some(&cp), None);
+        match out {
+            Some(crate::anthropic::types::AnthropicSystem::Structured(
+                blocks,
+            )) => {
+                assert_eq!(blocks.len(), 1);
+                assert_eq!(blocks[0].text, "hi");
+                assert!(
+                    blocks[0].cache_control.is_some(),
+                    "structured path must attach cache_control"
+                );
+            }
+            other => panic!(
+                "policy.system=true without mark MUST use Structured variant; got {other:?}"
+            ),
+        }
+    }
+
+    #[test]
+    fn build_anthropic_system_system_true_with_mark_propagates_it() {
+        let cp = cp_with_system(true);
+        let mark = CacheControlMark {
+            ttl: CacheTtl::Extended,
+            scope: CacheScope::default(),
+            pinned: true,
+        };
+        let out = build_anthropic_system(
+            Some("hi".to_string()),
+            Some(&cp),
+            Some(&mark),
+        );
+        match out {
+            Some(crate::anthropic::types::AnthropicSystem::Structured(
+                blocks,
+            )) => {
+                let cc = blocks[0]
+                    .cache_control
+                    .as_ref()
+                    .expect("cache_control must be Some");
+                // The wire `type` field is ALWAYS
+                // "ephemeral" regardless of the mark's
+                // ttl class — `ttl_seconds` is the
+                // discriminator. Pin both invariants
+                // so a refactor that switches to a
+                // ttl-aware type string breaks loudly.
+                assert_eq!(
+                    cc.r#type, "ephemeral",
+                    "wire type field MUST stay \"ephemeral\"; got {:?}",
+                    cc.r#type
+                );
+                assert_eq!(
+                    cc.ttl_seconds,
+                    Some(300),
+                    "CacheTtl::Extended MUST map to ttl_seconds=300; got {:?}",
+                    cc.ttl_seconds
+                );
+            }
+            other => panic!("expected Structured variant; got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn build_anthropic_system_empty_string_passes_through() {
+        // An empty string is a valid (if weird) system
+        // text — the function does NOT filter it out.
+        // Pin the contract so a future refactor that
+        // adds an `is_empty()` early-return doesn't
+        // silently strip callers' empty system text.
+        let out = build_anthropic_system(Some(String::new()), None, None);
+        match out {
+            Some(crate::anthropic::types::AnthropicSystem::Text(s)) => {
+                assert!(
+                    s.is_empty(),
+                    "empty system text MUST pass through verbatim"
+                );
+            }
+            other => {
+                panic!("empty string must produce Text(\"\"); got {other:?}")
+            }
+        }
     }
 }

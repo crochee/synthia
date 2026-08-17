@@ -1,0 +1,28 @@
+/*
+ * Self-hosted variable fonts.
+ *
+ * Imported once in main.tsx BEFORE tokens.css so the font-family
+ * chain resolves to the vendor faces on first paint.
+ *
+ *   - Inter Variable       OFL 1.1   primary UI sans
+ *   - JetBrains Mono       OFL 1.1   terminal / code
+ *
+ * `font-display: swap` keeps text visible during load. Both files
+ * live under /public/fonts/ and are served by Vite as static assets.
+ */
+
+@font-face {
+  font-family: 'Inter var';
+  font-style: normal;
+  font-weight: 100 900;
+  font-display: swap;
+  src: url('/fonts/InterVariable.woff2') format('woff2-variations');
+}
+
+@font-face {
+  font-family: 'JetBrains Mono';
+  font-style: normal;
+  font-weight: 400 700;
+  font-display: swap;
+  src: url('/fonts/JetBrainsMono-Regular.woff2') format('woff2');
+}

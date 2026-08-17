@@ -1,8 +1,6 @@
 import { test, expect } from '@playwright/test';
 import { ChatPage } from '../pages/chat.page';
-import { SettingsPage } from '../pages/settings.page';
 import { TasksPage } from '../pages/tasks.page';
-import { MemoryPage } from '../pages/memory.page';
 
 /**
  * Layer 3 — Full user-scenario end-to-end tests.
@@ -13,17 +11,12 @@ import { MemoryPage } from '../pages/memory.page';
  * Scenario "ask the agent → confirm task is recorded":
  *   1. Open /chat, ask the agent to greet you.
  *   2. Wait for the assistant's terminal status badge.
- *   3. Navigate to /tasks and confirm the page renders.
- *   4. Navigate to /memory, run a search query, confirm the page
- *      surfaces either results or the empty state.
- *
- * Scenario "settings round-trip":
- *   1. Open /settings.
- *   2. Set a provider + model, save, reload.
- *   3. Confirm the values are preserved (PUT is durable across reload).
+ *   3. Navigate to /tasks, confirm the page renders, and run a
+ *      memory search (the search block lives on the Tasks page
+ *      since the standalone Memory page was merged in).
  */
 test.describe('Full user scenarios', () => {
-  test('chat → tasks → memory navigation preserves backend state', async ({ page }) => {
+  test('chat → tasks (with search) preserves backend state', async ({ page }) => {
     const chat = new ChatPage(page);
     await chat.goto();
     await chat.sendMessage('hello from the full-flow test');
@@ -39,24 +32,11 @@ test.describe('Full user scenarios', () => {
     await tasks.goto();
     await expect(page.locator('h1', { hasText: 'Tasks' })).toBeVisible();
 
-    // The Memory page must accept a search query and respond.
-    const memory = new MemoryPage(page);
-    await memory.goto();
-    await memory.search('synthia');
-    await expect(memory.queryInput).toBeVisible();
-  });
-
-  test('settings round-trip via PUT is durable across reload', async ({ page }) => {
-    const settings = new SettingsPage(page);
-    await settings.goto();
-    const marker = `fullflow-${Date.now()}`;
-    await settings.setProvider(marker);
-    await settings.setModel('fullflow-model');
-    await settings.save();
-
-    await page.reload();
-    await expect(settings.providerInput).toHaveValue(marker);
-    await expect(settings.modelInput).toHaveValue('fullflow-model');
+    // The search block (formerly the Memory page) must accept a
+    // query and respond. Whether any results appear depends on
+    // backend contents; we only assert the page didn't throw.
+    await tasks.search('synthia');
+    await expect(tasks.queryInput).toBeVisible();
   });
 
   test('all management API endpoints respond to GET', async ({ request }) => {
@@ -67,13 +47,9 @@ test.describe('Full user scenarios', () => {
     const baseUrl = 'http://localhost:8080';
     const endpoints = [
       '/health',
-      '/api/providers',
-      '/api/skills',
-      '/api/tools',
-      '/api/settings',
-      '/api/jobs',
-      '/api/tasks',
-      '/api/mcp/servers',
+      '/api/v1/skills',
+      '/api/v1/tools',
+      '/api/v1/tasks',
       '/.well-known/agent-card.json',
     ];
 
@@ -82,19 +58,33 @@ test.describe('Full user scenarios', () => {
       expect(r.ok(), `${ep} should respond with 2xx`).toBe(true);
       const body = await r.json();
       expect(body, `${ep} should return a JSON object`).toBeTruthy();
-      expect(
-        typeof body === 'object' && body !== null,
-        `${ep} body should be a JSON object`,
-      ).toBe(true);
-      // Most endpoints wrap the payload in `{ status: "ok", ... }`.
-      // The agent-card endpoint follows the A2A spec and returns
-      // the card directly — accept either shape.
-      if (body.status !== undefined) {
-        expect(body.status, `${ep} envelope status`).toBe('ok');
-      } else {
-        // Agent-card: just confirm the standard A2A fields exist.
+      expect(typeof body === 'object' && body !== null, `${ep} body should be a JSON object`).toBe(
+        true,
+      );
+      // v1 bare-response shapes:
+      //   - `/health` returns `{ status, version }` (status is the
+      //     health state, not an envelope marker).
+      //   - List endpoints return `List<T>` = `{ data, next_cursor, total }`.
+      //   - `/.well-known/agent-card.json` follows the A2A spec and
+      //     returns the card directly (`name`, `supportedInterfaces`, …).
+      if (ep === '/health') {
+        expect(body.status, `${ep} health status`).toBe('ok');
+        expect(body.version, `${ep} health version`).toBeTruthy();
+      } else if (ep === '/.well-known/agent-card.json') {
         expect(body.name, `${ep} should declare a name`).toBeTruthy();
         expect(Array.isArray(body.supportedInterfaces)).toBe(true);
+      } else {
+        // v1 List<T> shape: `data` is an array, `next_cursor` is
+        // Option<String> (omitted from JSON when None — so the
+        // field may be undefined, null, or a string), `total` is
+        // Option<u64> (likewise omitted when None).
+        expect(Array.isArray(body.data), `${ep} should return List.data array`).toBe(true);
+        expect(
+          body.next_cursor === undefined ||
+            body.next_cursor === null ||
+            typeof body.next_cursor === 'string',
+          `${ep} next_cursor must be string|null|omitted`,
+        ).toBe(true);
       }
     }
   });

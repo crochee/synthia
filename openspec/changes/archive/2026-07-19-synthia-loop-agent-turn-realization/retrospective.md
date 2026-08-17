@@ -22,7 +22,7 @@ Keeping `LoopDetectorSet` as the hard floor (P6 distrust) and adding `synthia-ho
 
 ### 1.3 From<ExtensionOutcome> bridge (D1)
 
-A single `impl From<ExtensionOutcome> for HookOutcome` in `synthia-extension-v2` avoided introducing a third enum or a cross-crate dependency. Extension callbacks naturally convert before returning, and the canonical type (`HookOutcome`) stays in `synthia-hook`.
+A single `impl From<ExtensionOutcome> for HookOutcome` in `synthia-extension-hook` avoided introducing a third enum or a cross-crate dependency. Extension callbacks naturally convert before returning, and the canonical type (`HookOutcome`) stays in `synthia-hook`.
 
 **Evidence**: 3 conversion tests (Allow, Deny, ForwardToMainAgent) pass; no circular dependency between crates.
 
@@ -123,7 +123,7 @@ registry.register_with_capability::<Extension>(any_arc);
 let recovered = any_arc.downcast::<Arc<dyn Extension>>().unwrap();
 ```
 
-This should be documented in `synthia-service` or `synthia-extension-v2` crate docs.
+This should be documented in `synthia-service` or `synthia-extension-hook` crate docs.
 
 ### 4.5 OpenSpec requirement format: SHALL in first line
 

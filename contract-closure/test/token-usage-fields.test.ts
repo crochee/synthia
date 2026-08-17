@@ -24,7 +24,7 @@ const ROOT = resolve(__dirname, '..', '..');
 describe('fix card #009 — token usage field alignment', () => {
   it('backend emits usage with snake_case field names', () => {
     const src = readFileSync(
-      join(ROOT, 'crates/synthia-a2a/src/mapping.rs'),
+      join(ROOT, 'crates/synthia-server/src/a2a/mapping.rs'),
       'utf8',
     );
     // The usage event uses snake_case for Synthia extension fields.
@@ -35,7 +35,7 @@ describe('fix card #009 — token usage field alignment', () => {
 
   it('usage is emitted as Part::data Message (not A2A protocol field)', () => {
     const src = readFileSync(
-      join(ROOT, 'crates/synthia-a2a/src/mapping.rs'),
+      join(ROOT, 'crates/synthia-server/src/a2a/mapping.rs'),
       'utf8',
     );
     // Usage is carried as a Message with Part::data, not as a

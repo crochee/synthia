@@ -95,3 +95,133 @@ impl SpanContext {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// `root()` MUST generate a fresh span_id
+    /// (non-empty UUID), set
+    /// `parent_span_id` to empty string,
+    /// preserve the supplied `trace_id`
+    /// verbatim, initialize `end_time =
+    /// None`, and start with an empty
+    /// `attributes` map.
+    #[test]
+    fn root_initializes_state_correctly() {
+        let ctx = SpanContext::root("trace-1");
+        assert!(!ctx.span_id.is_empty(), "root MUST generate a span_id");
+        assert!(
+            ctx.parent_span_id.is_empty(),
+            "root span MUST have empty parent_span_id"
+        );
+        assert_eq!(ctx.trace_id, "trace-1");
+        assert!(ctx.end_time.is_none());
+        assert!(ctx.attributes.is_empty());
+    }
+
+    /// Two consecutive `root()` calls MUST
+    /// produce different span_ids (UUIDs).
+    #[test]
+    fn root_generates_unique_span_ids() {
+        let a = SpanContext::root("trace");
+        let b = SpanContext::root("trace");
+        assert_ne!(a.span_id, b.span_id);
+    }
+
+    /// `child()` MUST inherit the parent's
+    /// `span_id` as its `parent_span_id` and
+    /// inherit `trace_id` verbatim. It MUST
+    /// generate a fresh `span_id`.
+    #[test]
+    fn child_inherits_parent_span_id_and_trace_id() {
+        let parent = SpanContext::root("trace-2");
+        let child = parent.child();
+        assert_ne!(child.span_id, parent.span_id);
+        assert_eq!(child.parent_span_id, parent.span_id);
+        assert_eq!(child.trace_id, parent.trace_id);
+        assert!(child.end_time.is_none());
+        assert!(child.attributes.is_empty());
+    }
+
+    /// `end()` MUST set `end_time` to Some
+    /// (some Instant). After calling it
+    /// once, the span is considered ended.
+    #[test]
+    fn end_sets_end_time_to_some() {
+        let mut ctx = SpanContext::root("trace-3");
+        assert!(ctx.end_time.is_none());
+        ctx.end();
+        assert!(ctx.end_time.is_some());
+        // Idempotent: calling again doesn't
+        // panic; end_time stays Some.
+        ctx.end();
+        assert!(ctx.end_time.is_some());
+    }
+
+    /// `with_attribute()` is consume-style:
+    /// it returns a NEW SpanContext with the
+    /// attribute inserted. The original is
+    /// moved. Pin so a refactor that changes
+    /// to mutate-style doesn't silently
+    /// break.
+    #[test]
+    fn with_attribute_consume_style_returns_new_context() {
+        let ctx = SpanContext::root("trace-4");
+        let ctx = ctx.with_attribute("k", "v");
+        assert_eq!(ctx.attributes.get("k"), Some(&"v".to_string()));
+    }
+
+    /// `with_attribute()` chained calls MUST
+    /// accumulate (last-write-wins on the
+    /// same key).
+    #[test]
+    fn with_attribute_chained_calls_accumulate() {
+        let ctx = SpanContext::root("trace-5")
+            .with_attribute("a", "1")
+            .with_attribute("b", "2")
+            .with_attribute("a", "11"); // overwrite
+        assert_eq!(ctx.attributes.get("a"), Some(&"11".to_string()));
+        assert_eq!(ctx.attributes.get("b"), Some(&"2".to_string()));
+        assert_eq!(ctx.attributes.len(), 2);
+    }
+
+    /// `set_attribute()` is mutate-style:
+    /// mutates the receiver in place,
+    /// returns `()`.
+    #[test]
+    fn set_attribute_mutate_style_returns_unit() {
+        let mut ctx = SpanContext::root("trace-6");
+        let result: () = ctx.set_attribute("k", "v");
+        assert_eq!(result, ());
+        assert_eq!(ctx.attributes.get("k"), Some(&"v".to_string()));
+    }
+
+    /// `duration()` MUST return None when
+    /// the span has NOT been ended.
+    #[test]
+    fn duration_returns_none_before_end() {
+        let ctx = SpanContext::root("trace-7");
+        assert!(ctx.duration().is_none());
+    }
+
+    /// `duration()` MUST return Some when
+    /// the span has been ended. The value
+    /// MUST be >= 0 (end >= start), even
+    /// though it may be very small
+    /// (sub-microsecond).
+    #[test]
+    fn duration_returns_some_after_end() {
+        let mut ctx = SpanContext::root("trace-8");
+        std::thread::sleep(std::time::Duration::from_millis(2));
+        ctx.end();
+        let d = ctx.duration().expect("duration MUST be Some after end");
+        // Allow zero on very fast systems
+        // (sub-microsecond), but cannot be
+        // negative.
+        // Sleeping 2ms guarantees d > 0
+        // almost certainly; if not, just pin
+        // that d is bounded.
+        assert!(d >= std::time::Duration::ZERO);
+    }
+}

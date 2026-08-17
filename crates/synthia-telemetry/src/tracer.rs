@@ -9,7 +9,7 @@ use opentelemetry_otlp::{SpanExporter, WithExportConfig};
 #[cfg(feature = "otel")]
 use opentelemetry_sdk::{
     Resource,
-    trace::{Sampler, TracerProvider as SdkTracerProvider},
+    trace::{BatchSpanProcessor, Sampler, SdkTracerProvider},
 };
 use synthia_core::Error;
 #[cfg(feature = "otel")]
@@ -21,9 +21,9 @@ use tracing_subscriber::{
     util::SubscriberInitExt,
 };
 
-use crate::TelemetryConfig;
 #[cfg(feature = "otel")]
 use crate::span::attributes_processor::SpanAttributesProcessor;
+use crate::{TelemetryConfig, propagation::register_global_propagator};
 
 /// Environment variable for the OTLP collector endpoint.
 pub const SYNTHIA_OTLP_ENDPOINT_ENV: &str = "SYNTHIA_OTLP_ENDPOINT";
@@ -175,10 +175,9 @@ pub fn init_otlp_tracing(
         }
     };
 
-    let resource = Resource::new(vec![opentelemetry::KeyValue::new(
-        opentelemetry_semantic_conventions::resource::SERVICE_NAME,
-        config.service_name.clone(),
-    )]);
+    let resource = Resource::builder()
+        .with_service_name(config.service_name.clone())
+        .build();
 
     let protocol = detect_protocol(&endpoint);
     let exporter = match protocol {
@@ -188,7 +187,7 @@ pub fn init_otlp_tracing(
             .with_timeout(Duration::from_secs(5))
             .build()
             .map_err(|e| {
-                Error::Telemetry(format!(
+                Error::telemetry(format!(
                     "Failed to build OTLP gRPC span exporter: {e}"
                 ))
             })?,
@@ -198,7 +197,7 @@ pub fn init_otlp_tracing(
             .with_timeout(Duration::from_secs(5))
             .build()
             .map_err(|e| {
-                Error::Telemetry(format!(
+                Error::telemetry(format!(
                     "Failed to build OTLP HTTP span exporter: {e}"
                 ))
             })?,
@@ -207,24 +206,30 @@ pub fn init_otlp_tracing(
     // Assembly order (per spec Requirement: "装配 MUST 在 exporter 装配之后、
     // provider `build()` 之前"):
     //   resource → sampler → batch_exporter (exporter) → span_processor → build()
-    // `with_batch_exporter` internally wraps the exporter in a
-    // `BatchSpanProcessor` and registers it; `with_span_processor` then
-    // appends `SpanAttributesProcessor` to the same processor list. Both
-    // processors run on every span: `SpanAttributesProcessor::on_start`
-    // injects the 6 standard attributes, and the batch processor handles
-    // async export on `on_end`. They do not conflict.
+    // `with_batch_processor` wraps the exporter in a `BatchSpanProcessor`
+    // and registers it; `with_span_processor` then appends
+    // `SpanAttributesProcessor` to the same processor list. Both processors
+    // run on every span: `SpanAttributesProcessor::on_start` injects the 6
+    // standard attributes, and the batch processor handles async export on
+    // `on_end`. They do not conflict.
     let sampler_spec = std::env::var(SYNTHIA_OTEL_SAMPLER_ENV).ok();
     let sampler = build_sampler(sampler_spec.as_deref());
 
     let tracer_provider = SdkTracerProvider::builder()
         .with_resource(resource)
         .with_sampler(sampler)
-        .with_batch_exporter(exporter, opentelemetry_sdk::runtime::Tokio)
+        .with_span_processor(BatchSpanProcessor::builder(exporter).build())
         .with_span_processor(SpanAttributesProcessor::new())
         .build();
 
     // Set as the global tracer provider
     global::set_tracer_provider(tracer_provider.clone());
+
+    // Install the W3C TraceContext propagator as the OpenTelemetry global
+    // text map propagator. This MUST happen after `set_tracer_provider`
+    // but before any spans are produced, so the SDK tracer layer extracts
+    // the inbound `traceparent` into the parent span context.
+    register_global_propagator();
 
     let tracer = tracer_provider.tracer(config.service_name.clone());
     let telemetry_layer = tracing_opentelemetry::layer().with_tracer(tracer);
@@ -238,7 +243,7 @@ pub fn init_otlp_tracing(
         .with(telemetry_layer)
         .try_init()
         .map_err(|e| {
-            Error::Telemetry(format!("Failed to init tracing: {e}"))
+            Error::telemetry(format!("Failed to init tracing: {e}"))
         })?;
 
     tracing::info!(
@@ -264,12 +269,17 @@ pub fn init_console_tracing(config: &TelemetryConfig) -> Result<(), Error> {
         EnvFilter::default().add_directive("info".parse().unwrap())
     });
 
+    // Install the W3C propagator even in the console-only path so anything
+    // that calls `extract_trace_context` / `inject_trace_context` later
+    // receives a real implementation rather than the noop default.
+    register_global_propagator();
+
     tracing_subscriber::registry()
         .with(filter)
         .with(tracing_subscriber::fmt::layer())
         .try_init()
         .map_err(|e| {
-            Error::Telemetry(format!("Failed to init console tracing: {e}"))
+            Error::telemetry(format!("Failed to init console tracing: {e}"))
         })?;
 
     tracing::info!(
@@ -295,7 +305,7 @@ pub fn make_file_layer(
     log_dir: &Path,
 ) -> Result<Box<dyn Layer<tracing_subscriber::Registry> + Send + Sync>, Error> {
     std::fs::create_dir_all(log_dir).map_err(|e| {
-        Error::Telemetry(format!("Failed to create log dir: {e}"))
+        Error::telemetry(format!("Failed to create log dir: {e}"))
     })?;
 
     let log_path = log_dir.join("synthia.log");
@@ -304,7 +314,7 @@ pub fn make_file_layer(
         .append(true)
         .open(&log_path)
         .map_err(|e| {
-            Error::Telemetry(format!("Failed to open log file: {e}"))
+            Error::telemetry(format!("Failed to open log file: {e}"))
         })?;
 
     // `std::fs::File` does not implement `MakeWriter` directly in
@@ -345,7 +355,7 @@ pub fn init_file_logging(log_dir: &Path) -> Result<(), Error> {
         .with(filter)
         .try_init()
         .map_err(|e| {
-            Error::Telemetry(format!("Failed to init file logging: {e}"))
+            Error::telemetry(format!("Failed to init file logging: {e}"))
         })?;
 
     tracing::info!(log_dir = ?log_dir, "File logging initialized");

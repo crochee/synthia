@@ -49,7 +49,11 @@ impl Tool for FakeTool {
         })
     }
 
-    async fn call(&self, _input: ToolInput) -> ToolOutput {
+    async fn call(
+        &self,
+        _input: serde_json::Value,
+        _context: &Context,
+    ) -> ToolOutput {
         let mut count = self.call_count.lock().await;
         *count += 1;
         if self.should_fail {
@@ -67,16 +71,9 @@ mod tests {
     #[tokio::test]
     async fn test_fake_tool_call_count() {
         let tool = FakeTool::new("test", "output");
-        let ctx = ToolExecutionContext::new(
-            "s1".to_string(),
-            std::path::PathBuf::from("/tmp"),
-        );
-        let input = ToolInput {
-            name: "test".to_string(),
-            input: serde_json::json!({}),
-            context: ctx,
-        };
-        tool.call(input).await;
+        let ctx =
+            Context::new("s1".to_string(), std::path::PathBuf::from("/tmp"));
+        tool.call(serde_json::json!({}), &ctx).await;
         assert_eq!(*tool.call_count.lock().await, 1);
     }
 }

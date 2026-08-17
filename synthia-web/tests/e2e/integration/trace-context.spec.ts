@@ -17,27 +17,23 @@ const SERVER_URL = 'http://localhost:8080';
 
 // W3C `traceparent` regex: `vv-trace_id-parent_id-flags`,
 // vv=2, trace_id=32, parent_id=16, flags=2 (all hex).
-const TRACEPARENT_PATTERN =
-  /^([0-9a-f]{2})-([0-9a-f]{32})-([0-9a-f]{16})-([0-9a-f]{2})$/;
+const TRACEPARENT_PATTERN = /^([0-9a-f]{2})-([0-9a-f]{32})-([0-9a-f]{16})-([0-9a-f]{2})$/;
 
 // trace_id must be 32 hex chars (non-zero per W3C spec).
-const NON_ZERO_HEX_32 = /^[0-9a-f]{32}$/;
 
 // span_id is 16 hex chars.
 const NON_ZERO_HEX_16 = /^[0-9a-f]{16}$/;
 
 test.describe('W3C TraceContext propagation', () => {
   // Tests in this block hit an authenticated management endpoint
-  // (`/api/skills`) so they exercise the full middleware chain.
+  // (`/api/v1/skills`) so they exercise the full middleware chain.
   // Public endpoints (`/health`, `/.well-known/agent-card.json`)
   // intentionally bypass the trace-context middleware; their
   // behaviour is asserted in the nested describe block at the
   // bottom of this file.
-  const SAMPLE_PATH = '/api/skills';
+  const SAMPLE_PATH = '/api/v1/skills';
 
-  test('response carries a fresh traceparent when the request has none', async ({
-    request,
-  }) => {
+  test('response carries a fresh traceparent when the request has none', async ({ request }) => {
     const response = await request.get(`${SERVER_URL}${SAMPLE_PATH}`);
     expect(response.ok()).toBe(true);
 
@@ -59,8 +55,7 @@ test.describe('W3C TraceContext propagation', () => {
   });
 
   test('upstream traceparent is preserved end-to-end', async ({ request }) => {
-    const upstreamTraceparent =
-      '00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01';
+    const upstreamTraceparent = '00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01';
     const response = await request.get(`${SERVER_URL}${SAMPLE_PATH}`, {
       headers: { traceparent: upstreamTraceparent },
     });
@@ -95,9 +90,7 @@ test.describe('W3C TraceContext propagation', () => {
     expect(response.headers()['tracestate']).toBe(tracestate);
   });
 
-  test('malformed traceparent is ignored and a fresh trace is minted', async ({
-    request,
-  }) => {
+  test('malformed traceparent is ignored and a fresh trace is minted', async ({ request }) => {
     const response = await request.get(`${SERVER_URL}${SAMPLE_PATH}`, {
       headers: { traceparent: 'this is not a traceparent' },
     });
@@ -110,20 +103,14 @@ test.describe('W3C TraceContext propagation', () => {
     expect(TRACEPARENT_PATTERN.exec(tp)).not.toBeNull();
   });
 
-  test('every authenticated management API endpoint emits a traceparent', async ({
-    request,
-  }) => {
+  test('every authenticated management API endpoint emits a traceparent', async ({ request }) => {
     // Public endpoints (`/health`, `/.well-known/agent-card.json`)
     // intentionally bypass tracing — see the dedicated tests below.
     // Everything else must carry W3C TraceContext.
     const endpoints = [
-      '/api/providers',
-      '/api/skills',
-      '/api/tools',
-      '/api/settings',
-      '/api/jobs',
-      '/api/tasks',
-      '/api/mcp/servers',
+      '/api/v1/skills',
+      '/api/v1/tools',
+      '/api/v1/tasks',
     ];
 
     for (const path of endpoints) {
@@ -146,7 +133,7 @@ test.describe('W3C TraceContext propagation', () => {
     // X-Request-ID header has been retired to avoid two parallel
     // schemes competing for the same role. This test guards the
     // retirement so the header does not silently come back.
-    const response = await request.get(`${SERVER_URL}/api/skills`);
+    const response = await request.get(`${SERVER_URL}/api/v1/skills`);
     expect(response.ok()).toBe(true);
 
     expect(
@@ -182,12 +169,8 @@ test.describe('W3C TraceContext propagation', () => {
       expect(response.headers()['x-request-time-ms']).toBeUndefined();
     });
 
-    test('/.well-known/agent-card.json does not emit trace headers', async ({
-      request,
-    }) => {
-      const response = await request.get(
-        `${SERVER_URL}/.well-known/agent-card.json`,
-      );
+    test('/.well-known/agent-card.json does not emit trace headers', async ({ request }) => {
+      const response = await request.get(`${SERVER_URL}/.well-known/agent-card.json`);
       expect(response.ok()).toBe(true);
       expect(response.headers()['traceparent']).toBeUndefined();
       expect(response.headers()['x-trace-id']).toBeUndefined();
@@ -198,9 +181,7 @@ test.describe('W3C TraceContext propagation', () => {
       expect(Array.isArray(body.supportedInterfaces)).toBe(true);
     });
 
-    test('/health still serves CORS for cross-origin probes', async ({
-      request,
-    }) => {
+    test('/health still serves CORS for cross-origin probes', async ({ request }) => {
       // Public endpoints still need CORS — only the trace layer
       // is bypassed. Verify the CORS layer remains active.
       const response = await request.get(`${SERVER_URL}/health`, {

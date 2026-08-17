@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 /// Attached to the last tool / last content block / last system block to mark
 /// cache prefix boundary.
 ///
-/// `cache_namespace` carries the [`synthia_cache_mark::CacheScope`] string so
+/// `cache_namespace` carries the [`crate::cache_mark::CacheScope`] string so
 /// that two different users with otherwise identical prompts produce distinct
 /// `cache_control` JSON (per the cross-session cache leakage prevention
 /// requirement). Anthropic ignores unknown fields server-side, but the field

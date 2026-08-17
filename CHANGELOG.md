@@ -9,11 +9,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- **Tool Trait Decomposition (agent-toolification-v3)**: The monolithic 12-method `Tool` trait is decomposed into 3 focused sub-traits, each ≤ 5 methods:
-  - `ToolDefinition`: `name()`, `description()`, `parameters_schema()`, `category()`, `to_metadata()` — "what am I?"
-  - `ToolExecution`: `execute()`, `validate()`, `dry_run()`, `cost_estimate()`, `cancel()` — "what do I do?"
-  - `ToolLifecycle`: `on_register()`, `on_unregister()`, `health_check()`, `version()`, `schema_version()` — "am I alive?"
-  - `ToolV1` supertrait aggregates all three for backward compatibility. Blanket bridge implementations automatically satisfy sub-traits for any type implementing the legacy `Tool` trait.
 - **`MessageKind` enum**: 5-variant classification (`System`, `User`, `Assistant`, `ToolCall`, `ToolResult`) extending the 4-variant `Role` with `ToolCall` for assistant messages containing tool-use requests. Added to `synthia-provider`.
 - **`Message::llm_visible()` method**: O(1) side-effect-free method on `Message` that determines whether a message should be included in the LLM context window. Tool results with empty content are excluded.
 - **`ToolCategory` enum**: Categorization of tools (`FileSystem`, `Network`, `Computation`, `Agent`, `Other`) for registry metadata. Re-exports from `synthia_core` when `unified-registry` feature is enabled.
@@ -23,6 +18,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Breaking Changes
 
+- **Public import paths changed**:
+  - `synthia_tool::sub_traits::{ToolDefinition, ToolExecution, ToolLifecycle}` removed (never implemented).
+  - `synthia_tool::fragment::{ContextFragment, FragmentRegistry, FragmentContext, FragmentError}` → `synthia_context::fragment::{ContextFragment, FragmentRegistry, FragmentContext, FragmentError}`.
+  - `synthia_tool::sub_traits::{ToolCategory, ToolMetadataSnapshot}` → `synthia_tool::descriptor::{ToolCategory, ToolMetadataSnapshot}`.
 - **MergedPolicy::evaluate fail-closed**: `MergedPolicy::evaluate` now returns `Ask` (not `Allow`) for unknown patterns (ADR-2026-06-10). Migration: explicitly add `Allow` rules for all tools that should be silently allowed.
 - **Sandbox renamed to CommandBlacklist**: `synthia_exec::sandbox::Sandbox` is now `synthia_exec::command_blacklist::CommandBlacklist`. The old name implied OS-level containment; the new name accurately describes a string-match blacklist with documented bypass techniques. A deprecated type alias `Sandbox = CommandBlacklist` is kept for one release cycle. The `is_command_allowed` method is preserved (returns `!is_command_blacklisted`) for compatibility; new code should use `is_command_blacklisted` directly.
 - **`ApprovalRequest::NetworkAccess::turn_id` removed**: orphan field that had 0 production callers. `Guardian` decision logic no longer reads it; use `AgentContext::current_turn_id` for turn-level decision attribution.
@@ -34,6 +33,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Fail-closed default**: Closed CVE-level fail-open bug where unknown tools were silently allowed. `MergedPolicy::default()` is now consistent with `PermissionPolicy::default()` semantics (`RequireConfirm` / `Ask`).
 - **Honest security naming**: The `Sandbox` struct was renamed to `CommandBlacklist` and its module-level docs now explicitly list 5 known bypass techniques (Unicode obfuscation, encoding indirection, shell metacharacter games, custom interpreters, language runtimes). The blacklist remains a *defensive* layer; it is not a containment boundary.
 - **Bash tool UTF-8 panic fix**: `cap_to_char_boundary` for bash tool output now uses UTF-8 safe boundary detection, eliminating a panic when a tool result's truncation point fell inside a multi-byte character.
+
+### Fixed
+
+- **A2A SSE keepalive**: `SynthiaExecutor` now emits a `Working` `StatusUpdate` heartbeat every 15 s (`HEARTBEAT_INTERVAL` in `synthia-server/src/a2a/executor.rs`) while waiting on the agent event stream. Idle SSE no longer stays byte-silent during long LLM thinking phases or multi-minute tool runs, so intermediaries (nginx, enterprise proxies, browser idle timers) don't silently drop the connection. Mapping for `SystemEvent::ToolProgress { tool_name: "heartbeat", .. }` lives in `synthia-server/src/a2a/mapping.rs` and carries a `kind = "heartbeat"` metadata marker for the frontend to no-op. The dead `synthia-server/src/sse.rs` module (defined `HEARTBEAT_INTERVAL` but never wired) is removed.
+
+### Changed
+
+- **Frontend palette softened**: Neon Terminal color tokens (`synthia-web/src/styles/tokens.css`) and ChatPage segment colors are swapped for low-saturation equivalents (muted teal `#5fb89a`, dusty cyan `#5fb3c4`, desaturated amber `#c9b265`, dusty rose `#c66a78`, charcoal `#14141f`) to reduce eye strain on long sessions. The visual identity (terminal aesthetic, monospace, glow) is preserved.
+- **Frontend tool-block UI timeout raised**: `TOOL_TIMEOUT_MS` in `ChatPage.tsx` is now 180 000 ms (3 min) so the "tool timed out" placeholder only fires on genuinely stalled connections, not during legitimate long quiet phases (with the SSE heartbeat above, those no longer disconnect).
 
 ### Added
 
@@ -68,6 +76,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Removed
 
+- **`sub_traits` module removed from synthia-tool**: The placeholder sub-trait design (`ToolDefinition` / `ToolExecution` / `ToolLifecycle`) was never implemented. `ToolCategory` enum and `ToolMetadataSnapshot` struct are preserved as `pub` symbols in `crates/synthia-tool/src/descriptor.rs` next to `ToolDescriptor`.
+- **`fragment` module relocated from synthia-tool to synthia-context**: `ContextFragment` trait, `FragmentRegistry`, and 6 built-in fragments (`SystemPromptFragment` / `TokenBudgetFragment` / `PermissionsFragment` / `EnvironmentFragment` / `RolloutBudgetFragment` / `CustomFragment`) now live in `crates/synthia-context/src/fragment/`. System prompt injection logic now sits next to `ContextAssembler`. Update `use synthia_tool::fragment::*` → `use synthia_context::fragment::*`.
 - **Deprecated `provider::stream()` and `provider::collect_stream_response`**: removed after a 1-release deprecation window. Use `complete_with_stream` + `StreamChunk` (with `IsDone` variant) instead.
 - **`stream_builder/loop_detection.rs`** (467 lines, local to `synthia-agent`): now in `synthia-guardian` (`LoopDetectorSet`).
 - **`synthia-exec` monolith**: replaced by `synthia-tool-bash` + `synthia-tool-exec-base` (see Breaking Changes).
@@ -75,6 +85,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Orphaned `streaming-2part-truncate` files**: scaffolding from a refactor that was completed differently. ~120 lines.
 - **`synthia-cli` dead files (11 files, ~2572 lines)**: see "Removed dead code" under Fixed.
 - **`synthia-agent/executor/` and `synthia-agent/builder/` modules**: pre-refactor scaffolding replaced by the current `stream_builder/` module.
+- **`synthia-agent` simplification pass (13 waves, ~5700 LOC removed)**: removed unused subsystems from `crates/synthia-agent/src/` — `registry/` (936), `checkpoint/` (566), `hook_view.rs` (140), `error_recovery/` (~770, including `run_recovery_cascade` replaced by a `WarningKind`-level signal), `control/{fork_policy,mailbox,reservation}.rs` (552), `agent_permission.rs` + `steps/spawn.rs` + `iteration/loop_detect.rs` + `LoopDetectInterceptor` (~456), `AgentRunStateConfig` (no consumers) plus dead `synthia_provider::{ContentPart, ToolResult, ToolUse}` re-exports, the entire `control/` multi-agent plane (`agent_path.rs` + `registry.rs` + `core_ctrl.rs` + `format_background_task_notification` + `agent_control` poll path in `main_loop.rs`, ~617 LOC) plus the now-unused `regex` crate dependency, the dead `ExtensionRegistry::skill_registry()` accessor (zero callers), the dead `tool_args`/`token_usage` `InterceptorContext.data` map insertions in `main_loop.rs` that were vestigial after `LoopDetectInterceptor` deletion, 7 dead `AgentConfig` fields (`executor_kind`, `agents_md_enabled`, `agents_md_filenames`, `agents_md_config()`, `doom_loop_threshold`, `compaction_provider`, `token_budget`, `checkpoint_dir`) + the entire `ExecutorKindConfig` enum (~268 LOC removed), and the entire vestigial `error/` module (`AgentError` enum with 14 variants, 9 constructors, 6 `From` impls, 16 unit tests = 478 LOC) that was declared but never re-exported and had zero external callers — production code uses `synthia_core::Error` throughout. The `test_no_underscore_prefixed_fields_in_run_config` audit table was updated to reflect the actual current `AgentRunConfig` field list (added `extension_registry` + `interceptor_chain`; removed stale references to `context_assembler`, `agent_control`, `compaction_provider`). Net: `synthia-agent/src/` shrunk from 15,204 → 9,508 LOC across 60 files (~37% reduction). External `synthia-cli` + `synthia-server` callsites dropped for `agent_control`, `approval_service`, `guardian_coordinator`, `fork_policy`, `token_budget`, `checkpoint_dir`, `compaction_provider`. The LLM sampling path still classifies transient errors as `LlmSampleOutcome::Continue` and validation errors as `LlmSampleOutcome::Terminate`; doom-loop detection, fork-policy, and the background sub-agent registry are removed.
 
 ### Deferred
 

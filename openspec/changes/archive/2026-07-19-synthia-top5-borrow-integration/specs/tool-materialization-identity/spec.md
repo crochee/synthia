@@ -68,7 +68,7 @@ The `Materialization` MUST carry a `ToolProvenance` from `{ Builtin, Plugin { ex
 
 #### Scenario: plugin provenance
 
-- **WHEN** an extension registers a tool via `synthia-extension-v2::register(...)`
+- **WHEN** an extension registers a tool via `synthia-extension-hook::register(...)`
 - **THEN** its `Materialization::provenance` MUST be `Plugin { extension_id: <id> }`
 
 ### Requirement: Scope.fork + tool_id projection

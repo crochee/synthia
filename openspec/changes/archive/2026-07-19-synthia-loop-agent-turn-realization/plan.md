@@ -13,14 +13,14 @@ These PRs create new types with no main_loop changes. Can be implemented in para
 
 | PR | Capability | Files | LOC est. |
 |----|-----------|-------|----------|
-| 1.1 | From<ExtensionOutcome> bridge | synthia-extension-v2/src/lib.rs, Cargo.toml | ~30 |
+| 1.1 | From<ExtensionOutcome> bridge | synthia-extension-hook/src/lib.rs, Cargo.toml | ~30 |
 | 1.2 | UnifiedHookDispatcher | synthia-hook/src/dispatcher.rs (new) | ~200 |
 | 1.3 | AgentHookAdapter update | synthia-hook/src/hook_trait.rs | ~80 |
 | 2.1 | SteeringPriority::Forwarded | synthia-agent/src/steering.rs | ~40 |
 
 **Dependencies**: 1.2 depends on 1.3 (needs AgentHookAdapter working); 1.1 and 2.1 are independent.
 
-**Verification**: `cargo test -p synthia-hook` + `cargo test -p synthia-extension-v2` + `cargo test -p synthia-agent -- steering`
+**Verification**: `cargo test -p synthia-hook` + `cargo test -p synthia-extension-hook` + `cargo test -p synthia-agent -- steering`
 
 ## Phase 2: LoopServices + GoalService (PRs 3.1, 4.1-4.3) — Sequential
 

@@ -37,7 +37,6 @@ cargo test --workspace
 cargo test -p synthia-agent
 cargo test -p synthia-session
 cargo test -p synthia-tool
-cargo test -p synthia-memory
 cargo test -p synthia-context
 ```
 
@@ -53,17 +52,6 @@ cargo test -p synthia-agent --lib
 cargo test -p synthia-session --test '*_integration*'
 ```
 
-### Benchmarks
-```bash
-# Run all benchmarks
-cargo bench --package synthia-agent
-
-# Run specific benchmark group
-cargo bench --package synthia-agent -- loop
-cargo bench --package synthia-agent -- session
-cargo bench --package synthia-agent -- event_writer
-```
-
 ## Coverage Expectations
 
 ### Crate Coverage Requirements
@@ -73,7 +61,6 @@ cargo bench --package synthia-agent -- event_writer
 | `synthia-agent` | 5+ e2e tests | 3+ unit test files |
 | `synthia-session` | - | 2+ integration test files |
 | `synthia-tool` | - | 2+ unit test files |
-| `synthia-memory` | - | 1+ unit test files |
 | `synthia-context` | - | 1+ unit test files |
 
 ## CI Expectations
@@ -81,18 +68,3 @@ cargo bench --package synthia-agent -- event_writer
 - All tests run on every PR
 - Benchmarks are informational (not blocking)
 - Clippy and fmt checks must pass
-
-## Benchmark Harness
-
-The `synthia-agent` crate includes a criterion-based benchmark suite in `benches/`:
-
-| Benchmark | Measures |
-|-----------|----------|
-| `loop` | Agent turn latency |
-| `session` | Session creation throughput |
-| `event_writer` | JSONL event append throughput |
-
-Each benchmark includes:
-- 3-second warm-up phase
-- Statistical output (mean, median, std dev, min, max)
-- HTML report generation

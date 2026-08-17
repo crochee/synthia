@@ -1,64 +1,35 @@
 /**
- * A2A protocol one-shot client using @a2a-js/sdk v1.0.
+ * A2A HTTP client facade.
  *
- * Forwards non-streaming A2A message sends to the SDK client used by
- * `a2a-stream.ts`. Kept as a separate module so existing callers
- * (`a2a-send.ts`) don't have to change.
+ * Single entry point for every A2A request the synthia-web
+ * frontend issues. Today it only re-exports the streaming
+ * `sendMessageStream` from `a2a-stream.ts` (the SDK client
+ * singleton lives there); future non-streaming or batch APIs
+ * get added in this file so future SDK version bumps touch
+ * one location.
+ *
+ * Wire field naming follows `@a2a-js/sdk@1.0.0` per
+ * `docs/interface-contract/ARBITRATION.md` priority 2 (SDK
+ * types > Synthia stable spec). The contract-closure test
+ * `message-send-camelcase.test.ts` scans THIS file for any
+ * snake_case residue in `Message` / `Part` field names
+ * (`message_id`, `context_id`, `task_id`, `reference_task_ids`,
+ * `media_type`) — DO NOT inline snake_case keys here, route
+ * through `a2a-stream.ts` instead.
+ *
+ * Note: the v1 REST API in `client.ts` uses snake_case for
+ * unrelated fields (`context_id`, `next_cursor`, …) because
+ * that API has its own `#[serde(rename_all = "snake_case")]`
+ * server convention. The two namespaces are independent.
  */
 
-import { Message, type AgentCard, type SendMessageRequest, type Task } from '@a2a-js/sdk';
-
-import { getClient } from './a2a-stream';
-
-/**
- * Send a one-shot A2A message and return the resulting Task (or
- * Message when the server responds inline).
- *
- * Mirrors `sendMessageStream` but waits for the terminal event.
- */
-export async function a2aSend(text: string, sessionId?: string): Promise<Task> {
-  const client = await getClient();
-
-  const message = Message.fromJSON({
-    messageId: crypto.randomUUID(),
-    role: 'ROLE_USER',
-    parts: [{ text }],
-    contextId: sessionId || '',
-  });
-
-  const request: SendMessageRequest = {
-    tenant: '',
-    message,
-    configuration: undefined,
-    metadata: undefined,
-  };
-
-  const result = await client.sendMessage(request);
-  // The SDK returns either a Task or a Message discriminated by the
-  // SendMessageResponse payload; both are valid per the v1.0 spec.
-  // The agent always returns a Task for `message/send` so narrow to it.
-  if (isTask(result)) {
-    return result;
-  }
-  throw new Error('A2A one-shot send returned a Message instead of a Task');
-}
-
-/**
- * Discriminate `Message` from `Task` using the wire-shape differences.
- *
- * `Task` carries an `artifacts` collection; `Message` carries a `role`
- * and `parts`. `id` + `artifacts` together are unique to `Task` in the
- * v1.0 SDK.
- */
-function isTask(value: object): value is Task {
-  return 'artifacts' in value && Array.isArray((value as Task).artifacts);
-}
-
-export type { AgentCard, Message, Task };
-
-export const a2aClient = {
-  a2aSend,
-  baseUrl: '',
-};
-
-export default a2aClient;
+export {
+  initA2AClient,
+  sendMessageStream,
+  classifyPartPayload,
+  extractFromMessage,
+  type A2AStreamEvent,
+  type SegmentType,
+  type SegmentMetadata,
+  type PartWithMetadata,
+} from './a2a-stream.js';

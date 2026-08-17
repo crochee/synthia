@@ -28,7 +28,7 @@ import { subscribeAndCapture } from './_helpers/sse-harness';
  * - It does not inject a forged unknown enum value (we have no
  *   synthetic backdoor on the server). The "downgrade to Failed"
  *   branch is covered by the unit test
- *   `crates/synthia-a2a/src/mapping.rs::normalize_task_state_*`
+ *   `crates/synthia-server/src/a2a/mapping.rs::normalize_task_state_*`
  *   plus the scanner-fixture vitest in
  *   `contract-closure/test/sse-status-state-enum.test.ts`. This
  *   spec pins the wire-level conformance that those layers promise.
@@ -73,6 +73,7 @@ interface TaskPayload {
   id?: string;
   contextId?: string;
   status?: { state?: string; message?: unknown };
+  history?: Array<{ parts?: unknown }>;
 }
 
 interface StreamEnvelope {
@@ -211,5 +212,46 @@ test.describe('contract-closure GET /a2a/tasks/{key}:subscribe status-update enu
         seen.some((s) => s.startsWith('task.state=')),
       `expected at least one Task or StatusUpdate envelope on the wire; saw: ${seen.join(', ')}`,
     ).toBe(true);
+
+    // 5) Wire-shape conformance for Parts carried on the SSE
+    //    stream. Every Part seen on the wire (in `task.history`,
+    //    `statusUpdate.status.message.parts`, or
+    //    `artifactUpdate.artifact.parts`) MUST use field-presence
+    //    serialization: exactly one of `text` / `data` / `raw`
+    //    / `url` directly on the Part object. The externally-
+    //    tagged `{ content: { text | data | ... } }` form would
+    //    conflate the wire with the SDK's internal oneof and is
+    //    not what A2A v1.0 specifies.
+    for (const event of stream.events) {
+      const parsed = tryParseJson(event.data);
+      if (parsed === null || typeof parsed !== 'object') continue;
+      const env = parsed as StreamEnvelope;
+      const sources: Array<{ parts?: unknown }> = [];
+      if (env.task?.history) {
+        for (const m of env.task.history) sources.push({ parts: (m as { parts?: unknown }).parts });
+      }
+      if (env.statusUpdate?.status?.message) {
+        sources.push({ parts: (env.statusUpdate.status.message as { parts?: unknown }).parts });
+      }
+      for (const src of sources) {
+        if (!Array.isArray(src.parts)) continue;
+        for (const part of src.parts) {
+          if (!part || typeof part !== 'object') continue;
+          const p = part as Record<string, unknown>;
+          const presenceCount =
+            (p.text === undefined ? 0 : 1) +
+            (p.data === undefined ? 0 : 1) +
+            (p.raw === undefined ? 0 : 1) +
+            (p.url === undefined ? 0 : 1);
+          expect(
+            presenceCount,
+            `Part on the SSE wire must carry exactly one of text/data/raw/url directly on the object; got ${JSON.stringify(part)}`,
+          ).toBe(1);
+        }
+      }
+    }
+    // The executor may emit zero Parts for a prompt that doesn't
+    // run any tool calls; the negative assertion above still
+    // pins the wire shape for every Part that does flow.
   });
 });

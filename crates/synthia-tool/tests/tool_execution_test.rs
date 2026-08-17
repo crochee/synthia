@@ -1,11 +1,11 @@
-#![allow(deprecated)]
 use std::{path::PathBuf, sync::Arc};
 
 use async_trait::async_trait;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
-use synthia_tool::{Tool, ToolEntry, ToolInput, ToolOutput, ToolRegistry};
+use synthia_tool::{Context, Tool, ToolEntry, ToolOutput, ToolRegistry};
+use test_support::collect_results;
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 struct MockTool {
@@ -57,7 +57,11 @@ impl Tool for MockTool {
         })
     }
 
-    async fn call(&self, input: ToolInput) -> ToolOutput {
+    async fn call(
+        &self,
+        input: serde_json::Value,
+        _context: &Context,
+    ) -> ToolOutput {
         if self.should_error {
             ToolOutput::error(
                 self.error_message
@@ -66,7 +70,6 @@ impl Tool for MockTool {
             )
         } else {
             let input_str = input
-                .input
                 .get("input")
                 .and_then(|v| v.as_str())
                 .unwrap_or("default");
@@ -75,11 +78,8 @@ impl Tool for MockTool {
     }
 }
 
-fn make_context() -> synthia_tool::ToolExecutionContext {
-    synthia_tool::ToolExecutionContext::new(
-        "test-session".to_string(),
-        PathBuf::from("/tmp"),
-    )
+fn make_context() -> Context {
+    Context::new("test-session".to_string(), PathBuf::from("/tmp"))
 }
 
 fn make_tool_use(name: &str, input: Value) -> synthia_provider::ToolUse {
@@ -95,7 +95,7 @@ fn make_tool_use(name: &str, input: Value) -> synthia_provider::ToolUse {
 #[tokio::test]
 async fn test_successful_tool_call() {
     let registry = ToolRegistry::new();
-    registry.register(ToolEntry::new(Arc::new(MockTool::new(
+    registry.register_entry(ToolEntry::new(Arc::new(MockTool::new(
         "success_tool",
         "A successful tool",
     ))));
@@ -103,14 +103,17 @@ async fn test_successful_tool_call() {
     let tool_uses =
         vec![make_tool_use("success_tool", json!({"input": "hello"}))];
 
-    let outputs = registry
-        .run_with_context(tool_uses, make_context())
-        .await
-        .unwrap();
+    let expected = tool_uses.len();
+    let outputs = collect_results(
+        registry.run_stream(tool_uses, make_context()),
+        expected,
+    )
+    .await;
 
     assert_eq!(outputs.len(), 1);
-    assert!(outputs[0].is_text());
+    assert!(outputs[0].1.is_text());
     let text = outputs[0]
+        .1
         .content
         .iter()
         .filter_map(|p| p.text())
@@ -122,15 +125,15 @@ async fn test_successful_tool_call() {
 #[tokio::test]
 async fn test_multiple_successful_tool_calls() {
     let registry = ToolRegistry::new();
-    registry.register(ToolEntry::new(Arc::new(MockTool::new(
+    registry.register_entry(ToolEntry::new(Arc::new(MockTool::new(
         "tool1",
         "First tool",
     ))));
-    registry.register(ToolEntry::new(Arc::new(MockTool::new(
+    registry.register_entry(ToolEntry::new(Arc::new(MockTool::new(
         "tool2",
         "Second tool",
     ))));
-    registry.register(ToolEntry::new(Arc::new(MockTool::new(
+    registry.register_entry(ToolEntry::new(Arc::new(MockTool::new(
         "tool3",
         "Third tool",
     ))));
@@ -141,13 +144,15 @@ async fn test_multiple_successful_tool_calls() {
         make_tool_use("tool3", json!({})),
     ];
 
-    let outputs = registry
-        .run_with_context(tool_uses, make_context())
-        .await
-        .unwrap();
+    let expected = tool_uses.len();
+    let outputs = collect_results(
+        registry.run_stream(tool_uses, make_context()),
+        expected,
+    )
+    .await;
 
     assert_eq!(outputs.len(), 3);
-    for output in &outputs {
+    for (_call_id, output) in &outputs {
         assert!(output.is_text());
     }
 }
@@ -155,20 +160,22 @@ async fn test_multiple_successful_tool_calls() {
 #[tokio::test]
 async fn test_tool_call_with_empty_input() {
     let registry = ToolRegistry::new();
-    registry.register(ToolEntry::new(Arc::new(MockTool::new(
+    registry.register_entry(ToolEntry::new(Arc::new(MockTool::new(
         "empty_input_tool",
         "Tool with empty input",
     ))));
 
     let tool_uses = vec![make_tool_use("empty_input_tool", json!({}))];
 
-    let outputs = registry
-        .run_with_context(tool_uses, make_context())
-        .await
-        .unwrap();
+    let expected = tool_uses.len();
+    let outputs = collect_results(
+        registry.run_stream(tool_uses, make_context()),
+        expected,
+    )
+    .await;
 
     assert_eq!(outputs.len(), 1);
-    assert!(outputs[0].is_text());
+    assert!(outputs[0].1.is_text());
 }
 
 // ============ Tool error handling tests ============
@@ -176,7 +183,7 @@ async fn test_tool_call_with_empty_input() {
 #[tokio::test]
 async fn test_tool_error_handling() {
     let registry = ToolRegistry::new();
-    registry.register(ToolEntry::new(Arc::new(MockTool::with_error(
+    registry.register_entry(ToolEntry::new(Arc::new(MockTool::with_error(
         "error_tool",
         "Error tool",
         "Something went wrong",
@@ -184,14 +191,17 @@ async fn test_tool_error_handling() {
 
     let tool_uses = vec![make_tool_use("error_tool", json!({}))];
 
-    let outputs = registry
-        .run_with_context(tool_uses, make_context())
-        .await
-        .unwrap();
+    let expected = tool_uses.len();
+    let outputs = collect_results(
+        registry.run_stream(tool_uses, make_context()),
+        expected,
+    )
+    .await;
 
     assert_eq!(outputs.len(), 1);
-    assert!(outputs[0].is_error == Some(true));
+    assert!(outputs[0].1.is_error == Some(true));
     let text = outputs[0]
+        .1
         .content
         .iter()
         .filter_map(|p| p.text())
@@ -202,16 +212,16 @@ async fn test_tool_error_handling() {
 #[tokio::test]
 async fn test_multiple_tools_with_one_error() {
     let registry = ToolRegistry::new();
-    registry.register(ToolEntry::new(Arc::new(MockTool::new(
+    registry.register_entry(ToolEntry::new(Arc::new(MockTool::new(
         "good1",
         "Good tool 1",
     ))));
-    registry.register(ToolEntry::new(Arc::new(MockTool::with_error(
+    registry.register_entry(ToolEntry::new(Arc::new(MockTool::with_error(
         "bad",
         "Bad tool",
         "I always fail",
     ))));
-    registry.register(ToolEntry::new(Arc::new(MockTool::new(
+    registry.register_entry(ToolEntry::new(Arc::new(MockTool::new(
         "good2",
         "Good tool 2",
     ))));
@@ -222,21 +232,23 @@ async fn test_multiple_tools_with_one_error() {
         make_tool_use("good2", json!({})),
     ];
 
-    let outputs = registry
-        .run_with_context(tool_uses, make_context())
-        .await
-        .unwrap();
+    let expected = tool_uses.len();
+    let outputs = collect_results(
+        registry.run_stream(tool_uses, make_context()),
+        expected,
+    )
+    .await;
 
     assert_eq!(outputs.len(), 3);
-    assert!(outputs[0].is_text());
-    assert!(outputs[1].is_error == Some(true));
-    assert!(outputs[2].is_text());
+    assert!(outputs[0].1.is_text());
+    assert!(outputs[1].1.is_error == Some(true));
+    assert!(outputs[2].1.is_text());
 }
 
 #[tokio::test]
 async fn test_tool_returns_error_content() {
     let registry = ToolRegistry::new();
-    registry.register(ToolEntry::new(Arc::new(MockTool::with_error(
+    registry.register_entry(ToolEntry::new(Arc::new(MockTool::with_error(
         "error_content",
         "Error content tool",
         "File not found: /tmp/nonexistent.txt",
@@ -244,14 +256,17 @@ async fn test_tool_returns_error_content() {
 
     let tool_uses = vec![make_tool_use("error_content", json!({}))];
 
-    let outputs = registry
-        .run_with_context(tool_uses, make_context())
-        .await
-        .unwrap();
+    let expected = tool_uses.len();
+    let outputs = collect_results(
+        registry.run_stream(tool_uses, make_context()),
+        expected,
+    )
+    .await;
 
     assert_eq!(outputs.len(), 1);
-    assert!(outputs[0].is_error == Some(true));
+    assert!(outputs[0].1.is_error == Some(true));
     let text = outputs[0]
+        .1
         .content
         .iter()
         .filter_map(|p| p.text())
@@ -264,21 +279,24 @@ async fn test_tool_returns_error_content() {
 #[tokio::test]
 async fn test_tool_not_found() {
     let registry = ToolRegistry::new();
-    registry.register(ToolEntry::new(Arc::new(MockTool::new(
+    registry.register_entry(ToolEntry::new(Arc::new(MockTool::new(
         "existing",
         "Existing tool",
     ))));
 
     let tool_uses = vec![make_tool_use("nonexistent", json!({}))];
 
-    let outputs = registry
-        .run_with_context(tool_uses, make_context())
-        .await
-        .unwrap();
+    let expected = tool_uses.len();
+    let outputs = collect_results(
+        registry.run_stream(tool_uses, make_context()),
+        expected,
+    )
+    .await;
 
     assert_eq!(outputs.len(), 1);
-    assert!(outputs[0].is_error == Some(true));
+    assert!(outputs[0].1.is_error == Some(true));
     let text = outputs[0]
+        .1
         .content
         .iter()
         .filter_map(|p| p.text())
@@ -289,8 +307,9 @@ async fn test_tool_not_found() {
 #[tokio::test]
 async fn test_multiple_tools_with_nonexistent() {
     let registry = ToolRegistry::new();
-    registry
-        .register(ToolEntry::new(Arc::new(MockTool::new("tool1", "Tool 1"))));
+    registry.register_entry(ToolEntry::new(Arc::new(MockTool::new(
+        "tool1", "Tool 1",
+    ))));
 
     let tool_uses = vec![
         make_tool_use("tool1", json!({})),
@@ -298,15 +317,17 @@ async fn test_multiple_tools_with_nonexistent() {
         make_tool_use("nonexistent2", json!({})),
     ];
 
-    let outputs = registry
-        .run_with_context(tool_uses, make_context())
-        .await
-        .unwrap();
+    let expected = tool_uses.len();
+    let outputs = collect_results(
+        registry.run_stream(tool_uses, make_context()),
+        expected,
+    )
+    .await;
 
     assert_eq!(outputs.len(), 3);
-    assert!(outputs[0].is_text());
-    assert!(outputs[1].is_error == Some(true));
-    assert!(outputs[2].is_error == Some(true));
+    assert!(outputs[0].1.is_text());
+    assert!(outputs[1].1.is_error == Some(true));
+    assert!(outputs[2].1.is_error == Some(true));
 }
 
 #[tokio::test]
@@ -318,13 +339,15 @@ async fn test_all_tools_not_found() {
         make_tool_use("missing2", json!({})),
     ];
 
-    let outputs = registry
-        .run_with_context(tool_uses, make_context())
-        .await
-        .unwrap();
+    let expected = tool_uses.len();
+    let outputs = collect_results(
+        registry.run_stream(tool_uses, make_context()),
+        expected,
+    )
+    .await;
 
     assert_eq!(outputs.len(), 2);
-    for output in &outputs {
+    for (_call_id, output) in &outputs {
         assert!(output.is_error == Some(true));
     }
 }
@@ -334,7 +357,7 @@ async fn test_all_tools_not_found() {
 #[tokio::test]
 async fn test_parameter_validation_string() {
     let registry = ToolRegistry::new();
-    registry.register(ToolEntry::new(Arc::new(MockTool::new(
+    registry.register_entry(ToolEntry::new(Arc::new(MockTool::new(
         "param_tool",
         "Parameter tool",
     ))));
@@ -342,14 +365,17 @@ async fn test_parameter_validation_string() {
     let tool_uses =
         vec![make_tool_use("param_tool", json!({"input": "test_value"}))];
 
-    let outputs = registry
-        .run_with_context(tool_uses, make_context())
-        .await
-        .unwrap();
+    let expected = tool_uses.len();
+    let outputs = collect_results(
+        registry.run_stream(tool_uses, make_context()),
+        expected,
+    )
+    .await;
 
     assert_eq!(outputs.len(), 1);
-    assert!(outputs[0].is_text());
+    assert!(outputs[0].1.is_text());
     let text = outputs[0]
+        .1
         .content
         .iter()
         .filter_map(|p| p.text())
@@ -360,27 +386,29 @@ async fn test_parameter_validation_string() {
 #[tokio::test]
 async fn test_parameter_validation_missing_optional() {
     let registry = ToolRegistry::new();
-    registry.register(ToolEntry::new(Arc::new(MockTool::new(
+    registry.register_entry(ToolEntry::new(Arc::new(MockTool::new(
         "optional_param_tool",
         "Optional parameter tool",
     ))));
 
     let tool_uses = vec![make_tool_use("optional_param_tool", json!({}))];
 
-    let outputs = registry
-        .run_with_context(tool_uses, make_context())
-        .await
-        .unwrap();
+    let expected = tool_uses.len();
+    let outputs = collect_results(
+        registry.run_stream(tool_uses, make_context()),
+        expected,
+    )
+    .await;
 
     // Missing optional parameter should not cause error
     assert_eq!(outputs.len(), 1);
-    assert!(outputs[0].is_text());
+    assert!(outputs[0].1.is_text());
 }
 
 #[tokio::test]
 async fn test_parameter_validation_complex_json() {
     let registry = ToolRegistry::new();
-    registry.register(ToolEntry::new(Arc::new(MockTool::new(
+    registry.register_entry(ToolEntry::new(Arc::new(MockTool::new(
         "complex_param_tool",
         "Complex parameter tool",
     ))));
@@ -396,13 +424,15 @@ async fn test_parameter_validation_complex_json() {
         }),
     )];
 
-    let outputs = registry
-        .run_with_context(tool_uses, make_context())
-        .await
-        .unwrap();
+    let expected = tool_uses.len();
+    let outputs = collect_results(
+        registry.run_stream(tool_uses, make_context()),
+        expected,
+    )
+    .await;
 
     assert_eq!(outputs.len(), 1);
-    assert!(outputs[0].is_text());
+    assert!(outputs[0].1.is_text());
 }
 
 // ============ Empty inputs tests ============
@@ -410,14 +440,18 @@ async fn test_parameter_validation_complex_json() {
 #[tokio::test]
 async fn test_empty_tool_uses_list() {
     let registry = ToolRegistry::new();
-    registry.register(ToolEntry::new(Arc::new(MockTool::new("tool", "Tool"))));
+    registry.register_entry(ToolEntry::new(Arc::new(MockTool::new(
+        "tool", "Tool",
+    ))));
 
     let tool_uses: Vec<synthia_provider::ToolUse> = vec![];
 
-    let outputs = registry
-        .run_with_context(tool_uses, make_context())
-        .await
-        .unwrap();
+    let expected = tool_uses.len();
+    let outputs = collect_results(
+        registry.run_stream(tool_uses, make_context()),
+        expected,
+    )
+    .await;
 
     assert!(outputs.is_empty());
 }
@@ -431,13 +465,11 @@ async fn test_context_passed_to_tool() {
     #[derive(Debug, Clone)]
     struct ContextCapturingTool {
         name: String,
-        captured: Arc<Mutex<Option<synthia_tool::ToolExecutionContext>>>,
+        captured: Arc<Mutex<Option<synthia_tool::Context>>>,
     }
 
     impl ContextCapturingTool {
-        fn new(
-            captured: Arc<Mutex<Option<synthia_tool::ToolExecutionContext>>>,
-        ) -> Self {
+        fn new(captured: Arc<Mutex<Option<synthia_tool::Context>>>) -> Self {
             Self {
                 name: "context_tool".to_string(),
                 captured,
@@ -462,27 +494,33 @@ async fn test_context_passed_to_tool() {
             })
         }
 
-        async fn call(&self, input: ToolInput) -> ToolOutput {
-            *self.captured.lock().unwrap() = Some(input.context);
+        async fn call(
+            &self,
+            _input: serde_json::Value,
+            context: &synthia_tool::Context,
+        ) -> ToolOutput {
+            *self.captured.lock().unwrap() = Some(context.clone());
             ToolOutput::text("captured")
         }
     }
 
     let captured = context_received.clone();
     let registry = ToolRegistry::new();
-    registry.register(ToolEntry::new(Arc::new(ContextCapturingTool::new(
-        captured,
-    ))));
+    registry.register_entry(ToolEntry::new(Arc::new(
+        ContextCapturingTool::new(captured),
+    )));
 
     let mut context = make_context();
     context.caller_agent = "test-agent".to_string();
 
     let tool_uses = vec![make_tool_use("context_tool", json!({}))];
 
-    registry
-        .run_with_context(tool_uses, context.clone())
-        .await
-        .unwrap();
+    let expected = tool_uses.len();
+    let _outputs = collect_results(
+        registry.run_stream(tool_uses, context.clone()),
+        expected,
+    )
+    .await;
 
     let captured_context = context_received.lock().unwrap();
     assert!(captured_context.is_some());

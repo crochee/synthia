@@ -1,129 +1,82 @@
-// Legacy Tool trait usage during deprecation window (v3 toolification).
-#![allow(deprecated)]
+//! # synthia-agent
+//!
+//! Agent runtime + multi-agent registry + system-prompt
+//! assembly.
+//!
+//! ## Public surface
+//!
+//! ### Agent contract
+//!
+//! - [`agent::Agent`] — async trait every agent paradigm
+//!   implements. Streams [`AgentEvent`] in real time.
+//! - [`agent::ReActAgent`] — canonical `Agent` implementation.
+//!   The full ReAct loop is self-contained inside the `agent`
+//!   module.
+//! - [`agent::AgentRegistry`] — multi-agent catalog implementing
+//!   [`synthia_core::registry::Registry`].
+//!
+//! ### System prompt assembly
+//!
+//! The system prompt is built by a deterministic, XML-delimited
+//! assembler:
+//!
+//! - [`prompt`] — `PromptContext::assemble` renders the
+//!   base prompt + identity / tool / skill / agent / rules
+//!   sections in a fixed order. Industry-aligned with the
+//!   Anthropic Agent SDK and OpenAI Agents SDK XML-tag
+//!   conventions; sections land at the high-attention edges so
+//!   the manifest is cached and the rules reinforce the
+//!   grounding. There is no public `Section` trait — the
+//!   canonical assembly is the only shape callers need.
+//! - [`agent::descriptor`] — `AgentDescriptor` carries
+//!   identity + capability metadata (name, instructions,
+//!   tools, persona, handoffs, handoff_hint, model_hint).
+//!
+//! ### Per-session inputs
+//!
+//! - [`AgentInput`] — user input (text / multi-part / history-resume).
+//! - [`AgentRunConfig`] — per-session configuration consumed by
+//!   the run factory inside `SessionController`. Carries the
+//!   [`prompt::PromptContext`] manifest injected into every
+//!   session.
+//!
+//! ### Events
+//!
+//! - [`AgentEvent`] (4-variant) / [`SystemEvent`] /
+//!   [`AgentMeta`] / [`SessionEndReason`] / [`AgentOutput`] /
+//!   [`WarningKind`] — events emitted by any [`Agent::run`].
+//!
+//! ### Multi-agent delegation
+//!
+//! Multi-agent coordination is delegated to the `TaskTool` layer:
+//! a parent agent invokes `TaskTool::invoke` once per sub-agent
+//! inside a single `react_step` and `tokio::join!`s their runs.
+//! The legacy `coordinator::Coordinator` actor was retired in v1.3
+//! because no production caller ever instantiated one — see the
+//! design notes in `mvp-agent-design.md §11.1`.
 
-pub mod a2t;
 pub mod agent;
-pub mod agent_file;
-pub mod agent_session;
-pub mod ask_user;
-pub mod audit;
-pub(crate) mod builder;
-pub mod checkpoint;
-pub mod compaction;
-pub mod component;
-pub mod component_assembly;
 pub mod config;
-pub mod config_watcher;
-pub mod context;
-pub mod control;
-pub mod dependencies;
-pub mod doom_loop_handler;
-pub mod error;
-pub mod error_recovery;
-pub mod event_log;
 pub mod events;
-pub mod executor;
-pub mod handle;
-pub mod hooks;
 pub mod input;
-pub mod interceptor;
-pub mod loop_context;
-pub mod loop_services;
-pub mod memories;
-pub mod memory_background_task;
-pub mod observability;
-pub mod panic_handler;
-pub mod patterns;
-pub mod plugin_loader;
-pub mod reasoning;
-pub mod registry;
-pub mod replay;
-pub(crate) mod resume;
-pub mod service_adapters;
-pub mod shell;
-pub mod steering;
-pub mod stream_builder;
-pub mod subagent;
-pub mod task;
-pub mod tools;
-pub mod tracing;
-pub mod turn;
-pub mod turn_transition;
-pub mod types;
-pub mod utils;
+pub mod prompt;
 
-pub use a2t::{AgentAsTool, agent_as_tool};
-pub use agent::*;
-pub use agent_session::{AgentSession, CompactionState, LoopState};
-pub use audit::*;
-pub use component::{McpAssembler, ToolAssembler};
-pub use component_assembly::ComponentAssembler;
-pub use config::{
-    AgentConfig,
-    AgentConfigBuilder,
-    AgentRunConfig,
-    AgentRunConfigBuilder,
-    AgentRunStateConfig,
-    ObservabilityConfigInner,
-};
-pub use config_watcher::{
-    ConfigChangeCallback,
-    ConfigWatcher,
-    HotReloadableFields,
-    MultiConfigWatcher,
-    SharedConfig,
-    SynthiaConfig,
-    resolve_all_config_paths,
-    resolve_config_path,
-    resolve_mcp_config_path,
-    resolve_permission_config_path,
-    resolve_provider_config_path,
-    resolve_skill_config_path,
-};
-pub use context::{self as agent_context, VecMessageReader};
-pub use events::TokenUsage;
-pub use executor::{AgentExecutor, AgentStreamExecutor, RunConfig};
-pub use handle::{AgentHandle, AgentHandleBuilder};
-pub use hooks::HookExecutor;
-pub use interceptor::{
-    ApprovalInterceptor,
-    CompactInterceptor,
-    Interceptor,
-    InterceptorChain,
-    InterceptorContext,
-    InterceptorError,
-    InterceptorEvent,
-    LoopDetectInterceptor,
-    RetryInterceptor,
-    TraceInterceptor,
-};
-pub use loop_context::LoopContext;
-pub use memory_background_task::{
-    MemoryBackgroundTask,
-    graceful_shutdown,
-    spawn,
-};
-pub use plugin_loader::{AgentPluginLoader, PluginLoaderError};
-pub use reasoning::*;
-pub use registry::{
-    AgentDefinition,
+pub use agent::{
+    Agent,
+    AgentDescriptor,
+    AgentEntry,
     AgentFilter,
     AgentRegistry,
-    AgentResult,
-    AgentStatus,
-    AgentTokenUsage,
-    AgentToolWrapper,
+    ReActAgent,
 };
-pub use steering::{MpscSteeringChannel, SteeringChannel, SteeringMessage};
-pub use subagent::{
-    ChildSessionHandle,
-    SubagentSessionError,
-    SubagentSessionFactory,
-    truncate_summary,
+pub use config::AgentRunConfig;
+pub use events::{
+    AgentEvent,
+    AgentMeta,
+    AgentOutput,
+    SessionEndReason,
+    SystemEvent,
+    WarningKind,
 };
-pub use synthia_memory::types::MemoryEvent;
-pub use synthia_provider::{ContentPart, SamplingResult, ToolResult, ToolUse};
-pub use tools as agent_builtin_tools;
-pub use tools::{ToolExecution, build_default_tool_registry, providers};
-pub use tracing::{MetricsServer, ObservabilityConfig};
-pub use types::*;
+pub use input::AgentInput;
+pub use prompt::PromptContext;

@@ -3,17 +3,14 @@
 //! Provides configuration types for the Synthia server.
 
 mod agent;
-mod mcp;
-mod provider;
+pub mod provider;
 pub mod server;
+pub mod yaml_bridge;
+
+#[cfg(test)]
+mod tests;
 
 pub use agent::{AgentConfig, SkillConfig};
-pub use mcp::{
-    DEFAULT_MCP_ENABLED,
-    DEFAULT_MCP_SERVER_TYPE,
-    DEFAULT_MCP_TIMEOUT,
-    McpConfig,
-};
 pub use provider::{ModelConfig, ProviderConfig};
 pub use server::{
     AuthConfig,

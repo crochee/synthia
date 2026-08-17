@@ -43,12 +43,15 @@ fn test_content_part_with_wrapper_types() {
 
     let tool_result = ContentPart::ToolResult(ToolResult {
         tool_use_id: "tool_1".into(),
+        tool_name: None,
         content: vec![ContentPart::Text(TextContent {
             text: "result".into(),
             cache_control: None,
         })],
         structured_content: None,
         is_error: Some(false),
+        metadata: serde_json::Map::new(),
+        truncated_by: None,
     });
     assert!(matches!(tool_result, ContentPart::ToolResult(_)));
 }
@@ -257,12 +260,15 @@ fn test_request_validation_invalid_sequence() {
                 role: Role::Tool,
                 content: Content::Single(ContentPart::ToolResult(ToolResult {
                     tool_use_id: "tool_1".into(),
+                    tool_name: None,
                     content: vec![ContentPart::Text(TextContent {
                         text: "result".into(),
                         cache_control: None,
                     })],
                     structured_content: None,
                     is_error: Some(false),
+                    metadata: serde_json::Map::new(),
+                    truncated_by: None,
                 })),
                 tool_call_id: None,
                 name: None,
@@ -309,12 +315,15 @@ fn test_request_validation_invalid_tool_followed_by_assistant() {
                 role: Role::Tool,
                 content: Content::Single(ContentPart::ToolResult(ToolResult {
                     tool_use_id: "tool_1".into(),
+                    tool_name: None,
                     content: vec![ContentPart::Text(TextContent {
                         text: "result".into(),
                         cache_control: None,
                     })],
                     structured_content: None,
                     is_error: Some(false),
+                    metadata: serde_json::Map::new(),
+                    truncated_by: None,
                 })),
                 tool_call_id: None,
                 name: None,
@@ -389,31 +398,25 @@ fn test_is_retryable_error() {
 
 #[test]
 fn test_provider_error_is_retryable() {
-    let retryable = Error::RequestFailed {
-        status: 429,
-        message: "Rate limited".into(),
-    };
+    let retryable = Error::request_failed(429, "Rate limited");
     assert!(retryable.is_retryable());
 
-    let not_retryable = Error::RequestFailed {
-        status: 400,
-        message: "Bad request".into(),
-    };
+    let not_retryable = Error::request_failed(400, "Bad request");
     assert!(!not_retryable.is_retryable());
 }
 
 #[test]
 fn test_provider_error_stream_is_retryable() {
-    let stream_error = Error::Stream("connection lost".into());
+    let stream_error = Error::stream("connection lost");
     assert!(stream_error.is_retryable());
 }
 
 #[test]
 fn test_provider_error_other_not_retryable() {
-    let api_error = Error::Provider("some error".into());
+    let api_error = Error::provider("some error");
     assert!(!api_error.is_retryable());
 
-    let validation_error = Error::Validation("invalid".into());
+    let validation_error = Error::validation("invalid");
     assert!(!validation_error.is_retryable());
 }
 
@@ -714,14 +717,14 @@ fn test_content_part_tool_use() {
 #[cfg(test)]
 mod stream_processor_tests {
     use crate::{
-        openai_streaming::OpenAIStreamProcessorV2,
+        openai_streaming::OpenAIStreamProcessor,
         streaming::StreamProcessor,
         types::{ContentPart, StreamChunk, TextContent},
     };
 
     #[test]
-    fn test_openai_stream_processor_v2_text_only() {
-        let mut processor = OpenAIStreamProcessorV2::new();
+    fn test_openai_stream_processor_text_only() {
+        let mut processor = OpenAIStreamProcessor::new();
         let chunks = processor.process_line(
             r#"{"id":"chatcmpl-1","choices":[{"delta":{"content":"Hello"}}]}"#,
         );
@@ -738,8 +741,8 @@ mod stream_processor_tests {
     }
 
     #[test]
-    fn test_openai_stream_processor_v2_done_signal() {
-        let mut processor = OpenAIStreamProcessorV2::new();
+    fn test_openai_stream_processor_done_signal() {
+        let mut processor = OpenAIStreamProcessor::new();
         let chunks = processor.process_line("[DONE]");
         assert_eq!(chunks.len(), 1);
         match &chunks[0] {
@@ -749,8 +752,8 @@ mod stream_processor_tests {
     }
 
     #[test]
-    fn test_openai_stream_processor_v2_tool_call_accumulates() {
-        let mut processor = OpenAIStreamProcessorV2::new();
+    fn test_openai_stream_processor_tool_call_accumulates() {
+        let mut processor = OpenAIStreamProcessor::new();
         let chunk1 = r#"{"id":"c1","choices":[{"delta":{"tool_calls":[{"id":"call_1","function":{"name":"test","arguments":""}}]}}]}"#;
         let chunk2 = r#"{"id":"c1","choices":[{"delta":{"tool_calls":[{"index":0,"function":{"arguments":"{"}}]}}]}"#;
         let chunk3 = r#"{"id":"c1","choices":[{"delta":{"tool_calls":[{"index":0,"function":{"arguments":"\"a"}}]}}]}"#;
@@ -773,8 +776,8 @@ mod stream_processor_tests {
     }
 
     #[test]
-    fn test_openai_stream_processor_v2_reasoning_split() {
-        let mut processor = OpenAIStreamProcessorV2::new();
+    fn test_openai_stream_processor_reasoning_split() {
+        let mut processor = OpenAIStreamProcessor::new();
         let chunks = processor.process_line(
             r#"{"id":"c1","choices":[{"delta":{"reasoning_content":"thinking","content":"hello"}}]}"#,
         );
@@ -833,16 +836,19 @@ mod stream_processor_tests {
         let mut processor = StreamProcessor::new();
         let start = serde_json::from_str::<crate::streaming::AnthropicStreamEvent>(r#"{"type":"content_block_start","index":0,"content_block":{"type":"tool_use","id":"toolu_01","name":"get_weather","input":""}}"#).unwrap();
         let chunks = processor.process_event(&start);
-        assert!(!chunks.is_empty());
+        assert!(matches!(
+            &chunks[0],
+            StreamChunk::ToolCallStart { id, name, .. }
+            if id == "toolu_01" && name == "get_weather"
+        ));
 
         let delta = serde_json::from_str::<crate::streaming::AnthropicStreamEvent>(r#"{"type":"content_block_delta","index":0,"delta":{"type":"input_json_delta","partial_json":"{\"location\":"}}"#).unwrap();
         let chunks = processor.process_event(&delta);
-        match &chunks[0] {
-            StreamChunk::Content(ContentPart::ToolUse(tu)) => {
-                assert!(tu.input.to_string().contains("location"))
-            }
-            _ => panic!("Expected tool use"),
-        }
+        assert!(matches!(
+            &chunks[0],
+            StreamChunk::ToolCallDelta { id, arguments_delta }
+            if id == "toolu_01" && arguments_delta.contains("location")
+        ));
     }
 
     #[test]
@@ -855,30 +861,18 @@ mod stream_processor_tests {
             .unwrap(),
         );
         assert_eq!(chunks.len(), 1);
+        // Emits IsDone on message_stop
         match &chunks[0] {
-            StreamChunk::Stop(reason) => assert_eq!(reason, "end_turn"),
-            _ => panic!("Expected stop"),
+            StreamChunk::IsDone { result } => {
+                assert_eq!(result.text, "");
+            }
+            _ => panic!("Expected IsDone"),
         }
     }
 
     #[test]
-    fn test_stream_processor_reset() {
-        let mut processor = StreamProcessor::new();
-        processor.process_event(&serde_json::from_str(r#"{"type":"content_block_start","index":0,"content_block":{"type":"tool_use","id":"t1","name":"test","input":""}}"#).unwrap());
-        processor.reset();
-        let chunks_after_reset = processor.process_event(&serde_json::from_str(r#"{"type":"content_block_delta","index":0,"delta":{"type":"input_json_delta","partial_json":"test"}}"#).unwrap());
-        let has_tool_use_after_reset = chunks_after_reset.iter().any(|c| {
-            matches!(c, StreamChunk::Content(ContentPart::ToolUse { .. }))
-        });
-        assert!(
-            !has_tool_use_after_reset,
-            "After reset, should not have buffered tool use"
-        );
-    }
-
-    #[test]
-    fn test_openai_stream_processor_v2_invalid_json() {
-        let mut processor = OpenAIStreamProcessorV2::new();
+    fn test_openai_stream_processor_invalid_json() {
+        let mut processor = OpenAIStreamProcessor::new();
         let chunks = processor.process_line("not json");
         assert!(chunks.is_empty());
     }
@@ -938,6 +932,7 @@ mod multi_modal_tests {
     fn test_tool_result_with_media_content() {
         let tool_result = ToolResult {
             tool_use_id: "call-1".into(),
+            tool_name: None,
             content: vec![
                 ContentPart::Text(TextContent {
                     text: "Analysis result".into(),
@@ -951,6 +946,8 @@ mod multi_modal_tests {
             ],
             structured_content: None,
             is_error: Some(false),
+            metadata: serde_json::Map::new(),
+            truncated_by: None,
         };
 
         assert!(matches!(tool_result.content[0], ContentPart::Text(_)));

@@ -4,22 +4,12 @@ version.workspace = true
 edition.workspace = true
 
 [dependencies]
-synthia-protocol = { path = "../synthia-protocol" }
-synthia-core = { path = "../synthia-core" }
-synthia-provider = { path = "../synthia-provider" }
 serde.workspace = true
 serde_json.workspace = true
-chrono.workspace = true
-thiserror.workspace = true
-anyhow.workspace = true
-tokio.workspace = true
-tracing.workspace = true
 async-trait.workspace = true
-uuid.workspace = true
-backoff = "0.4"
-dashmap.workspace = true
+parking_lot.workspace = true
+tokio = { workspace = true, features = ["rt", "sync", "macros"] }
 
 [dev-dependencies]
-pretty_assertions = "1"
 tempfile.workspace = true
-tokio = { workspace = true, features = ["macros", "rt"] }
+tokio = { workspace = true, features = ["macros", "rt", "rt-multi-thread"] }

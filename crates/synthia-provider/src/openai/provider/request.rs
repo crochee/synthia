@@ -6,9 +6,11 @@
 //!   into a JSON-serialized body, then returns a
 //!   `reqwest::RequestBuilder` POSTing to
 //!   `{base_url}/chat/completions` with optional bearer
-//!   auth. The outgoing body is logged at `tracing::info!`
+//!   auth. The outgoing body is logged at `tracing::debug!`
 //!   level under the `synthia_provider::openai::debug`
-//!   target.
+//!   target (downgraded from `info!` to avoid leaking
+//!   user prompts / system prompts / API keys into
+//!   production logs at default verbosity).
 
 use synthia_core::Error;
 
@@ -24,9 +26,8 @@ impl OpenAICompatibleProvider {
         let body = self.transform_request(request);
         let body_json = serde_json::to_string(&body).unwrap_or_default();
 
-        tracing::info!(target: "synthia_provider::openai::debug",
+        tracing::debug!(target: "synthia_provider::openai::debug",
             url = %url,
-            body = %body_json,
             body_len = body_json.len(),
             "OpenAI outgoing request body"
         );

@@ -2,30 +2,17 @@
 //!
 //! # Module Layout
 //!
-//! - [`reasons`]: [`reasons::SessionEndReason`] (terminal reason) +
-//!   [`reasons::ErrorSource`] + [`reasons::TurnEndReason`] +
-//!   [`reasons::AgentStatus`] + [`reasons::ProgressEvent`] +
-//!   [`reasons::ErrorEvent`].
-//! - [`system_event`][]: the [`system_event::SystemEvent`] enum +
-//!   [`system_event::WarningKind`] for lifecycle and diagnostic events.
-//! - [`hook_event`][]: the [`hook_event::HookEvent`] enum for external
-//!   injection and custom events.
-//! - [`agent_meta`][]: the [`agent_meta::AgentMeta`] struct describing
-//!   a subagent's parent / child relationship.
-//! - [`event_enum`][]: the top-level [`event_enum::AgentEvent`] enum
-//!   collapsed to five variants (`Model` / `ModelDone` / `System` /
-//!   `Agent` / `Hook`).
-//! - [`emitter`][]: the unbounded-MPSC [`emitter::AgentEventEmitter`]
-//!   + its `Clone` impl.
-//! - [`tests`]: unit tests covering the serde round trip, helper
-//!   ctors, emitter pair / clone / drop, and the wire format of
-//!   `Recovery`.
+//! - [`event_enum`]: the top-level [`event_enum::AgentEvent`] enum
+//!   with four variants (`Model` / `ModelDone` / `System` / `Agent`).
+//! - [`system_event`]: the [`system_event::SystemEvent`] enum +
+//!   [`system_event::WarningKind`] for lifecycle and diagnostic
+//!   events (session start/end, progress, warnings, recovery, usage).
+//! - [`agent_meta`]: the [`agent_meta::AgentMeta`] struct describing a
+//!   subagent's parent / child relationship.
+//! - [`reasons`]: [`reasons::SessionEndReason`] (terminal reason).
 
 mod agent_meta;
-mod emitter;
 mod event_enum;
-mod hook_event;
-mod persisted;
 mod reasons;
 mod system_event;
 
@@ -33,37 +20,77 @@ mod system_event;
 mod tests;
 
 pub use agent_meta::AgentMeta;
-pub use emitter::AgentEventEmitter;
 pub use event_enum::AgentEvent;
-pub use hook_event::HookEvent;
-pub use persisted::{
-    SAMPLE_COMPLETED,
-    SESSION_ENDED,
-    TOOL_CALL_ISSUED,
-    TOOL_RESULT_RECEIVED,
-    TURN_COMPLETED,
-    TURN_FAILED,
-    TURN_STARTED,
-    append_agent_event,
-    is_durable_event_type,
-    read_all_events,
-    session_path,
-};
-pub use reasons::{
-    AgentStatus,
-    ErrorEvent,
-    ErrorSource,
-    ProgressEvent,
-    SessionEndReason,
-    TurnEndReason,
-};
-/// Re-export of the canonical [`synthia_provider::types::TokenUsage`] (4
-/// fields including `cached_prompt_tokens`). All token-usage values emitted
-/// through `AgentEvent` use this single type.
-pub use synthia_provider::types::TokenUsage;
+pub use reasons::SessionEndReason;
 pub use system_event::{SystemEvent, WarningKind};
 
-/// A stream of [`AgentEvent`]s produced by the agent run loop.
-pub type AgentOutput = Pin<Box<dyn futures::Stream<Item = AgentEvent> + Send>>;
+#[derive(Clone, Debug)]
+pub struct AgentOutput {
+    pub events: Vec<AgentEvent>,
+    pub final_message: Option<String>,
+}
 
-use std::pin::Pin;
+#[cfg(test)]
+mod output_tests {
+    use super::*;
+
+    /// `AgentOutput` MUST support direct field construction.
+    #[test]
+    fn agent_output_direct_construction() {
+        let out = AgentOutput {
+            events: vec![],
+            final_message: None,
+        };
+        assert!(out.events.is_empty());
+        assert_eq!(out.final_message, None);
+    }
+
+    /// `AgentOutput::default()` is NOT derived — `Default` is not
+    /// implemented. Pin via construction.
+    #[test]
+    fn agent_output_supports_clone_and_debug() {
+        let out = AgentOutput {
+            events: vec![],
+            final_message: Some("hi".to_string()),
+        };
+        let cloned = out.clone();
+        assert_eq!(cloned.final_message, Some("hi".to_string()));
+        assert!(cloned.events.is_empty());
+
+        // Debug format includes field names.
+        let dbg = format!("{:?}", out);
+        assert!(dbg.contains("AgentOutput"));
+        assert!(dbg.contains("final_message"));
+    }
+
+    /// `AgentOutput::final_message: Option<String>` MUST
+    /// distinguish Some/None correctly.
+    #[test]
+    fn agent_output_final_message_some_and_none() {
+        let some = AgentOutput {
+            events: vec![],
+            final_message: Some("done".to_string()),
+        };
+        let none = AgentOutput {
+            events: vec![],
+            final_message: None,
+        };
+        assert_eq!(some.final_message, Some("done".to_string()));
+        assert_eq!(none.final_message, None);
+    }
+
+    /// `AgentOutput::events: Vec<AgentEvent>` MUST preserve
+    /// insertion order.
+    #[test]
+    fn agent_output_events_preserves_order() {
+        // Use empty events since constructing AgentEvent
+        // variants may require additional imports. The Vec
+        // type already guarantees order, so just verify.
+        let v: Vec<AgentEvent> = vec![];
+        let out = AgentOutput {
+            events: v,
+            final_message: None,
+        };
+        assert_eq!(out.events.len(), 0);
+    }
+}

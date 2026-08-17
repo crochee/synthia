@@ -1,20 +1,483 @@
-/* Shared styles for page-level headings and forms. */
+/* Shared styles for metadata tables, markdown surfaces, and tasks search. */
 
-.nt-page-title {
+/* ---- Generic metadata table ---- */
+
+.nt-meta-table {
+  width: 100%;
+  border-collapse: collapse;
   font-family: var(--font-mono);
-  font-size: var(--fs-2xl);
-  color: var(--accent-green);
-  text-transform: uppercase;
-  letter-spacing: 0.1em;
-  text-shadow: var(--glow-green);
-  margin: 0 0 var(--spacing-lg) 0;
-  padding-bottom: var(--spacing-sm);
-  border-bottom: 1px solid var(--border-primary);
+  font-size: var(--fs-sm);
+  background: var(--bg-secondary);
 }
 
-.nt-page-form {
+.nt-meta-table th,
+.nt-meta-table td {
+  text-align: left;
+  padding: var(--spacing-sm) var(--spacing-md);
+  border-bottom: 1px solid var(--border-subtle);
+  vertical-align: top;
+}
+
+.nt-meta-table th {
+  width: 30%;
+  max-width: 220px;
+  color: var(--accent-green);
+  font-weight: var(--fw-bold);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  font-size: var(--fs-xs);
+  background: var(--bg-tertiary);
+}
+
+.nt-meta-table td {
+  color: var(--text-primary);
+  word-break: break-word;
+}
+
+.nt-meta-table tr:last-child th,
+.nt-meta-table tr:last-child td {
+  border-bottom: none;
+}
+
+/* Multi-value cells (lists) render as small pills. */
+.nt-meta-table .nt-pill {
+  display: inline-block;
+  padding: 2px var(--spacing-sm);
+  margin: 2px 4px 2px 0;
+  background: var(--color-tool-result-bg);
+  color: var(--accent-green);
+  border-radius: var(--radius-pill);
+  font-size: var(--fs-xs);
+}
+
+.nt-meta-table .nt-pill--muted {
+  background: var(--bg-tertiary);
+  color: var(--text-muted);
+}
+
+/* ---- Markdown content surface ---- */
+
+.nt-markdown {
+  font-family: var(--font-sans);
+  font-size: var(--fs-base);
+  line-height: var(--lh-loose);
+  color: var(--text-primary);
+}
+
+.nt-markdown > * + * {
+  margin-top: var(--spacing-md);
+}
+
+.nt-markdown h1,
+.nt-markdown h2,
+.nt-markdown h3,
+.nt-markdown h4 {
+  font-family: var(--font-mono);
+  color: var(--text-primary);
+  font-weight: var(--fw-bold);
+  letter-spacing: 0.02em;
+  margin-top: var(--spacing-lg);
+}
+
+.nt-markdown h1 {
+  font-size: var(--fs-2xl);
+  border-bottom: 2px solid var(--accent-green);
+  padding-bottom: var(--spacing-xs);
+}
+.nt-markdown h2 {
+  font-size: var(--fs-xl);
+  border-bottom: 1px solid var(--border-subtle);
+  padding-bottom: var(--spacing-xs);
+}
+.nt-markdown h3 {
+  font-size: var(--fs-lg);
+  color: var(--accent-green);
+}
+.nt-markdown h4 {
+  font-size: var(--fs-md);
+  color: var(--accent-cyan);
+}
+
+.nt-markdown p {
+  margin: 0;
+}
+
+.nt-markdown ul,
+.nt-markdown ol {
+  padding-left: var(--spacing-lg);
+  margin: 0;
+}
+
+.nt-markdown li + li {
+  margin-top: var(--spacing-xs);
+}
+
+.nt-markdown blockquote {
+  border-left: 3px solid var(--accent-green);
+  padding: var(--spacing-xs) var(--spacing-md);
+  margin: 0;
+  color: var(--text-secondary);
+  background: var(--bg-tertiary);
+  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+  font-style: italic;
+}
+
+.nt-markdown code {
+  background: var(--bg-tertiary);
+  color: var(--accent-magenta);
+  padding: 2px 6px;
+  border-radius: var(--radius-sm);
+  font-size: 0.92em;
+  border: 1px solid var(--border-subtle);
+}
+
+.nt-markdown pre {
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  padding: var(--spacing-md);
+  overflow-x: auto;
+  font-size: var(--fs-sm);
+}
+
+.nt-markdown pre code {
+  background: transparent;
+  border: none;
+  padding: 0;
+  color: var(--text-primary);
+}
+
+.nt-markdown table {
+  border-collapse: collapse;
+  width: 100%;
+  font-family: var(--font-mono);
+  font-size: var(--fs-sm);
+}
+
+.nt-markdown table th,
+.nt-markdown table td {
+  border: 1px solid var(--border-subtle);
+  padding: var(--spacing-xs) var(--spacing-sm);
+  text-align: left;
+}
+
+.nt-markdown table th {
+  background: var(--bg-tertiary);
+  color: var(--accent-green);
+  font-weight: var(--fw-bold);
+}
+
+.nt-markdown a {
+  color: var(--accent-green);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.nt-markdown hr {
+  border: none;
+  border-top: 1px solid var(--border-subtle);
+  margin: var(--spacing-lg) 0;
+}
+
+/* ---- Tasks page search block ---- */
+
+.nt-tasks__search {
+  display: flex;
+  gap: var(--spacing-sm);
+  align-items: stretch;
+}
+
+.nt-tasks__search-input {
+  flex: 1;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  color: var(--text-primary);
+  font-family: var(--font-mono);
+  font-size: var(--fs-base);
+  padding: var(--spacing-sm);
+}
+
+.nt-tasks__search-input:focus {
+  outline: none;
+  border-color: var(--color-input-focus-border);
+  box-shadow: 0 0 0 3px var(--color-input-focus-ring);
+}
+
+.nt-tasks__search-error {
+  margin: var(--spacing-sm) 0 0;
+  color: var(--accent-red);
+  font-size: var(--fs-sm);
+}
+
+.nt-tasks__search-results {
+  margin-top: var(--spacing-md);
+  border-top: 1px dashed var(--border-subtle);
+  padding-top: var(--spacing-sm);
+}
+
+.nt-tasks__search-results ul {
+  list-style: none;
+  padding: 0;
+  margin: 0;
   display: flex;
   flex-direction: column;
+  gap: var(--spacing-sm);
+}
+
+.nt-tasks__search-results li {
+  background: var(--color-tool-result-bg);
+  border-left: 3px solid var(--accent-green);
+  padding: var(--spacing-sm);
+  border-radius: var(--radius-sm);
+}
+
+.nt-tasks__search-results li p {
+  margin: var(--spacing-xs) 0 0;
+  color: var(--text-secondary);
+  font-size: var(--fs-sm);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.nt-tasks__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--spacing-sm);
+  align-items: center;
+}
+
+/* Warning state for Input.warning — orange ring. */
+[data-state='warning'] {
+  outline: 2px solid var(--accent-yellow);
+  outline-offset: 2px;
+  border-radius: var(--radius-sm);
+}
+
+/* ---- Modal dialog ----
+ *
+ * Used by list pages that need a short "Create / Register"
+ * form without pinning a large input block above the list.
+ * Backdrop dims the rest of the app and absorbs scroll; the
+ * panel is centred, white, with the same card radius and
+ * border treatment as the rest of the surface.
+ */
+
+.nt-modal__backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.45);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--spacing-md);
+  z-index: var(--z-modal);
+  animation: nt-modal-fade 160ms ease;
+}
+
+.nt-modal__panel {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lg);
+  width: 100%;
+  max-width: 560px;
+  max-height: calc(100vh - 2 * var(--spacing-md));
+  display: flex;
+  flex-direction: column;
+  outline: none;
+  animation: nt-modal-rise 200ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.nt-modal__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--spacing-sm);
+  padding: var(--spacing-md) var(--spacing-lg);
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.nt-modal__title {
+  margin: 0;
+  font-family: var(--font-sans);
+  font-size: var(--fs-lg);
+  font-weight: var(--fw-semibold);
+  color: var(--text-primary);
+}
+
+.nt-modal__close {
+  background: transparent;
+  border: none;
+  color: var(--text-secondary);
+  cursor: pointer;
+  font-size: 22px;
+  line-height: 1;
+  padding: 4px 8px;
+  border-radius: var(--radius-sm);
+  font-family: inherit;
+}
+
+.nt-modal__close:hover {
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+}
+
+.nt-modal__body {
+  padding: var(--spacing-lg);
+  overflow-y: auto;
+  flex: 1 1 auto;
+}
+
+.nt-modal__footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--spacing-sm);
+  padding: var(--spacing-md) var(--spacing-lg);
+  border-top: 1px solid var(--border-subtle);
+  background: var(--bg-tertiary);
+  border-radius: 0 0 var(--radius-lg) var(--radius-lg);
+}
+
+@keyframes nt-modal-fade {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes nt-modal-rise {
+  from {
+    transform: translateY(8px);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .nt-modal__backdrop,
+  .nt-modal__panel {
+    animation: none;
+  }
+}
+
+/* ---- Agents page ----
+ *
+ * Layout helpers specific to the agent list: tightens the
+ * row actions, gives list items a hover affordance, and styles
+ * the small "empty search" inline message. The list row is a
+ * thin clickable surface — the whole row is a link target,
+ * matching the convention on the tools/skills pages.
+ */
+
+.nt-agent__list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-sm);
+}
+
+.nt-agent__row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
   gap: var(--spacing-md);
-  margin-bottom: var(--spacing-lg);
+  padding: var(--spacing-sm) var(--spacing-md);
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  text-decoration: none;
+  color: inherit;
+  transition:
+    border-color var(--transition-fast),
+    box-shadow var(--transition-fast);
+}
+
+.nt-agent__row:hover {
+  border-color: var(--border-primary);
+  box-shadow: var(--shadow-sm);
+  text-decoration: none;
+}
+
+.nt-agent__row-main {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.nt-agent__row-name {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  font-family: var(--font-sans);
+  font-size: var(--fs-md);
+  font-weight: var(--fw-semibold);
+  color: var(--text-primary);
+}
+
+.nt-agent__row-desc {
+  margin: 2px 0 0;
+  font-size: var(--fs-sm);
+  color: var(--text-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.nt-agent__row-meta {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+  flex-shrink: 0;
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+  color: var(--text-muted);
+}
+
+.nt-agent__row-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+  flex-shrink: 0;
+}
+
+.nt-form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-sm);
+}
+
+.nt-form__label {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-xs);
+  font-family: var(--font-sans);
+  font-size: var(--fs-sm);
+  color: var(--text-secondary);
+}
+
+.nt-form__label > select,
+.nt-form__label > textarea {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  color: var(--text-primary);
+  font-family: var(--font-sans);
+  font-size: var(--fs-base);
+  padding: 6px 10px;
+}
+
+.nt-form__label > textarea {
+  resize: vertical;
+  min-height: 80px;
+  font-family: var(--font-mono);
+}
+
+.nt-form__error {
+  margin: 0;
+  color: var(--accent-red);
+  font-size: var(--fs-sm);
 }

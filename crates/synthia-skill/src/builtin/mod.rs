@@ -1,17 +1,9 @@
+//! Built-in skill surface.
+//!
+//! Currently hosts the agent-facing `skill` tool
+//! ([`skill_tool`]) — the only built-in the MVP runtime needs
+//! to expose skills to the LLM.
+
 pub mod skill_tool;
 
-use synthia_core::Error;
-
-use crate::types::Skill;
-
-pub struct BuiltinLoader;
-
-impl BuiltinLoader {
-    pub fn load_builtins() -> Result<Vec<Skill>, Error> {
-        Ok(Vec::new())
-    }
-
-    pub fn builtin_skill_names() -> Vec<&'static str> {
-        Vec::new()
-    }
-}
+pub use skill_tool::{SKILL_TOOL_NAME, SkillTool, register_skill_tool};

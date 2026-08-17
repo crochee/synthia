@@ -19,7 +19,9 @@ test.describe('Tools page', () => {
     // Either tool cards or empty state card should be visible
     const hasContent =
       (await tools.toolCards.count()) > 0 ||
-      (await page.locator('.nt-card', { hasText: /no tools/i }).count()) > 0;
+      // Empty-state card has title "No tools" rendered as an
+      // `<h3>` (Radix Card wrapper).
+      (await page.locator('main h3', { hasText: /no tools/i }).count()) > 0;
     expect(hasContent).toBe(true);
   });
 });

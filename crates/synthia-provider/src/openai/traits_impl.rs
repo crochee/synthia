@@ -3,7 +3,7 @@
 
 use async_trait::async_trait;
 use futures::StreamExt;
-use synthia_core::Error;
+use synthia_core::{Error, RegistryItem};
 use tokio_util::sync::CancellationToken;
 
 use super::{
@@ -11,7 +11,7 @@ use super::{
     types::{OpenAIEmbeddingRequest, OpenAIEmbeddingResponse, OpenAIResponse},
 };
 use crate::{
-    openai_streaming::OpenAIStreamProcessorV2,
+    openai_streaming::OpenAIStreamProcessor,
     traits::ModelProvider,
     types::{
         CompletionRequest,
@@ -97,14 +97,14 @@ impl ModelProvider for OpenAICompatibleProvider {
                         .get("retry-after")
                         .and_then(|v| v.to_str().ok())
                         .and_then(parse_retry_after);
-                    return Err(Error::RateLimited(retry_after));
+                    return Err(Error::rate_limited(retry_after));
                 }
                 if !status.is_success() {
                     let message = response.text().await.unwrap_or_default();
-                    return Err(Error::RequestFailed {
-                        status: status.as_u16(),
+                    return Err(Error::request_failed(
+                        status.as_u16(),
                         message,
-                    });
+                    ));
                 }
                 response.json::<OpenAIResponse>().await.map_err(Error::from)
             }
@@ -115,7 +115,7 @@ impl ModelProvider for OpenAICompatibleProvider {
             Err(e) => {
                 #[cfg(feature = "otel")]
                 {
-                    llm_span.record("exception.type", e.code().to_string());
+                    llm_span.record("exception.type", e.kind());
                     llm_span.record("exception.message", e.to_string());
                     llm_span.record("otel.status_code", "ERROR");
                 }
@@ -193,21 +193,18 @@ impl ModelProvider for OpenAICompatibleProvider {
                 .get("retry-after")
                 .and_then(|v| v.to_str().ok())
                 .and_then(crate::retry::parse_retry_after);
-            return Err(Error::RateLimited(retry_after));
+            return Err(Error::rate_limited(retry_after));
         }
         if !status.is_success() {
             let message = resp.text().await.unwrap_or_default();
-            return Err(Error::RequestFailed {
-                status: status.as_u16(),
-                message,
-            });
+            return Err(Error::request_failed(status.as_u16(), message));
         }
 
         // 2) Pull SSE bytes. Cancellation triggers a 5s drain-then-abort
         //    grace period, mirroring the Anthropic implementation.
         const CANCEL_GRACE: std::time::Duration =
             std::time::Duration::from_secs(5);
-        let mut processor = OpenAIStreamProcessorV2::new();
+        let mut processor = OpenAIStreamProcessor::new();
         let mut byte_stream = resp.bytes_stream();
         let mut buf: Vec<u8> = Vec::new();
         let mut final_sampling: Option<SamplingResult> = None;
@@ -308,11 +305,12 @@ impl ModelProvider for OpenAICompatibleProvider {
             )
         };
         Ok(CompletionResponse {
-            id: ulid::Ulid::new().to_string(),
+            id: ulid::Ulid::generate().to_string(),
             model: request.model,
             content,
             usage: sampling.usage.clone(),
             cached: false,
+            stop_reason: sampling.stop_reason.clone(),
         })
     }
 
@@ -328,9 +326,8 @@ impl ModelProvider for OpenAICompatibleProvider {
         };
         let body_json = serde_json::to_string(&body).unwrap_or_default();
 
-        tracing::info!(target: "synthia_provider::openai::debug",
+        tracing::debug!(target: "synthia_provider::openai::debug",
             url = %url,
-            body = %body_json,
             body_len = body_json.len(),
             "OpenAI embedding request"
         );
@@ -345,10 +342,7 @@ impl ModelProvider for OpenAICompatibleProvider {
         let status = response.status();
         if !status.is_success() {
             let message = response.text().await.unwrap_or_default();
-            return Err(Error::RequestFailed {
-                status: status.as_u16(),
-                message,
-            });
+            return Err(Error::request_failed(status.as_u16(), message));
         }
 
         let embedding_resp: OpenAIEmbeddingResponse = response
@@ -380,5 +374,185 @@ pub(super) async fn wait_cancel_openai(token: Option<CancellationToken>) {
         t.cancelled().await;
     } else {
         std::future::pending::<()>().await;
+    }
+}
+
+impl RegistryItem for OpenAICompatibleProvider {
+    fn name(&self) -> &str {
+        <Self as ModelProvider>::name(self)
+    }
+
+    fn description(&self) -> &str {
+        "OpenAI-compatible model provider"
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::types::{ModelConfig, ProviderConfig};
+
+    fn provider_with_model(name: &str) -> OpenAICompatibleProvider {
+        OpenAICompatibleProvider::new(
+            "https://api.openai.com".to_string(),
+            ModelConfig {
+                name: name.into(),
+                provider: "openai".into(),
+                context_window: 128_000,
+                max_output_tokens: 16_384,
+                supports_tools: true,
+                supports_streaming: true,
+                supports_reasoning: false,
+            },
+        )
+    }
+
+    // -- RegistryItem trait ----------------------------------------
+
+    /// `RegistryItem::name(self)`
+    /// MUST delegate to
+    /// `<Self as ModelProvider>::name(self)`
+    /// (which returns the model
+    /// name, e.g. `"gpt-4o"`).
+    #[test]
+    fn registry_item_name_delegates_to_model_provider() {
+        let p = provider_with_model("gpt-4o");
+        assert_eq!(
+            <OpenAICompatibleProvider as RegistryItem>::name(&p),
+            "gpt-4o"
+        );
+    }
+
+    /// `RegistryItem::description(self)`
+    /// MUST return the static
+    /// description string.
+    #[test]
+    fn registry_item_description_is_static() {
+        let p = provider_with_model("gpt-4o");
+        let d = <OpenAICompatibleProvider as RegistryItem>::description(&p);
+        assert!(!d.is_empty(), "description MUST be non-empty");
+    }
+
+    // -- ModelProvider trait (non-async methods) -------------------
+
+    /// `ModelProvider::name(self)`
+    /// MUST return the **model
+    /// name** (NOT the provider
+    /// identifier). This is the
+    /// CRITICAL quirk vs Anthropic
+    /// (which returns `"anthropic"`).
+    /// If refactored to return
+    /// provider id, routing keys
+    /// would silently change.
+    #[test]
+    fn model_provider_name_returns_model_name_not_provider_id() {
+        let p = provider_with_model("gpt-4o");
+        assert_eq!(
+            crate::traits::ModelProvider::name(&p),
+            "gpt-4o",
+            "OpenAI MUST return model name, NOT 'openai'"
+        );
+        // explicitly distinguish from Anthropic quirk
+        assert_ne!(
+            crate::traits::ModelProvider::name(&p),
+            "openai",
+            "OpenAI does NOT return provider id like Anthropic does"
+        );
+    }
+
+    /// `ModelProvider::name(self)`
+    /// MUST update when the
+    /// underlying `model_config`
+    /// changes (e.g. after a
+    /// `with_model_name` call).
+    #[test]
+    fn model_provider_name_reflects_config_change() {
+        let mut p = provider_with_model("gpt-4o");
+        p.model_config.name = "gpt-4-turbo".to_string();
+        assert_eq!(crate::traits::ModelProvider::name(&p), "gpt-4-turbo");
+    }
+
+    /// `ModelProvider::model_config(self)`
+    /// MUST return a clone of the
+    /// internally-stored
+    /// `ModelConfig`.
+    #[test]
+    fn model_config_is_cloned_verbatim() {
+        let p = provider_with_model("gpt-4o");
+        let m1 = p.model_config();
+        let m2 = p.model_config();
+        assert_eq!(m1.name, m2.name);
+        assert_eq!(m1.context_window, 128_000);
+        assert_eq!(m1.max_output_tokens, 16_384);
+    }
+
+    /// `ModelProvider::initialize(mut self, config)`
+    /// MUST store the API key from
+    /// `ProviderConfig::api_key`.
+    #[tokio::test]
+    async fn initialize_stores_api_key() {
+        let mut p = provider_with_model("gpt-4o");
+        let cfg = ProviderConfig {
+            api_key: synthia_core::Sensitive::new("sk-openai-test".into()),
+            base_url: None,
+            timeout_ms: None,
+            max_retries: None,
+        };
+        p.initialize(cfg).await.unwrap();
+        assert_eq!(p.api_key.as_deref(), Some("sk-openai-test"));
+    }
+
+    /// `ModelProvider::initialize`
+    /// MUST update `base_url`
+    /// when provided (OpenAI is
+    /// multi-provider, so config
+    /// can override the default
+    /// base URL).
+    #[tokio::test]
+    async fn initialize_updates_base_url_when_provided() {
+        let mut p = provider_with_model("gpt-4o");
+        let cfg = ProviderConfig {
+            api_key: synthia_core::Sensitive::new("k".into()),
+            base_url: Some("https://custom.openai-proxy.example.com".into()),
+            timeout_ms: None,
+            max_retries: None,
+        };
+        p.initialize(cfg).await.unwrap();
+        assert_eq!(p.base_url, "https://custom.openai-proxy.example.com");
+    }
+
+    /// `ModelProvider::initialize`
+    /// MUST preserve the existing
+    /// `base_url` when not provided
+    /// (no overwrite to empty
+    /// string).
+    #[tokio::test]
+    async fn initialize_preserves_base_url_when_not_provided() {
+        let mut p = provider_with_model("gpt-4o");
+        let original = p.base_url.clone();
+        let cfg = ProviderConfig {
+            api_key: synthia_core::Sensitive::new("k".into()),
+            base_url: None,
+            timeout_ms: None,
+            max_retries: None,
+        };
+        p.initialize(cfg).await.unwrap();
+        assert_eq!(p.base_url, original);
+    }
+
+    /// `ModelProvider::initialize`
+    /// MUST return `Ok(())` on
+    /// success.
+    #[tokio::test]
+    async fn initialize_returns_ok() {
+        let mut p = provider_with_model("gpt-4o");
+        let cfg = ProviderConfig {
+            api_key: synthia_core::Sensitive::new("k".into()),
+            base_url: None,
+            timeout_ms: None,
+            max_retries: None,
+        };
+        let result = p.initialize(cfg).await;
+        assert!(result.is_ok());
     }
 }

@@ -11,7 +11,7 @@
 
 ### Requirement: Extension trait with 19 typed events
 
-The `synthia-extension-v2` system MUST expose an `Extension` trait operating on 19 typed event payloads.
+The `synthia-extension-hook` system MUST expose an `Extension` trait operating on 19 typed event payloads.
 
 #### Scenario: extension implements typed hooks
 

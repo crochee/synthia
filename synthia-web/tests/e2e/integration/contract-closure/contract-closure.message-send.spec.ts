@@ -1,11 +1,7 @@
 import { test, expect } from '@playwright/test';
 import { readFileSync } from 'node:fs';
 import { assertServerUp } from './_fixtures/server';
-import {
-  contractPath,
-  loadEndpoints,
-  onlyBackend,
-} from './_helpers/list-endpoints-from-yaml';
+import { contractPath, loadEndpoints, onlyBackend } from './_helpers/list-endpoints-from-yaml';
 
 /**
  * Layer 2 contract spec — `message:send /a2a/message:send` (REST
@@ -115,5 +111,51 @@ test.describe('contract-closure message:send /a2a/message:send', () => {
     // the SDK contract, never `message_id` (snake_case).
     const body = await r.json();
     expect(JSON.stringify(body)).not.toMatch(/"message_id"\s*:/);
+  });
+
+  test('response Part uses field-presence serialization (A2A v1.0)', async ({ request }) => {
+    const eps = onlyBackend(loadEndpoints());
+    test.skip(
+      !eps.find((e) => e.id === 'message:send /a2a/message:send'),
+      '[contract-closure] no message:send /a2a/message:send in contract.yaml.',
+    );
+
+    // A2A v1.0 serialises `Part` with field-presence:
+    // `{ "text": "..." }`, `{ "data": ... }`, `{ "raw": "..." }`,
+    // or `{ "url": "..." }` — exactly one of those four keys is
+    // present directly on the Part object. The earlier "externally
+    // tagged" form `{ "content": { "text": "..." } }` would
+    // conflate the wire format with the SDK's internal oneof
+    // representation and is *not* what the spec says. This test
+    // pins the field-presence form so a future SDK change
+    // doesn't silently regress the wire.
+    //
+    // The immediate `message:send` response carries a `Message`
+    // envelope (with `taskId` so the client can subscribe). The
+    // agent's reply Parts arrive on the `:subscribe` SSE stream.
+    // We assert both surfaces use field-presence Parts.
+    const r = await request.post('/a2a/message:send', {
+      headers: { 'content-type': 'application/json' },
+      data: {
+        message: {
+          messageId: `spec-part-shape-${Date.now()}`,
+          contextId: '',
+          role: 'ROLE_USER',
+          parts: [{ text: 'spec part-shape' }],
+        },
+      },
+    });
+    expect(r.status(), 'message:send must succeed').toBeLessThan(300);
+
+    const bodyText = await r.text();
+    // The wire MUST NOT use the externally-tagged `content` envelope.
+    expect(
+      bodyText,
+      'Part must use A2A v1.0 field-presence serialization, not externally-tagged `content`',
+    ).not.toMatch(/"content"\s*:\s*\{\s*"text"/);
+    expect(
+      bodyText,
+      'Part must use A2A v1.0 field-presence serialization, not externally-tagged `content`',
+    ).not.toMatch(/"content"\s*:\s*\{\s*"data"/);
   });
 });

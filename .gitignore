@@ -32,7 +32,6 @@ playwright-report/
 **/.synthia/
 *.jsonl
 *.log
-.worktrees
 .omc
 .claude
 .trae
