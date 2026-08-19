@@ -272,6 +272,27 @@ pub trait Registry: Send + Sync {
         let page = self.list_paginate(None, u64::MAX, None, filter).await?;
         Ok(page.data)
     }
+
+    /// Begin the registry's lifecycle for the named item. The
+    /// default is a no-op returning `Ok(())`, suitable for stateless
+    /// or fully-in-memory registries (e.g. `ToolRegistry`,
+    /// `AgentRegistry`).
+    ///
+    /// Implementors that own background work, file handles, or
+    /// network resources associated with a named item MUST override
+    /// this hook. The name is the [`RegistryItem::name`] of the
+    /// entry to start.
+    async fn start(&self, _name: &str) -> Result<(), Error> {
+        Ok(())
+    }
+
+    /// End the registry's lifecycle for the named item. The default
+    /// is a no-op returning `Ok(())`, symmetric to
+    /// [`Registry::start`]. Override only when an implementor
+    /// actually holds lifecycle state to release.
+    async fn stop(&self, _name: &str) -> Result<(), Error> {
+        Ok(())
+    }
 }
 
 #[cfg(test)]
@@ -654,5 +675,25 @@ mod tests {
         let reg = MockRegistry::new(Vec::new());
         let all = reg.list(None).await.unwrap();
         assert!(all.is_empty());
+    }
+
+    // --- default start / stop lifecycle hooks ---
+
+    #[tokio::test]
+    async fn start_default_is_noop_returning_ok_for_lifecycle_free_registry() {
+        // MockRegistry does NOT override `start`; the trait default
+        // must be inherited and return Ok(()) for any name.
+        let reg = MockRegistry::new(Vec::new());
+        let result = Registry::start(&reg, "anything").await;
+        assert!(result.is_ok(), "expected Ok(()), got {result:?}");
+    }
+
+    #[tokio::test]
+    async fn stop_default_is_noop_returning_ok_for_lifecycle_free_registry() {
+        // MockRegistry does NOT override `stop`; the trait default
+        // must be inherited and return Ok(()) for any name.
+        let reg = MockRegistry::new(Vec::new());
+        let result = Registry::stop(&reg, "anything").await;
+        assert!(result.is_ok(), "expected Ok(()), got {result:?}");
     }
 }

@@ -364,6 +364,26 @@ impl AppState {
             .await
     }
 
+    /// Evaluate the readiness sub-checks backing the `/readyz` probe.
+    ///
+    /// Each tuple is `(check_name, passed)`. The server reports
+    /// ready only when every check passes. Checks are cheap
+    /// in-process reads — no network round-trips — so a probe
+    /// firing once per second cannot pile up latency:
+    /// - `a2a_service`: the A2A interface (the sole agent
+    ///   interaction surface) is initialized. `create_router`
+    ///   awaits it eagerly before the listener binds, so a
+    ///   failure here means the router was built through a
+    ///   non-standard path.
+    /// - `agent_registry`: at least one agent is registered,
+    ///   so dispatch has something to resolve.
+    pub fn readiness_checks(&self) -> Vec<(&'static str, bool)> {
+        vec![
+            ("a2a_service", self.a2a_service.initialized()),
+            ("agent_registry", self.agent_registry.first_name().is_some()),
+        ]
+    }
+
     /// Gets or creates a [`SessionController`] for `(user_id, session_id)`,
     /// restoring the session from the on-disk store if it is not already
     /// loaded in memory.

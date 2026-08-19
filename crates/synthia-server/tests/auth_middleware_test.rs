@@ -3,8 +3,8 @@
 //! Asserts the request gating contract implemented by
 //! `AuthMiddleware`:
 //!
-//! - Public paths (`/health`, `/.well-known/agent-card.json`,
-//!   `/api/v1/a2a/...` in dev mode) succeed WITHOUT an
+//! - Public paths (`/livez`, `/readyz`,
+//!   `/.well-known/agent-card.json`) succeed WITHOUT an
 //!   `Authorization` header.
 //! - When `SYNTHIA_API_KEY` is unset, all paths behave like
 //!   public paths and return success (dev-mode opt-out).
@@ -31,21 +31,23 @@ async fn make_app() -> axum::Router {
 }
 
 #[tokio::test]
-async fn test_unauthenticated_request_to_health_succeeds() {
+async fn test_unauthenticated_request_to_probes_succeeds() {
     let app = make_app().await;
 
-    let req = Request::builder()
-        .uri("/health")
-        .method("GET")
-        .body(axum::body::Body::empty())
-        .unwrap();
+    for uri in ["/livez", "/readyz"] {
+        let req = Request::builder()
+            .uri(uri)
+            .method("GET")
+            .body(axum::body::Body::empty())
+            .unwrap();
 
-    let resp = app.oneshot(req).await.unwrap();
-    assert!(
-        resp.status().is_success(),
-        "/health must succeed without auth, got {}",
-        resp.status()
-    );
+        let resp = app.clone().oneshot(req).await.unwrap();
+        assert!(
+            resp.status().is_success(),
+            "{uri} must succeed without auth, got {}",
+            resp.status()
+        );
+    }
 }
 
 #[tokio::test]

@@ -46,7 +46,8 @@ test.describe('Full user scenarios', () => {
     // the Vite dev proxy lifecycle.
     const baseUrl = 'http://localhost:8080';
     const endpoints = [
-      '/health',
+      '/livez',
+      '/readyz',
       '/api/v1/skills',
       '/api/v1/tools',
       '/api/v1/tasks',
@@ -62,14 +63,13 @@ test.describe('Full user scenarios', () => {
         true,
       );
       // v1 bare-response shapes:
-      //   - `/health` returns `{ status, version }` (status is the
-      //     health state, not an envelope marker).
+      //   - `/livez` / `/readyz` return `{ status }` (status is
+      //     the probe state, not an envelope marker).
       //   - List endpoints return `List<T>` = `{ data, next_cursor, total }`.
       //   - `/.well-known/agent-card.json` follows the A2A spec and
       //     returns the card directly (`name`, `supportedInterfaces`, …).
-      if (ep === '/health') {
-        expect(body.status, `${ep} health status`).toBe('ok');
-        expect(body.version, `${ep} health version`).toBeTruthy();
+      if (ep === '/livez' || ep === '/readyz') {
+        expect(body.status, `${ep} probe status`).toBe('ok');
       } else if (ep === '/.well-known/agent-card.json') {
         expect(body.name, `${ep} should declare a name`).toBeTruthy();
         expect(Array.isArray(body.supportedInterfaces)).toBe(true);

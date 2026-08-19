@@ -320,30 +320,33 @@ export function ChatPage() {
     el.style.height = `${Math.min(el.scrollHeight, 240)}px`;
   }, [input]);
 
-  // Sticky auto-scroll: during streaming, snap to the bottom
-  // of the message list *only if* the user is already near the
-  // bottom (within 50px). If they've scrolled up to read older
-  // content, leave them alone — that's the ChatGPT / Claude.ai
-  // convention and prevents the message list from yanking the
-  // user's reading position every time a token lands.
+  // Auto-scroll: on every messages change (new segment
+  // landed during streaming, new message submitted, or
+  // session hydration finished) snap the messages container
+  // to the latest position. Synthia treats the latest
+  // assistant message as the live "stage" and the input box
+  // below as the fixed footer — we deliberately do not
+  // preserve a stale reading position from a user who
+  // happened to be scrolled up.
   //
-  // The effect reads `tick` so it re-runs on every 5s tick
-  // even when no new segment arrives — this lets the timeout
-  // indicator update without needing a custom event bus.
-  // The scroll target itself only re-runs when `messages`
-  // length changes (every segment), so the snapshot reads
-  // are cheap.
-  const scrollAnchorRef = useRef<HTMLDivElement | null>(null);
+  // The scroll target is the previous sibling of the anchor,
+  // i.e. `.nt-chat__messages`. Direct `scrollTop` assignment
+  // is required rather than `scrollIntoView` on the anchor:
+  // the anchor is a *sibling* of the messages container, not
+  // a child of it, so the browser would walk past it to the
+  // nearest scrollable ancestor (`.nt-app-main`) and scroll
+  // the wrong element. When the messages container is shorter
+  // than its content the assignment is a no-op — matching the
+  // user's request: "if the scrollbar appears, it should
+  // always be at the latest position".
+  //
+  // The effect re-runs on `messages`, `isStreaming`, and
+  // `tick` so the timeout indicator refreshes without a
+  // custom event bus.
   useLayoutEffect(() => {
-    const list = messagesEndRef.current?.parentElement;
-    if (!list) return;
-    const distanceFromBottom = list.scrollHeight - (list.scrollTop + list.clientHeight);
-    if (distanceFromBottom < 50) {
-      // Near bottom → snap. Use `instant` to avoid the
-      // animation fighting the next per-token scroll. Browsers
-      // without `behavior` support still scroll, just animated.
-      scrollAnchorRef.current?.scrollIntoView({ block: 'end', behavior: 'instant' });
-    }
+    const list = messagesEndRef.current?.previousElementSibling as HTMLElement | null;
+    if (!list || list.scrollHeight <= list.clientHeight) return;
+    list.scrollTop = list.scrollHeight;
   }, [messages, isStreaming, tick]);
 
   // Persist the in-flight draft to localStorage. Debounced so
@@ -642,11 +645,6 @@ export function ChatPage() {
     }, 300);
     return () => clearTimeout(timer);
   }, [sessionId, messages]);
-
-  // Auto-scroll to bottom on new messages
-  useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages]);
 
   const handleSubmit = async (e?: FormEvent) => {
     e?.preventDefault();
@@ -1072,12 +1070,6 @@ export function ChatPage() {
         <ChatMessageList messages={viewMessages} now={now} />
       )}
       <div ref={messagesEndRef} aria-hidden />
-
-      {/* Scroll-to-bottom anchor (sticky auto-scroll target)
-       * and floating "jump to bottom" pill — only shown when
-       * the user has scrolled away from the tail during a
-       * stream. Clicks bring them back to the latest message. */}
-      <div ref={scrollAnchorRef} aria-hidden />
       {isStreaming && (
         <button
           type="button"

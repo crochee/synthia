@@ -27,7 +27,7 @@ const NON_ZERO_HEX_16 = /^[0-9a-f]{16}$/;
 test.describe('W3C TraceContext propagation', () => {
   // Tests in this block hit an authenticated management endpoint
   // (`/api/v1/skills`) so they exercise the full middleware chain.
-  // Public endpoints (`/health`, `/.well-known/agent-card.json`)
+  // Public endpoints (`/livez`, `/readyz`, `/.well-known/agent-card.json`)
   // intentionally bypass the trace-context middleware; their
   // behaviour is asserted in the nested describe block at the
   // bottom of this file.
@@ -104,14 +104,10 @@ test.describe('W3C TraceContext propagation', () => {
   });
 
   test('every authenticated management API endpoint emits a traceparent', async ({ request }) => {
-    // Public endpoints (`/health`, `/.well-known/agent-card.json`)
+    // Public endpoints (`/livez`, `/readyz`, `/.well-known/agent-card.json`)
     // intentionally bypass tracing — see the dedicated tests below.
     // Everything else must carry W3C TraceContext.
-    const endpoints = [
-      '/api/v1/skills',
-      '/api/v1/tools',
-      '/api/v1/tasks',
-    ];
+    const endpoints = ['/api/v1/skills', '/api/v1/tools', '/api/v1/tasks'];
 
     for (const path of endpoints) {
       const response = await request.get(`${SERVER_URL}${path}`);
@@ -155,14 +151,14 @@ test.describe('W3C TraceContext propagation', () => {
   });
 
   test.describe('public endpoints bypass tracing', () => {
-    // `/health` and `/.well-known/agent-card.json` are deliberately
-    // mounted outside the trace-context / access-log middleware
-    // chain. They are hit by orchestrators and external scanners
-    // many times per second; emitting a trace id per call floods
-    // the log pipeline without producing useful correlation.
+    // `/livez`, `/readyz` and `/.well-known/agent-card.json` are
+    // deliberately mounted outside the trace-context / access-log
+    // middleware chain. They are hit by orchestrators and external
+    // scanners many times per second; emitting a trace id per call
+    // floods the log pipeline without producing useful correlation.
 
-    test('/health does not emit trace headers', async ({ request }) => {
-      const response = await request.get(`${SERVER_URL}/health`);
+    test('/livez does not emit trace headers', async ({ request }) => {
+      const response = await request.get(`${SERVER_URL}/livez`);
       expect(response.ok()).toBe(true);
       expect(response.headers()['traceparent']).toBeUndefined();
       expect(response.headers()['x-trace-id']).toBeUndefined();
@@ -181,10 +177,10 @@ test.describe('W3C TraceContext propagation', () => {
       expect(Array.isArray(body.supportedInterfaces)).toBe(true);
     });
 
-    test('/health still serves CORS for cross-origin probes', async ({ request }) => {
+    test('/readyz still serves CORS for cross-origin probes', async ({ request }) => {
       // Public endpoints still need CORS — only the trace layer
       // is bypassed. Verify the CORS layer remains active.
-      const response = await request.get(`${SERVER_URL}/health`, {
+      const response = await request.get(`${SERVER_URL}/readyz`, {
         headers: { origin: 'https://example.com' },
       });
       expect(response.ok()).toBe(true);

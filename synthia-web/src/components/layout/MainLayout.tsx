@@ -15,9 +15,9 @@ export function MainLayout({ isServerAvailable }: MainLayoutProps) {
   return (
     <Box style={{ height: '100vh', background: 'var(--bg-primary)' }}>
       <Header isServerAvailable={isServerAvailable} />
-      <Flex style={{ height: 'calc(100vh - 56px)' }}>
+      <Flex className="nt-app-shell-row" style={{ height: 'calc(100vh - 56px)' }}>
         <Sidebar />
-        <Box asChild style={{ flex: 1, overflow: 'auto' }}>
+        <Box asChild className="nt-app-main" style={{ flex: 1, overflow: 'auto' }}>
           <main>
             <Outlet />
           </main>

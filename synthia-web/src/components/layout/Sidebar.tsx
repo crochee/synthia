@@ -29,8 +29,9 @@ export function Sidebar() {
   return (
     <Box
       asChild
+      className="nt-sidebar"
       style={{
-        width: 220,
+        width: 'var(--nt-sidebar-width, 220px)',
         background: 'var(--bg-secondary)',
         borderRight: '1px solid var(--border-subtle)',
         flexShrink: 0,
@@ -50,14 +51,16 @@ export function Sidebar() {
                   style={{
                     width: '100%',
                     justifyContent: 'flex-start',
-                    borderLeft: isActive ? '3px solid var(--accent-primary)' : '3px solid transparent',
+                    borderLeft: isActive
+                      ? '3px solid var(--accent-primary)'
+                      : '3px solid transparent',
                   }}
                 >
-                  <Flex align="center" justify="between" width="100%">
-                    <Text size="2" weight="medium">
+                  <Flex align="center" justify="between" width="100%" className="nt-sidebar__row">
+                    <Text size="2" weight="medium" className="nt-sidebar__label">
                       {item.label}
                     </Text>
-                    <Text size="1" color="gray">
+                    <Text size="1" color="gray" className="nt-sidebar__hint">
                       <kbd style={{ fontFamily: 'inherit', fontSize: 'inherit' }}>
                         g {item.shortcut}
                       </kbd>
@@ -68,7 +71,12 @@ export function Sidebar() {
             </NavLink>
           ))}
         </Flex>
-        <Box px="4" py="3" style={{ borderTop: '1px solid var(--border-subtle)' }}>
+        <Box
+          px="4"
+          py="3"
+          style={{ borderTop: '1px solid var(--border-subtle)' }}
+          className="nt-sidebar__footer"
+        >
           <Text size="1" color="gray" style={{ fontStyle: 'italic' }}>
             v0.1.0
           </Text>

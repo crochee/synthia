@@ -175,14 +175,17 @@ make clean-docker         # remove all containers + images
 Both services can also be configured through their
 respective `config.toml` files in the workspace root.
 
-## Health check
+## Probe endpoints
 
 ```bash
-curl http://localhost:8080/health      # direct server
-curl http://localhost/health           # through Nginx proxy
+curl http://localhost:8080/livez      # liveness (direct server)
+curl http://localhost:8080/readyz     # readiness (direct server)
+curl http://localhost/livez           # liveness (through Nginx proxy)
+curl http://localhost/readyz          # readiness (through Nginx proxy)
 ```
 
-Both should return `200 OK`.
+All should return `200 OK`. `/readyz` returns `503` with the failing
+check names while the server is not ready to serve traffic.
 
 ## Troubleshooting
 

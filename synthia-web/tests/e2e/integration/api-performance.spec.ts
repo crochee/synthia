@@ -52,7 +52,7 @@ test.describe('API performance', () => {
   const BURST_P95_E2E_THRESHOLD_MS = 500;
 
   const endpoints: Array<{ label: string; path: string; coldStart?: boolean }> = [
-    { label: 'health', path: '/health', coldStart: true },
+    { label: 'livez', path: '/livez', coldStart: true },
     { label: 'skills', path: '/api/v1/skills' },
     { label: 'tools', path: '/api/v1/tools' },
     { label: 'tasks', path: '/api/v1/tasks' },

@@ -10,11 +10,10 @@
 //!    by a reverse proxy — silently turns into a stale-view bug
 //!    after the user edits a skill or registers an agent. The
 //!    `no-store` directive disables all of those caches in one
-//!    declaration. The `/a2a/*` and `/health` paths are *not* marked
-//!    no-store because `Cache-Control` on a streaming response is
-//!    meaningless (the body never completes) and `/health` is a
-//!    probe endpoint that the orchestrator controls its own cache
-//!    of.
+//!    declaration. The `/a2a/*` and `/livez`-`/readyz` paths are
+//!    *not* marked no-store because `Cache-Control` on a streaming
+//!    response is meaningless (the body never completes) and the
+//!    probe endpoints set their own `Cache-Control: no-store`.
 //!
 //! 2. **`Server-Timing: total;dur=<ms>`**.
 //!

@@ -14,7 +14,7 @@
 import { request } from '@playwright/test';
 
 const SERVER_BASE = process.env.SYNTHIA_SERVER_URL ?? 'http://localhost:8080';
-const HEALTH_PATH = '/health';
+const HEALTH_PATH = '/readyz';
 const READY_TIMEOUT_MS = 30_000;
 
 export async function assertServerUp(): Promise<void> {
@@ -37,7 +37,7 @@ export async function assertServerUp(): Promise<void> {
   }
   throw new Error(
     `[contract-closure] synthia-server not reachable at ${SERVER_BASE} ` +
-      `(health ${HEALTH_PATH} did not respond 2xx within ${READY_TIMEOUT_MS}ms). ` +
+      `(readiness probe ${HEALTH_PATH} did not respond 2xx within ${READY_TIMEOUT_MS}ms). ` +
       `Last error: ${(lastErr as Error)?.message ?? 'unknown'}. ` +
       `Did you forget to run \`make dev\` or \`cargo run -p synthia-server\`?`,
   );

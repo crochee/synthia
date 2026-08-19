@@ -461,15 +461,23 @@ endpoints:
       backend:
         - /home/crochee/workspace/synthia/crates/synthia-server/src/server/router.rs:142
       frontend: []
-  - id: GET /health
+  - id: GET /livez
     method: GET
-    path: /health
+    path: /livez
+    source: backend
+    source_files:
+      backend:
+        - /home/crochee/workspace/synthia/crates/synthia-server/src/server/router.rs:165
+      frontend: []
+  - id: GET /readyz
+    method: GET
+    path: /readyz
     source: both
     source_files:
       backend:
-        - /home/crochee/workspace/synthia/crates/synthia-server/src/server/router.rs:191
+        - /home/crochee/workspace/synthia/crates/synthia-server/src/server/router.rs:166
       frontend:
-        - /home/crochee/workspace/synthia/synthia-web/src/hooks/useServerHealth.ts:23
+        - /home/crochee/workspace/synthia/synthia-web/src/hooks/useServerHealth.ts:26
   - id: GET /ws/approvals
     method: GET
     path: /ws/approvals

@@ -59,12 +59,37 @@ for (const vp of VIEWPORTS) {
       expect(box!.height).toBeGreaterThan(20);
     });
 
+    test('no horizontal page overflow', async ({ page }) => {
+      // Regression: at narrow viewports the sidebar's hard width
+      // plus the lack of `min-width: 0` on the row Flex made the
+      // <main> column overflow the viewport, forcing horizontal
+      // scroll. The bug is invisible to a per-element bounding
+      // box check (each element fits), so we measure
+      // `documentElement.scrollWidth` directly — that is what the
+      // browser actually scrolls.
+      await page.goto('/chat');
+      const { scrollWidth, clientWidth } = await page.evaluate(() => ({
+        scrollWidth: document.documentElement.scrollWidth,
+        clientWidth: document.documentElement.clientWidth,
+      }));
+      expect(
+        scrollWidth,
+        `documentElement.scrollWidth (${scrollWidth}) must not exceed clientWidth (${clientWidth}) on ${vp.label}`,
+      ).toBeLessThanOrEqual(vp.width + 1);
+    });
+
     test('all 5 sidebar entries remain reachable', async ({ page }) => {
       await page.goto('/chat');
       const sidebar = page.getByRole('navigation', { name: /primary navigation/i });
       await sidebar.waitFor({ state: 'visible' });
-      for (const label of ['CHAT', 'TOOLS', 'SKILLS', 'TASKS', 'SETTINGS']) {
-        await expect(sidebar.getByText(label)).toBeAttached();
+      // Sidebar entries are `<NavLink>` elements with stable `href`
+      // values. On mobile (≤ 767px) the label text inside collapses
+      // via `display: none`, which removes it from the accessible
+      // name; matching by `href` is therefore the viewport-agnostic
+      // way to prove every entry is still present in the DOM.
+      const hrefs = ['/chat', '/tools', '/agents', '/skills', '/tasks'];
+      for (const href of hrefs) {
+        await expect(sidebar.locator(`a[href="${href}"]`)).toBeAttached();
       }
     });
 

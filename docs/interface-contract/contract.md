@@ -129,11 +129,16 @@
 - **状态**: backend
 - **后端来源**: `/home/crochee/workspace/synthia/.worktrees/synthia-interface-contract-closure-cycle-2/crates/synthia-server/src/server/router.rs:147`
 
-### GET `/health`
+### GET `/livez`
+
+- **状态**: backend
+- **后端来源**: `/home/crochee/workspace/synthia/crates/synthia-server/src/server/router.rs:165`
+
+### GET `/readyz`
 
 - **状态**: both
-- **后端来源**: `/home/crochee/workspace/synthia/.worktrees/synthia-interface-contract-closure-cycle-2/crates/synthia-server/src/server/router.rs:196`
-- **前端来源**: `/home/crochee/workspace/synthia/.worktrees/synthia-interface-contract-closure-cycle-2/synthia-web/src/hooks/useServerHealth.ts:23`
+- **后端来源**: `/home/crochee/workspace/synthia/crates/synthia-server/src/server/router.rs:166`
+- **前端来源**: `/home/crochee/workspace/synthia/synthia-web/src/hooks/useServerHealth.ts:26`
 
 ### GET `/ws/approvals`
 

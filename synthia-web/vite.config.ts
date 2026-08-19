@@ -27,8 +27,10 @@ export default defineConfig({
       },
       // Agent Card discovery (used by @a2a-js/sdk)
       '/.well-known': BACKEND_TARGET,
-      // Health check
-      '/health': BACKEND_TARGET,
+      // Readiness probe (server-health badge polls this)
+      '/readyz': BACKEND_TARGET,
+      // Liveness probe (kept for orchestrator-style checks)
+      '/livez': BACKEND_TARGET,
     },
   },
   build: {

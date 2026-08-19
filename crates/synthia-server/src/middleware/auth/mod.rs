@@ -1,8 +1,9 @@
 //! API authentication middleware.
 //!
 //! Checks for a Bearer token in the Authorization header against a configured API key.
-//! Public paths (`/health`, `/.well-known/agent-card.json`) bypass authentication;
-//! all other paths — including `/api/v1/*` and `/a2a/*` — require auth.
+//! Public paths (`/livez`, `/readyz`, `/.well-known/agent-card.json`) bypass
+//! authentication; all other paths — including `/api/v1/*` and `/a2a/*` —
+//! require auth.
 
 pub mod layer;
 pub mod middleware;

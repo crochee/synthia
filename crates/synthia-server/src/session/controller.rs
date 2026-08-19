@@ -424,7 +424,7 @@ impl ControllerInner {
                 drained_count = pending.len(),
                 "Agent run task: drained input queue"
             );
-            let (history, prompt) = pending.into_iter().fold(
+            let (pending_history, prompt) = pending.into_iter().fold(
                 (Vec::new(), String::new()),
                 |(mut hist, mut last), entry| {
                     if last.is_empty() {
@@ -447,6 +447,79 @@ impl ControllerInner {
                     (hist, last)
                 },
             );
+            // Reconstruct prior-turn assistant / tool messages from
+            // the durable events the previous runs persisted to the
+            // session sink. Without this, every run starts with an
+            // empty history and the LLM loses all multi-turn
+            // memory. The sink is the only durable source of truth
+            // here — `InputQueue` is per-run and ephemeral.
+            let sink_history = match inner.session_store.read().await {
+                Ok(events) => events_to_history(&events),
+                Err(e) => {
+                    tracing::error!(
+                        target: "synthia.session",
+                        session_id = %inner.session_id,
+                        error = %e,
+                        "Failed to read session sink; starting run with empty history"
+                    );
+                    Vec::new()
+                }
+            };
+            tracing::debug!(
+                target: "synthia.session",
+                session_id = %inner.session_id,
+                sink_history_len = sink_history.len(),
+                pending_history_len = pending_history.len(),
+                "Agent run task: composed history from sink + pending"
+            );
+            // Persist this run's drained user prompts to the sink so
+            // the NEXT run sees them in `sink_history`. We do this
+            // AFTER reading the sink (so this run doesn't echo its
+            // own prompt back through `sink_history`) and BEFORE
+            // invoking the agent (so a fast agent doesn't emit
+            // assistant events before the user prompts are
+            // recorded — `events_to_history` walks the JSONL in
+            // append order, so user prompts must precede the
+            // assistant turns they elicited).
+            for msg in &pending_history {
+                let text = match &msg.content {
+                    Content::Single(ContentPart::Text(t)) => &t.text,
+                    _ => continue,
+                };
+                if let Err(e) = inner
+                    .session_store
+                    .append(&serde_json::json!({
+                        "type": "UserInput",
+                        "data": { "text": text },
+                    }))
+                    .await
+                {
+                    tracing::error!(
+                        target: "synthia.session",
+                        session_id = %inner.session_id,
+                        error = %e,
+                        "Failed to persist drained user prompt to session sink"
+                    );
+                }
+            }
+            if !prompt.is_empty()
+                && let Err(e) = inner
+                    .session_store
+                    .append(&serde_json::json!({
+                        "type": "UserInput",
+                        "data": { "text": &prompt },
+                    }))
+                    .await
+            {
+                tracing::error!(
+                    target: "synthia.session",
+                    session_id = %inner.session_id,
+                    error = %e,
+                    "Failed to persist current-turn user prompt to session sink"
+                );
+            }
+            let mut history = sink_history;
+            history.extend(pending_history);
             let input = if prompt.is_empty() {
                 AgentInput::text("")
             } else if history.is_empty() {
@@ -667,6 +740,19 @@ async fn run_controller_loop(
                             preview = truncate(&content, 40),
                             "op_rx: received Prompt"
                         );
+                        // The user prompt itself is NOT persisted to
+                        // the sink here — it is persisted at run
+                        // completion (see the run-task body below).
+                        // Persisting here would let the about-to-start
+                        // run read its own prompt back out of
+                        // `sink_history` and feed it to the agent a
+                        // second time (once via `history` and once via
+                        // `content`), making the LLM treat the prompt
+                        // as a duplicate and discard the conversation
+                        // context. We persist at run completion so the
+                        // NEXT run sees this turn's prompt in
+                        // `sink_history` (multi-turn memory), while
+                        // THIS run only sees prior turns.
                         if let Err(e) = inner
                             .queue
                             .push(
@@ -880,6 +966,124 @@ fn truncate(s: &str, max_chars: usize) -> String {
         out.push('…');
     }
     out
+}
+
+/// Translate the durable `AgentEvent`s previously persisted to a
+/// session sink back into the `Message` history the ReAct agent
+/// consumes on a new run.
+///
+/// The event taxonomy that survives persistence is deliberately
+/// narrow (see `AgentEvent::is_durable`):
+///
+/// - `Model(ContentPart::Text(_))` → assistant message
+/// - `Model(ContentPart::ToolUse(_))` → assistant message with
+///   `tool_calls`
+/// - `Model(ContentPart::ToolResult(_))` → tool message
+///
+/// Ephemeral events (`ModelDone`, every `System` variant, `Model`
+/// variants carrying reasoning / image / audio / resource) are
+/// filtered out before this function ever sees them — the sink
+/// already dropped them at `persist_and_broadcast` time.
+///
+/// Malformed records are skipped (with a `warn!`) rather than
+/// failing the whole run: a single corrupt JSONL row from an older
+/// agent version must not wedge a long-lived session.
+fn events_to_history(events: &[Value]) -> Vec<Message> {
+    let mut messages: Vec<Message> = Vec::with_capacity(events.len());
+    for event in events {
+        let Some(event_type) = event.get("type").and_then(|v| v.as_str())
+        else {
+            continue;
+        };
+        // User prompts are persisted as synthetic `UserInput`
+        // envelopes by the `Prompt` handler in the controller
+        // loop. They must produce `Message{Role:User}` so the
+        // reconstructed history alternates user / assistant
+        // correctly.
+        if event_type == "UserInput" {
+            let Some(text) = event
+                .get("data")
+                .and_then(|d| d.get("text"))
+                .and_then(|t| t.as_str())
+            else {
+                tracing::warn!(
+                    target: "synthia.session",
+                    "events_to_history: dropping malformed UserInput record"
+                );
+                continue;
+            };
+            messages.push(Message {
+                role: Role::User,
+                content: Content::Single(ContentPart::Text(TextContent {
+                    text: text.to_string(),
+                    cache_control: None,
+                })),
+                tool_call_id: None,
+                name: None,
+                ..Default::default()
+            });
+            continue;
+        }
+        if event_type != "Model" {
+            continue;
+        }
+        let Some(data) = event.get("data") else {
+            continue;
+        };
+        // `ContentPart` is serialized with
+        // `#[serde(tag = "type", rename_all = "snake_case")]` so
+        // the JSON shape is `{"type":"text","text":"..."}` /
+        // `{"type":"tool_use",...}` etc. — deserializing the data
+        // object into `ContentPart` directly picks the right
+        // variant for us.
+        let part: ContentPart = match serde_json::from_value(data.clone()) {
+            Ok(p) => p,
+            Err(e) => {
+                tracing::warn!(
+                    target: "synthia.session",
+                    error = %e,
+                    "events_to_history: dropping malformed Model record"
+                );
+                continue;
+            }
+        };
+        match part {
+            ContentPart::Text(text) => messages.push(Message {
+                role: Role::Assistant,
+                content: Content::Single(ContentPart::Text(text)),
+                tool_call_id: None,
+                name: None,
+                ..Default::default()
+            }),
+            ContentPart::ToolUse(tool_use) => messages.push(Message {
+                role: Role::Assistant,
+                content: Content::Single(ContentPart::ToolUse(tool_use)),
+                tool_call_id: None,
+                name: None,
+                ..Default::default()
+            }),
+            ContentPart::ToolResult(tool_result) => {
+                messages.push(Message {
+                    role: Role::Tool,
+                    content: Content::Single(ContentPart::ToolResult(
+                        tool_result,
+                    )),
+                    tool_call_id: None,
+                    name: None,
+                    ..Default::default()
+                });
+            }
+            ContentPart::Image(_)
+            | ContentPart::Audio(_)
+            | ContentPart::Reasoning(_)
+            | ContentPart::Resource(_) => {
+                // Reasoning / Image / Audio are non-durable so they
+                // never reach the sink. Resource is durable but has
+                // no `Message` shape; skip silently.
+            }
+        }
+    }
+    messages
 }
 
 #[cfg(test)]
@@ -1431,13 +1635,19 @@ mod tests {
         // ephemeral: they are broadcast to subscribers but not
         // persisted, because a cold start rebuilds the agent
         // state from the durable slices (model text, tool
-        // calls, tool results, resources). The `VecFactory`
-        // for this test emits one durable `Model(Text)` and
-        // two ephemeral `System` events, so the JSONL must
-        // contain exactly one record.
+        // calls, tool results, resources). The run task
+        // also appends a synthetic `UserInput` envelope at
+        // run start (after reading the sink, before invoking
+        // the agent) so the NEXT run can reconstruct
+        // user-role messages; that is durable too. The
+        // `VecFactory` for this test emits one durable
+        // `Model(Text)` and two ephemeral `System` events,
+        // so the JSONL must contain exactly two records:
+        // the `UserInput` from this run's prompt and the
+        // `Model(Text)` from the agent.
         assert_eq!(
             persisted.len(),
-            1,
+            2,
             "only durable events are persisted; got {persisted:?}"
         );
         let type_of = |e: &serde_json::Value| -> String {
@@ -1446,6 +1656,10 @@ mod tests {
                 .unwrap_or("")
                 .to_string()
         };
+        assert!(
+            persisted.iter().any(|e| type_of(e) == "UserInput"),
+            "UserInput envelope from the prompt handler should be persisted"
+        );
         assert!(
             persisted
                 .iter()
@@ -1461,5 +1675,305 @@ mod tests {
         // The first broadcast event is the Message event (emitted first
         // by the factory).
         assert!(matches!(received, AgentEvent::Model(ContentPart::Text(_))));
+    }
+
+    /// Records every `(input)` the controller hands to the agent,
+    /// plus the events the factory streams back. Used by
+    /// `test_second_prompt_seeds_history_from_persisted_turns` to
+    /// pin the multi-turn memory contract.
+    struct RecordingFactory {
+        calls: Arc<Mutex<Vec<AgentInput>>>,
+        first_run_events: Vec<AgentEvent>,
+        second_run_events: Vec<AgentEvent>,
+    }
+
+    impl RecordingFactory {
+        fn new(
+            calls: Arc<Mutex<Vec<AgentInput>>>,
+            first_run_events: Vec<AgentEvent>,
+            second_run_events: Vec<AgentEvent>,
+        ) -> Self {
+            Self {
+                calls,
+                first_run_events,
+                second_run_events,
+            }
+        }
+    }
+
+    impl RunStreamFactory for RecordingFactory {
+        fn run_stream(
+            &self,
+            _config: AgentRunConfig,
+            input: AgentInput,
+            cancel: Arc<CancellationToken>,
+        ) -> Pin<Box<dyn Stream<Item = AgentEvent> + Send + 'static>> {
+            self.calls.lock().unwrap().push(input);
+            let run_index = self.calls.lock().unwrap().len() - 1;
+            let events = if run_index == 0 {
+                self.first_run_events.clone()
+            } else {
+                self.second_run_events.clone()
+            };
+            let stream = futures::stream::iter(events).take_while(move |_| {
+                futures::future::ready(!cancel.is_cancelled())
+            });
+            Box::pin(stream)
+        }
+    }
+
+    /// Regression: the second prompt submitted to the same session
+    /// must seed `AgentInput::history` with the assistant turns the
+    /// previous run persisted to the `SessionSink`.
+    ///
+    /// Without the fix, the controller never re-reads the sink, so
+    /// `input.history` is empty on every run and the LLM sees a
+    /// fresh conversation — losing multi-turn memory.
+    #[tokio::test]
+    async fn test_second_prompt_seeds_history_from_persisted_turns() {
+        use synthia_provider::TextContent;
+
+        let calls = Arc::new(Mutex::new(Vec::new()));
+        // First run emits one durable assistant text chunk; second
+        // run emits another. Both must be observable to the agent.
+        let factory: Arc<dyn RunStreamFactory> =
+            Arc::new(RecordingFactory::new(
+                Arc::clone(&calls),
+                vec![AgentEvent::Model(ContentPart::Text(TextContent {
+                    text: "first reply".to_string(),
+                    cache_control: None,
+                }))],
+                vec![AgentEvent::Model(ContentPart::Text(TextContent {
+                    text: "second reply".to_string(),
+                    cache_control: None,
+                }))],
+            ));
+
+        let (controller, _manager, _temp) =
+            make_manager_and_controller(Duration::from_secs(60), factory).await;
+
+        // Turn 1
+        controller
+            .submit(SessionOp::Prompt {
+                content: "turn-1 prompt".to_string(),
+                priority: 1,
+            })
+            .await
+            .unwrap();
+
+        // Wait for the run to finish and the controller to return
+        // to Idle so we know the first run's events have been
+        // persisted by `persist_and_broadcast`.
+        tokio::time::timeout(Duration::from_secs(2), async {
+            while controller.state() != SessionState::Idle {
+                tokio::time::sleep(Duration::from_millis(5)).await;
+            }
+        })
+        .await
+        .expect("first run should finish");
+
+        // After state flips to Idle the controller still holds the
+        // first run's `JoinHandle` for one more select! iteration;
+        // only once `run_handle.await` returns and sets
+        // `run_handle = None` does a new op_rx prompt actually
+        // spawn a fresh run. Wait for that window to close before
+        // submitting turn 2, otherwise the controller will see
+        // `run_handle.is_some()` and drop the dispatch. Poll on
+        // the captured calls vector: once it stops growing, the
+        // first run's stream has been fully consumed.
+        tokio::time::timeout(Duration::from_secs(2), async {
+            loop {
+                if calls.lock().unwrap().len() == 1 {
+                    break;
+                }
+                tokio::time::sleep(Duration::from_millis(5)).await;
+            }
+        })
+        .await
+        .expect("first run input should be recorded");
+        // Tiny grace period for the spawned task to exit so the
+        // controller loop clears `run_handle`.
+        tokio::time::sleep(Duration::from_millis(20)).await;
+
+        // Turn 2 — submits a fresh prompt. The fix must cause
+        // `input.history` of run #2 to contain run #1's assistant
+        // text "first reply" so the agent has memory of the prior
+        // turn.
+        controller
+            .submit(SessionOp::Prompt {
+                content: "turn-2 prompt".to_string(),
+                priority: 1,
+            })
+            .await
+            .unwrap();
+
+        // The controller serializes through op_rx; once the
+        // second run is dispatched the factory records a second
+        // input. Allow generous slack because the controller may
+        // briefly sit in its idle branch before re-entering the
+        // select! iteration that picks up op_rx.
+        tokio::time::timeout(Duration::from_secs(5), async {
+            loop {
+                if calls.lock().unwrap().len() >= 2 {
+                    break;
+                }
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        })
+        .await
+        .expect("second run should start");
+
+        let recorded = calls.lock().unwrap();
+        assert_eq!(
+            recorded.len(),
+            2,
+            "controller should have spawned two runs"
+        );
+
+        // The second run's input must carry the first run's
+        // persisted assistant text inside `history`. We allow
+        // the current-turn prompt itself to live in `content`,
+        // but the prior assistant turn must be in `history` —
+        // that is the contract being violated by the bug.
+        let second = &recorded[1];
+        let history_text = second
+            .history
+            .iter()
+            .filter_map(|m| match &m.content {
+                Content::Single(ContentPart::Text(t)) => Some(t.text.clone()),
+                _ => None,
+            })
+            .collect::<Vec<_>>()
+            .join("\n");
+        assert!(
+            history_text.contains("first reply"),
+            "second run's history must include first run's assistant text; got history={:?}",
+            second.history
+        );
+
+        // The current-turn prompt must live in `content`, NOT in
+        // `history` — appending the prompt to the sink before the
+        // run drains the queue would cause this assertion to fail
+        // because the run would read its own prompt back out of
+        // `sink_history` and feed it to the agent twice (once via
+        // `history`, once via `content`). The fix persists the
+        // drained prompts after reading the sink.
+        assert!(
+            !history_text.contains("turn-2 prompt"),
+            "second run's history must NOT include the current-turn prompt (would cause \
+             duplicate-feed); got history={:?}",
+            second.history
+        );
+
+        // Also assert turn-2's prompt landed as the input content
+        // so we know the history seed didn't overwrite the prompt.
+        let second_prompt_text = match second.content.first() {
+            Some(ContentPart::Text(t)) => t.text.clone(),
+            _ => panic!("second run content should be text"),
+        };
+        assert_eq!(second_prompt_text, "turn-2 prompt");
+    }
+
+    /// Regression: user prompts must be persisted to the session sink
+    /// and reconstructed as `Message{Role:User}` in the next run's
+    /// history. Without the `UserInput` envelope append in the
+    /// `Prompt` handler, `events_to_history` only sees assistant
+    /// messages and the LLM treats every turn as a fresh conversation.
+    #[tokio::test]
+    async fn test_user_prompt_persists_and_reacts_to_role_user_in_history() {
+        use synthia_provider::TextContent;
+
+        let calls = Arc::new(Mutex::new(Vec::new()));
+        let factory: Arc<dyn RunStreamFactory> =
+            Arc::new(RecordingFactory::new(
+                Arc::clone(&calls),
+                vec![AgentEvent::Model(ContentPart::Text(TextContent {
+                    text: "ack".to_string(),
+                    cache_control: None,
+                }))],
+                vec![AgentEvent::Model(ContentPart::Text(TextContent {
+                    text: "ack".to_string(),
+                    cache_control: None,
+                }))],
+            ));
+
+        let (controller, _manager, _temp) =
+            make_manager_and_controller(Duration::from_secs(60), factory).await;
+
+        controller
+            .submit(SessionOp::Prompt {
+                content: "我的猫叫蓝杉".to_string(),
+                priority: 1,
+            })
+            .await
+            .unwrap();
+
+        tokio::time::timeout(Duration::from_secs(2), async {
+            while controller.state() != SessionState::Idle {
+                tokio::time::sleep(Duration::from_millis(5)).await;
+            }
+        })
+        .await
+        .expect("first run should finish");
+
+        tokio::time::timeout(Duration::from_secs(2), async {
+            loop {
+                if calls.lock().unwrap().len() == 1 {
+                    break;
+                }
+                tokio::time::sleep(Duration::from_millis(5)).await;
+            }
+        })
+        .await
+        .expect("first run input should be recorded");
+        tokio::time::sleep(Duration::from_millis(20)).await;
+
+        controller
+            .submit(SessionOp::Prompt {
+                content: "它几岁？".to_string(),
+                priority: 1,
+            })
+            .await
+            .unwrap();
+
+        tokio::time::timeout(Duration::from_secs(5), async {
+            loop {
+                if calls.lock().unwrap().len() >= 2 {
+                    break;
+                }
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        })
+        .await
+        .expect("second run should start");
+
+        let recorded = calls.lock().unwrap();
+        assert_eq!(recorded.len(), 2);
+        let second = &recorded[1];
+
+        let user_messages: Vec<&str> = second
+            .history
+            .iter()
+            .filter(|m| m.role == Role::User)
+            .filter_map(|m| match &m.content {
+                Content::Single(ContentPart::Text(t)) => Some(t.text.as_str()),
+                _ => None,
+            })
+            .collect();
+        assert!(
+            user_messages.iter().any(|t| t.contains("蓝杉")),
+            "second run history must contain turn-1 user prompt as Role::User; got history={:?}",
+            second.history
+        );
+
+        // The current-turn prompt must NOT appear in `history` —
+        // duplicating it would make the LLM treat the prompt as a
+        // fresh message and discard the conversation context.
+        assert!(
+            user_messages.iter().all(|t| !t.contains("它几岁")),
+            "second run history must NOT include the current-turn prompt (would cause \
+             duplicate-feed); got history={:?}",
+            second.history
+        );
     }
 }

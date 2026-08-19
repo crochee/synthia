@@ -211,5 +211,6 @@ clean-docker: ## Remove Docker containers and images
 
 .PHONY: health
 
-health: ## Check server health endpoint
-	@curl -sS http://localhost:$(SERVER_PORT)/health || echo "Server not responding"
+health: ## Check server probe endpoints (liveness + readiness)
+	@curl -sS http://localhost:$(SERVER_PORT)/livez || echo "Server not alive"
+	@curl -sS http://localhost:$(SERVER_PORT)/readyz || echo "Server not ready"

@@ -58,7 +58,8 @@ fn derive_user_id_distinguishes_keys() {
 
 #[test]
 fn test_public_path_matching() {
-    assert!(AuthMiddleware::<()>::is_public_path("/health"));
+    assert!(AuthMiddleware::<()>::is_public_path("/livez"));
+    assert!(AuthMiddleware::<()>::is_public_path("/readyz"));
     assert!(!AuthMiddleware::<()>::is_public_path("/api/v1/chat"));
     assert!(!AuthMiddleware::<()>::is_public_path("/api/v1/skills"));
 }
@@ -66,35 +67,35 @@ fn test_public_path_matching() {
 #[test]
 fn test_path_traversal_bypass_prevention() {
     assert!(!AuthMiddleware::<()>::is_public_path(
-        "/health/../api/v1/secret"
+        "/livez/../api/v1/secret"
     ));
     assert!(!AuthMiddleware::<()>::is_public_path(
-        "/health/./../private"
+        "/readyz/./../private"
     ));
-    assert!(!AuthMiddleware::<()>::is_public_path("/health//../secret"));
-    assert!(!AuthMiddleware::<()>::is_public_path("/health/.."));
-    assert!(!AuthMiddleware::<()>::is_public_path("/health/."));
+    assert!(!AuthMiddleware::<()>::is_public_path("/livez//../secret"));
+    assert!(!AuthMiddleware::<()>::is_public_path("/livez/.."));
+    assert!(!AuthMiddleware::<()>::is_public_path("/livez/."));
 }
 
 #[test]
 fn test_valid_public_subpaths() {
-    assert!(AuthMiddleware::<()>::is_public_path("/health/check"));
-    assert!(AuthMiddleware::<()>::is_public_path("/health/status"));
+    assert!(AuthMiddleware::<()>::is_public_path("/livez/check"));
+    assert!(AuthMiddleware::<()>::is_public_path("/readyz/status"));
 }
 
 #[test]
 fn test_path_traversal_blocked() {
-    assert!(!is_public_path("/health/../api/v1/sessions"));
+    assert!(!is_public_path("/livez/../api/v1/sessions"));
 }
 
 #[test]
 fn test_url_encoded_traversal_blocked() {
-    assert!(!is_public_path("/health/%2e%2e/api/v1/sessions"));
+    assert!(!is_public_path("/livez/%2e%2e/api/v1/sessions"));
 }
 
 #[test]
 fn test_exact_public_path_allowed() {
-    assert!(is_public_path("/health"));
+    assert!(is_public_path("/livez"));
 }
 
 #[test]

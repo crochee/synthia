@@ -16,66 +16,75 @@ use serde::Serialize;
 
 use crate::state::AppState;
 
-/// Bare health-check response.
+/// Minimal probe response body shared by `/livez` and `/readyz`.
 #[derive(Serialize)]
-pub struct HealthResponse {
-    pub status: String,
-    pub version: String,
+pub struct ProbeResponse {
+    pub status: &'static str,
+    /// Names of readiness checks that failed. Omitted when every
+    /// check passes; only meaningful for `/readyz`.
+    #[serde(skip_serializing_if = "<[_]>::is_empty")]
+    pub failed: Vec<&'static str>,
 }
 
-/// ETag value used for `/health`. The probe payload is fully
-/// described by `(status, version)`, so a stable hash of those
-/// is a perfect cache validator — the body and headers don't
-/// change unless the binary is rebuilt.
-const HEALTH_ETAG: &str =
-    concat!("W/\"health-", env!("CARGO_PKG_VERSION"), "-ok\"",);
-
-/// GET /health - Liveness probe returning bare `{ status, version }`.
+/// GET /livez - Kubernetes-style liveness probe.
 ///
-/// Two caching layers cooperate:
+/// Liveness answers exactly one question: "can this process still
+/// serve HTTP?" If the handler runs at all, the answer is yes — so
+/// it returns 200 unconditionally without touching shared state.
+/// Dependency health belongs on `/readyz`: a liveness failure gets
+/// the pod restarted, which must be reserved for unrecoverable
+/// states (deadlocked runtime, exhausted executor).
 ///
-/// 1. `Cache-Control: no-cache, max-age=1` lets a 1-second
-///    shared cache reuse the response without a network
-///    round-trip to the server, but forces revalidation after
-///    that one second so a liveness flip is observed quickly.
-/// 2. `ETag` + conditional `If-None-Match` handling turns
-///    revalidation into a 304 `Not Modified` response — no
-///    payload serialization, no JSON body bytes, no
-///    decompression on the client. The browser / probe then
-///    keeps using the previous body.
-///
-/// Together these turn the k8s readiness probe (which fires
-/// once per second per pod) into roughly one full response per
-/// second plus otherwise-free 304s.
-pub async fn health_check(req: axum::http::HeaderMap) -> Response {
-    // Conditional GET: same ETag as we send back, so the
-    // cache can reuse its stored body. `If-None-Match` may
-    // legitimately be `*` (RFC 9110 §13.1.2), in which case
-    // the resource matches unconditionally — we still return
-    // 304 for that case.
-    let etag = HeaderValue::from_static(HEALTH_ETAG);
-    if req.get(IF_NONE_MATCH).is_some() {
-        let mut headers = HeaderMap::new();
-        headers.insert(
-            CACHE_CONTROL,
-            HeaderValue::from_static("no-cache, max-age=1"),
-        );
-        headers.insert(ETAG, etag);
-        return (StatusCode::NOT_MODIFIED, headers).into_response();
-    }
-
-    let mut headers = HeaderMap::new();
-    headers.insert(
-        CACHE_CONTROL,
-        HeaderValue::from_static("no-cache, max-age=1"),
-    );
-    headers.insert(ETAG, etag);
+/// `Cache-Control: no-store` keeps orchestrators and load
+/// balancers from reusing a cached verdict across the process
+/// lifetime.
+pub async fn livez() -> Response {
     (
         StatusCode::OK,
-        headers,
-        Json(HealthResponse {
-            status: "ok".to_string(),
-            version: env!("CARGO_PKG_VERSION").to_string(),
+        [(CACHE_CONTROL, HeaderValue::from_static("no-store"))],
+        Json(ProbeResponse {
+            status: "ok",
+            failed: Vec::new(),
+        }),
+    )
+        .into_response()
+}
+
+/// GET /readyz - Kubernetes-style readiness probe.
+///
+/// Readiness means "should traffic be routed here *now*". Unlike
+/// liveness it inspects in-process facts via
+/// [`AppState::readiness_checks`]. A failing check yields
+/// `503` plus the failing check names, so an operator can see
+/// *why* the instance is not ready from the probe response
+/// itself.
+pub async fn readyz(State(state): State<Arc<AppState>>) -> Response {
+    let failed: Vec<&'static str> = state
+        .readiness_checks()
+        .into_iter()
+        .filter(|(_, passed)| !passed)
+        .map(|(name, _)| name)
+        .collect();
+
+    if failed.is_empty() {
+        return (
+            StatusCode::OK,
+            [(CACHE_CONTROL, HeaderValue::from_static("no-store"))],
+            Json(ProbeResponse {
+                status: "ok",
+                failed,
+            }),
+        )
+            .into_response();
+    }
+
+    tracing::warn!(checks = ?failed, "readiness probe failing");
+    (
+        StatusCode::SERVICE_UNAVAILABLE,
+        [(CACHE_CONTROL, HeaderValue::from_static("no-store"))],
+        Json(ProbeResponse {
+            status: "unavailable",
+            failed,
         }),
     )
         .into_response()
@@ -141,7 +150,7 @@ struct CachedModels {
 
 /// GET /api/models - List available models with bare response (no envelope).
 ///
-/// Like `/health`, this endpoint benefits from conditional GET:
+/// Like the probe endpoints, this endpoint benefits from conditional GET:
 /// the response body is fully determined at startup and never
 /// mutates over the binary's lifetime, so an ETag lets clients
 /// short-circuit to `304 Not Modified` on revalidation. We use
@@ -232,7 +241,7 @@ pub async fn list_models(
 
     // Conditional GET: any `If-None-Match` header short-circuits
     // to 304 with no body. This mirrors the unconditional pattern
-    // used by `/health`: the body is fully described by the ETag
+    // used by the probe endpoints: the body is fully described by the ETag
     // (config doesn't mutate over the binary's lifetime), so
     // there's no scenario where a stale cache holds a different
     // version of the body that the client would want back.
@@ -249,54 +258,6 @@ pub async fn list_models(
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn health_response_serializes_with_status_and_version() {
-        let resp = HealthResponse {
-            status: "ok".to_string(),
-            version: "0.1.0".to_string(),
-        };
-        let json = serde_json::to_value(&resp).unwrap();
-        assert_eq!(json["status"], "ok");
-        assert_eq!(json["version"], "0.1.0");
-    }
-
-    #[test]
-    fn health_check_emits_etag_and_cache_control() {
-        let req = axum::http::HeaderMap::new();
-        let resp = futures::executor::block_on(health_check(req));
-        assert_eq!(resp.status(), StatusCode::OK);
-        assert_eq!(
-            resp.headers().get(CACHE_CONTROL).unwrap(),
-            "no-cache, max-age=1"
-        );
-        let etag = resp.headers().get(ETAG).unwrap().to_str().unwrap();
-        assert!(etag.starts_with("W/\"health-"), "ETag shape: {etag}");
-        assert!(etag.ends_with("-ok\""), "ETag shape: {etag}");
-    }
-
-    #[test]
-    fn health_check_returns_304_when_if_none_match_present() {
-        let mut req = axum::http::HeaderMap::new();
-        req.insert(
-            IF_NONE_MATCH,
-            HeaderValue::from_static("W/\"health-test-ok\""),
-        );
-        let resp = futures::executor::block_on(health_check(req));
-        // Any `If-None-Match` header — even a non-matching value —
-        // must short-circuit to 304 in our implementation, because
-        // we don't maintain per-version state across the binary
-        // and the body is fully described by the ETag. This
-        // matches the unconditional pattern used by k8s probes,
-        // which never carry the exact tag anyway.
-        assert_eq!(resp.status(), StatusCode::NOT_MODIFIED);
-        assert!(resp.headers().contains_key(CACHE_CONTROL));
-        assert!(resp.headers().contains_key(ETAG));
-        // Body must be empty on 304 — RFC 9110 §15.4.5 forbids
-        // any payload on a 304 response.
-        // (axum's IntoResponse for a tuple with no body yields
-        //  an empty body by construction.)
-    }
 
     #[test]
     fn model_entry_serializes_all_fields() {
@@ -356,9 +317,8 @@ mod tests {
 
     /// `list_models` with no `If-None-Match` MUST return 200 with
     /// the full JSON body and the new ETag + Cache-Control
-    /// headers. Pinning the wire shape here guards against the
-    /// same regression the `health_check` test caught (missing
-    /// header propagation).
+    /// headers. Pinning the wire shape here guards against a
+    /// missing-header-propagation regression.
     #[tokio::test]
     async fn list_models_emits_etag_and_cache_control() {
         let state =
@@ -381,8 +341,8 @@ mod tests {
     }
 
     /// `list_models` with any `If-None-Match` MUST return 304
-    /// without serializing the body — exactly mirroring the
-    /// `health_check` short-circuit path.
+    /// without serializing the body — the same short-circuit
+    /// pattern the probe endpoints use.
     #[tokio::test]
     async fn list_models_returns_304_when_if_none_match_present() {
         let state =
@@ -402,5 +362,82 @@ mod tests {
         use axum::body::HttpBody;
         let size = resp.into_body().size_hint().exact();
         assert_eq!(size, Some(0), "304 response body must be empty");
+    }
+
+    /// `livez` MUST return 200 with `status: "ok"` and
+    /// `Cache-Control: no-store` — liveness is a process-alive
+    /// fact, so a cached verdict would outlive a crash-restart.
+    #[tokio::test]
+    async fn livez_emits_ok_and_no_store() {
+        let resp = livez().await;
+        assert_eq!(resp.status(), StatusCode::OK);
+        assert_eq!(resp.headers().get(CACHE_CONTROL).unwrap(), "no-store");
+        use http_body_util::BodyExt;
+        let bytes = resp.into_body().collect().await.unwrap().to_bytes();
+        let body: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(body["status"], "ok");
+        // `failed` is skipped when empty — the liveness body has
+        // no failed-checks field at all.
+        assert!(body.get("failed").is_none(), "got: {body}");
+    }
+
+    /// `readyz` MUST return 503 + the failing check names while
+    /// the A2A service OnceCell is untouched (i.e. the router was
+    /// not built through `create_router`, which initializes it
+    /// eagerly). The agent-registry check passes because
+    /// `AppState::new` registers the canonical ReAct agent.
+    #[tokio::test]
+    async fn readyz_is_503_before_a2a_service_initialized() {
+        let state =
+            crate::state::AppState::new(std::path::PathBuf::from("."), None)
+                .await
+                .expect("workspace load should succeed in test");
+        let resp = readyz(State(state)).await;
+        assert_eq!(resp.status(), StatusCode::SERVICE_UNAVAILABLE);
+        use http_body_util::BodyExt;
+        let bytes = resp.into_body().collect().await.unwrap().to_bytes();
+        let body: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(body["status"], "unavailable");
+        assert_eq!(
+            body["failed"],
+            serde_json::json!(["a2a_service"]),
+            "only the a2a_service check may fail here, got: {body}"
+        );
+    }
+
+    /// `readyz` MUST flip to 200 once every readiness check
+    /// passes — here triggered by initializing the A2A service
+    /// the same way `create_router` does.
+    #[tokio::test]
+    async fn readyz_is_200_after_a2a_service_initialized() {
+        let state =
+            crate::state::AppState::new(std::path::PathBuf::from("."), None)
+                .await
+                .expect("workspace load should succeed in test");
+        // Mirror the eager bootstrap in `create_router`.
+        let _ = state.a2a_service(None).await;
+        let resp = readyz(State(state)).await;
+        assert_eq!(resp.status(), StatusCode::OK);
+        assert_eq!(resp.headers().get(CACHE_CONTROL).unwrap(), "no-store");
+        use http_body_util::BodyExt;
+        let bytes = resp.into_body().collect().await.unwrap().to_bytes();
+        let body: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(body["status"], "ok");
+        assert!(body.get("failed").is_none(), "got: {body}");
+    }
+
+    /// `ProbeResponse` with failed checks MUST serialize the
+    /// names so operators can see *why* the probe fails from the
+    /// response body alone.
+    #[test]
+    fn probe_response_serializes_failed_check_names() {
+        let resp = ProbeResponse {
+            status: "unavailable",
+            failed: vec!["a2a_service", "agent_registry"],
+        };
+        let json = serde_json::to_value(&resp).unwrap();
+        assert_eq!(json["status"], "unavailable");
+        assert_eq!(json["failed"][0], "a2a_service");
+        assert_eq!(json["failed"][1], "agent_registry");
     }
 }

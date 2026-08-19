@@ -406,7 +406,7 @@ textarea:focus-visible {
     --color-input-bg: var(--bg-secondary);
     --color-input-border: var(--border-strong);
     --color-input-focus-border: #60a5fa;
-    --color-input-focus-ring: rgba(96, 165, 250, 0.25);
+    --color-input-focus-ring: rgba(96, 165, 240, 0.25);
 
     --scrollbar-thumb: rgba(255, 255, 255, 0.16);
     --scrollbar-thumb-hover: rgba(255, 255, 255, 0.32);
@@ -471,4 +471,117 @@ textarea:focus-visible {
 
   --scrollbar-thumb: rgba(255, 255, 255, 0.16);
   --scrollbar-thumb-hover: rgba(255, 255, 255, 0.32);
+}
+
+/* ---- Responsive layout seams ----
+ *
+ * The default layout assumes a desktop viewport: a 220px sidebar
+ * pinned to the left and a flexible main column. On viewports
+ * narrower than 768px the sidebar's hard width combined with
+ * flexbox's `min-width: auto` default on flex items made the
+ * main column overflow horizontally, forcing the page to scroll
+ * sideways. Three changes fix it:
+ *
+ *   1. `.nt-app-shell-row` — the row Flex that holds the sidebar
+ *      and `<main>`. `min-width: 0` lets the row be narrower than
+ *      the sum of its children so the main column can shrink
+ *      instead of pushing the page wider.
+ *   2. `.nt-app-main` — the `<main>` wrapper. Same fix; without
+ *      it the main column refuses to shrink below its intrinsic
+ *      content width.
+ *   3. `.nt-sidebar` — collapses to an icon-rail below 768px
+ *      (label + shortcut hidden, footer hidden, only the icon
+ *      border-left + padding remain). Above 768px everything
+ *      renders as before.
+ *
+ * The Header's inner breadcrumb row already opts into
+ * `min-width: 0` on its `<nav>` wrapper, but the parent Flex in
+ * `Header.tsx` still needed `min-width: 0` on the left cluster
+ * (logo + tagline + breadcrumb) so a long breadcrumb id
+ * ellipsizes instead of pushing the status badge off-screen.
+ */
+.nt-app-shell-row {
+  min-width: 0;
+}
+
+.nt-app-main {
+  min-width: 0;
+}
+
+.nt-header-left {
+  min-width: 0;
+}
+
+/**
+ * Streaming cursor affordance.
+ *
+ * `ChatMessageList` sets `data-streaming="true"` on the assistant
+ * message container while a run is still generating. The user
+ * previously reported "no streaming feel" — text was appearing
+ * incrementally via `appendText`, but without a visual indicator
+ * it just looked like a quick full-text reveal. Two CSS hooks
+ * fix it:
+ *
+ *   1. Blinking caret — a 1ch-wide block pseudo-element pinned
+ *      to the end of the last text segment, blinking at 1s
+ *      interval. Pure CSS, no React state needed; the
+ *      `data-streaming` attribute is already toggled correctly
+ *      in `ChatMessageView.tsx`.
+ *   2. Left-border pulse — a subtle `box-shadow` on the message
+ *      itself so the whole message visually pulses while the
+ *      model is thinking. Uses the accent color so it reads as
+ *      "alive" rather than "error".
+ *
+ * The `last-of-type` selector targets the last text segment so
+ * tool/thinking segments that follow don't get a stray caret.
+ */
+@keyframes nt-streaming-blink {
+  0%,
+  49% {
+    opacity: 1;
+  }
+  50%,
+  100% {
+    opacity: 0;
+  }
+}
+
+@keyframes nt-streaming-pulse {
+  0%,
+  100% {
+    box-shadow: inset 3px 0 0 var(--accent-primary);
+  }
+  50% {
+    box-shadow: inset 3px 0 0 transparent;
+  }
+}
+
+.nt-chat__message[data-streaming='true'] {
+  animation: nt-streaming-pulse 1.6s ease-in-out infinite;
+}
+
+.nt-chat__message[data-streaming='true'] .nt-chat__segment--text:last-of-type::after {
+  content: '▌';
+  display: inline-block;
+  margin-left: 2px;
+  color: var(--accent-primary);
+  font-weight: 700;
+  animation: nt-streaming-blink 1s steps(2, end) infinite;
+}
+
+@media (max-width: 767px) {
+  :root {
+    --nt-sidebar-width: 56px;
+  }
+  .nt-sidebar {
+    overflow: hidden;
+  }
+  .nt-sidebar__row {
+    justify-content: center;
+  }
+  .nt-sidebar__label,
+  .nt-sidebar__hint,
+  .nt-sidebar__footer {
+    display: none;
+  }
 }

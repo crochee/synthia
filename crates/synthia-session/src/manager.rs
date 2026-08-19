@@ -101,9 +101,8 @@ impl SessionRegistry {
         id: String,
         user_id: String,
     ) -> Result<Session, SessionError> {
-        if user_id.is_empty() {
-            return Err(SessionError::Invalid("empty user_id".into()));
-        }
+        validate_id(&user_id, "user_id")?;
+        validate_id(&id, "session_id")?;
         let session = Session {
             id: id.clone(),
             user_id: user_id.clone(),
@@ -129,6 +128,40 @@ impl SessionRegistry {
 /// Compose the internal key for the sinks registry.
 fn sink_key(user_id: &str, session_id: &str) -> String {
     format!("{user_id}::{session_id}")
+}
+
+/// Validate a `user_id` or `session_id` before it is joined
+/// into a filesystem path. The A2A `contextId`/`taskId` flows
+/// straight from the HTTP body into `create_with_user` and
+/// then into the sink path; without this check a hostile
+/// caller could craft `session_id = "../other_user/..."` to
+/// escape the sessions root or land on a sibling session's
+/// JSONL.
+///
+/// Rejects:
+/// - empty strings
+/// - any path separator (`/`, `\`)
+/// - any NUL byte (truncates paths on some platforms)
+/// - `..` segments (parent-directory escape)
+/// - leading `.` (hidden directory convention; not a security
+///   boundary on its own but a strong signal of misuse)
+///
+/// Returns `Ok(())` on a safe identifier.
+fn validate_id(id: &str, kind: &str) -> Result<(), SessionError> {
+    if id.is_empty() {
+        return Err(SessionError::Invalid(format!("empty {kind}")));
+    }
+    if id.contains('/') || id.contains('\\') || id.contains('\0') {
+        return Err(SessionError::Invalid(format!(
+            "{kind} contains a path separator or NUL byte"
+        )));
+    }
+    if id == "." || id == ".." || id.starts_with('.') {
+        return Err(SessionError::Invalid(format!(
+            "{kind} contains a relative-path segment"
+        )));
+    }
+    Ok(())
 }
 
 /// Legacy constant: the user_id used for single-tenant
@@ -288,6 +321,46 @@ mod tests {
             .await
             .unwrap_err();
         assert_eq!(err, SessionError::Invalid("empty user_id".into()));
+    }
+
+    #[tokio::test]
+    async fn create_with_user_rejects_path_traversal_in_session_id() {
+        let root = temp_dir();
+        let r = SessionRegistry::new(root);
+        for bad in [
+            "../other",
+            "..",
+            ".",
+            ".hidden",
+            "foo/bar",
+            "foo\\bar",
+            "with\0nul",
+        ] {
+            let err = r
+                .create_with_user(bad.into(), "alice".into())
+                .await
+                .unwrap_err();
+            assert!(
+                matches!(err, SessionError::Invalid(_)),
+                "expected Invalid for session_id={bad:?}; got {err:?}"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn create_with_user_rejects_path_traversal_in_user_id() {
+        let root = temp_dir();
+        let r = SessionRegistry::new(root);
+        for bad in ["../other", "..", "foo/bar", "with\0nul"] {
+            let err = r
+                .create_with_user("s1".into(), bad.into())
+                .await
+                .unwrap_err();
+            assert!(
+                matches!(err, SessionError::Invalid(_)),
+                "expected Invalid for user_id={bad:?}; got {err:?}"
+            );
+        }
     }
 
     #[tokio::test]

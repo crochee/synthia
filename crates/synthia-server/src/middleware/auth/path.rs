@@ -1,6 +1,6 @@
-/// Paths that bypass authentication (health checks, A2A discovery).
+/// Paths that bypass authentication (probe endpoints, A2A discovery).
 pub(super) const PUBLIC_PATHS: &[&str] =
-    &["/health", "/.well-known/agent-card.json"];
+    &["/livez", "/readyz", "/.well-known/agent-card.json"];
 
 fn url_decode_path(path: &str) -> String {
     let mut result = String::with_capacity(path.len());
@@ -170,12 +170,13 @@ mod tests {
     // -- PUBLIC_PATHS -----------------------------------------
 
     /// `PUBLIC_PATHS` MUST
-    /// include `/health` so
-    /// liveness probes don't
+    /// include `/livez` and
+    /// `/readyz` so probes don't
     /// need a token.
     #[test]
-    fn public_paths_includes_health() {
-        assert!(PUBLIC_PATHS.contains(&"/health"));
+    fn public_paths_includes_probe_endpoints() {
+        assert!(PUBLIC_PATHS.contains(&"/livez"));
+        assert!(PUBLIC_PATHS.contains(&"/readyz"));
     }
 
     /// `PUBLIC_PATHS` MUST

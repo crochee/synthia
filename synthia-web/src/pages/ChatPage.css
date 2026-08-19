@@ -506,39 +506,6 @@
   word-break: break-word;
 }
 
-/* Cursor caret. Scoped to the streaming state so the
- * pseudo-element is *absent* once the SSE stream has ended —
- * not just transparent. Otherwise the underlying
- * `nt-chat-cursor-blink` animation keeps ticking in the
- * background and the browser paints one final cycle
- * between the last streamed token and the next paint, so
- * the message tail twinkles for a few hundred milliseconds
- * after "会话结束". Mounting the whole rule under
- * `[data-streaming='true']` collapses both the rule and the
- * animation when the assistant turn transitions out of
- * `working`, leaving the rendered text static. */
-.nt-chat__message--assistant[data-streaming='true'] .nt-chat__message-content::after {
-  content: '';
-  display: inline-block;
-  width: 0.5em;
-  height: 1em;
-  background: var(--accent-cyan);
-  margin-left: 0.15em;
-  vertical-align: text-bottom;
-  animation: nt-chat-cursor-blink 1s steps(2) infinite;
-}
-
-@keyframes nt-chat-cursor-blink {
-  0%,
-  50% {
-    opacity: 1;
-  }
-  51%,
-  100% {
-    opacity: 0;
-  }
-}
-
 /* ---- Markdown rendered content (chat messages) ----
  *
  * Scoped to .nt-chat__message-content so the markdown tree only

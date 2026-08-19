@@ -89,6 +89,21 @@ async fn main() -> Result<()> {
         tokio::net::TcpListener::bind(format!("{}:{}", args.host, args.port))
             .await?;
 
+    // Announce the probe endpoints once the router is built and
+    // the listener is bound: from this point on, `/livez`
+    // answers liveness (process serves HTTP) and `/readyz`
+    // answers readiness (bootstrap completed before the bind, so
+    // the first probe already reports ready). Orchestrators and
+    // load balancers should wire these two URLs into their
+    // liveness / readiness probe configuration.
+    info!(
+        host = %args.host,
+        port = args.port,
+        livez = format!("http://{}:{}/livez", args.host, args.port),
+        readyz = format!("http://{}:{}/readyz", args.host, args.port),
+        "listening; probes ready"
+    );
+
     // Use axum server with graceful shutdown
     axum::serve(listener, app)
         .with_graceful_shutdown(async move {

@@ -84,7 +84,7 @@ export function Header({ isServerAvailable }: HeaderProps) {
     >
       <header>
         <Flex align="center" justify="between" gap="3">
-          <Flex align="center" gap="3">
+          <Flex align="center" gap="3" className="nt-header-left">
             <Link
               to="/chat"
               aria-label="Synthia home"

@@ -21,7 +21,7 @@ use crate::config::AuthConfig;
 ///
 /// Reads the `Authorization` header and validates against a configured API key.
 /// If no API key is configured (empty), the middleware allows all requests.
-/// Certain paths (e.g., /health) are exempt from authentication.
+/// Certain paths (e.g., /livez, /readyz) are exempt from authentication.
 #[derive(Clone)]
 pub struct AuthMiddleware<S> {
     inner: S,
@@ -186,11 +186,12 @@ mod tests {
 
     // -- is_public_path -----------------------------------------------
 
-    /// `/health` is a known-public endpoint and MUST be allowed
-    /// through without authentication.
+    /// `/livez` and `/readyz` are known-public probe endpoints
+    /// and MUST be allowed through without authentication.
     #[test]
-    fn is_public_path_health_is_public() {
-        assert!(AuthMiddleware::<Request<()>>::is_public_path("/health"));
+    fn is_public_path_probes_are_public() {
+        assert!(AuthMiddleware::<Request<()>>::is_public_path("/livez"));
+        assert!(AuthMiddleware::<Request<()>>::is_public_path("/readyz"));
     }
 
     /// `/.well-known/agent-card.json` (the A2A discovery
@@ -211,34 +212,34 @@ mod tests {
 
     /// Paths with `..` MUST be rejected by `normalize_path` so
     /// `is_public_path` returns false (security-critical: a
-    /// request like `/health/../api/run` MUST NOT bypass auth).
+    /// request like `/livez/../api/run` MUST NOT bypass auth).
     #[test]
     fn is_public_path_dot_dot_rejected() {
         assert!(!AuthMiddleware::<Request<()>>::is_public_path(
-            "/health/../api/run"
+            "/livez/../api/run"
         ));
         assert!(!AuthMiddleware::<Request<()>>::is_public_path(
-            "/api/../health"
+            "/api/../livez"
         ));
     }
 
     /// Path-prefix matching MUST be limited to ONE level deep
-    /// (so `/health/foo/bar` is NOT public). Pin the depth
+    /// (so `/livez/foo/bar` is NOT public). Pin the depth
     /// boundary to prevent a future refactor from accidentally
     /// granting broad prefix exemptions.
     #[test]
     fn is_public_path_one_level_deep_subpath_is_public() {
         assert!(AuthMiddleware::<Request<()>>::is_public_path(
-            "/health/check"
+            "/livez/check"
         ));
     }
 
     /// Path-prefix matching MUST NOT allow deeper nesting.
-    /// `/health/foo/bar` MUST NOT be treated as public.
+    /// `/livez/foo/bar` MUST NOT be treated as public.
     #[test]
     fn is_public_path_two_levels_deep_subpath_is_not_public() {
         assert!(!AuthMiddleware::<Request<()>>::is_public_path(
-            "/health/foo/bar"
+            "/livez/foo/bar"
         ));
     }
 
@@ -262,16 +263,16 @@ mod tests {
     }
 
     /// `is_public_path` MUST be exact-match for the root of a
-    /// public path, NOT substring (`/my-health` MUST NOT match
-    /// `/health`).
+    /// public path, NOT substring (`/my-livez` MUST NOT match
+    /// `/livez`).
     #[test]
     fn is_public_path_substring_does_not_match() {
-        assert!(!AuthMiddleware::<Request<()>>::is_public_path("/my-health"));
+        assert!(!AuthMiddleware::<Request<()>>::is_public_path("/my-livez"));
         assert!(!AuthMiddleware::<Request<()>>::is_public_path(
-            "/super-health"
+            "/super-livez"
         ));
         assert!(!AuthMiddleware::<Request<()>>::is_public_path(
-            "/healthcheck"
+            "/livezcheck"
         ));
     }
 
@@ -382,7 +383,7 @@ mod tests {
     /// the input path (no global state).
     #[test]
     fn is_public_path_is_deterministic() {
-        let paths = ["/health", "/agent-card", "/api/run", "/api/foo"];
+        let paths = ["/livez", "/agent-card", "/api/run", "/api/foo"];
         for p in paths {
             let first = AuthMiddleware::<Request<()>>::is_public_path(p);
             let second = AuthMiddleware::<Request<()>>::is_public_path(p);
@@ -397,11 +398,11 @@ mod tests {
 
     /// `is_public_path` MUST treat paths with URL-encoded
     /// segments by DECODING first (defensive: a path like
-    /// `/%68ealth` MUST resolve to `/health` via
+    /// `/%6civez` MUST resolve to `/livez` via
     /// `normalize_path` and be classified as public).
     #[test]
-    fn is_public_path_url_encoded_health_decodes_to_public() {
-        // %68 == 'h' so /%68ealth == /health after decode.
-        assert!(AuthMiddleware::<Request<()>>::is_public_path("/%68ealth"));
+    fn is_public_path_url_encoded_probe_decodes_to_public() {
+        // %6c == 'l' so /%6civez == /livez after decode.
+        assert!(AuthMiddleware::<Request<()>>::is_public_path("/%6civez"));
     }
 }

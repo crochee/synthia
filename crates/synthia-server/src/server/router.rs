@@ -147,21 +147,24 @@ pub async fn create_router(state: Arc<AppState>) -> Router {
     // Public infrastructure endpoints.
     //
     // These are intentionally mounted OUTSIDE the protected router:
-    // - `/health` is a liveness probe hit by orchestrators (k8s,
-    //   load balancers) every second; emitting an access log /
-    //   traceparent on every probe floods the log pipeline and
-    //   burns trace ids.
+    // - `/livez` and `/readyz` are probes hit by orchestrators
+    //   (k8s, load balancers) every second; emitting an access
+    //   log / traceparent on every probe floods the log pipeline
+    //   and burns trace ids. `/livez` answers liveness (process
+    //   serves HTTP ⇒ 200), `/readyz` answers readiness
+    //   (in-process dependencies initialized ⇒ 200, else 503).
     // - `/.well-known/agent-card.json` is fetched *by external
     //   agents / scanners* to discover the A2A interface; it has
     //   no caller identity to authenticate and no per-request
     //   work worth tracing.
     //
     // Skipping the AuthLayer, trace-context middleware, and
-    // access-log span keeps both endpoints predictable and cheap.
+    // access-log span keeps these endpoints predictable and cheap.
     // The CORS layer is still applied so cross-origin browsers
     // can still call them.
     let public = Router::new()
-        .route("/health", get(routes::health::health_check))
+        .route("/livez", get(routes::health::livez))
+        .route("/readyz", get(routes::health::readyz))
         .route(
             "/.well-known/agent-card.json",
             get(routes::a2a::get_agent_card),
