@@ -10,6 +10,7 @@
 
 .nt-chat__messages {
   flex: 1;
+  min-height: 0; /* flex overflow trap: let the list scroll instead of pushing the composer out */
   overflow-y: auto;
   padding: var(--spacing-md) 0;
   display: flex;
@@ -107,6 +108,27 @@
   gap: var(--spacing-sm);
   padding-top: var(--spacing-md);
   border-top: 1px solid var(--border-subtle);
+}
+
+/* Composer bar — model selector, agent chip, attach button and
+ * the send button share one horizontal row beneath the input
+ * textarea (which stays full-width on its own line). `flex-wrap`
+ * is a narrow-viewport safety net; on normal widths everything
+ * sits on one line. */
+.nt-chat__composer-bar {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  flex-wrap: wrap;
+}
+.nt-chat__composer-bar .nt-chat__model-selector,
+.nt-chat__composer-bar .nt-chat__agent-selector,
+.nt-chat__composer-bar .nt-chat__agent-chip,
+.nt-chat__composer-bar .nt-chat__attach-button {
+  flex-shrink: 0;
+}
+.nt-chat__composer-bar .nt-chat__send-button {
+  margin-left: auto;
 }
 
 .nt-chat__input {
@@ -661,7 +683,7 @@
   color: var(--color-thinking-fg);
 }
 
-/* --- artifact card overlay (Task 8, spec §4.2) --- */
+/* --- artifact card overlay (spec §4.2) --- */
 
 .nt-chat__segment--artifact {
   border-left: 3px solid var(--color-artifact-border);
@@ -686,4 +708,268 @@
   opacity: 0.7;
 }
 
-/* (Removed A2A conversion panel CSS — see optimization-report-2026-08-15.md.) */
+/* (Removed conversion panel CSS — see optimization-report-2026-08-15.md.) */
+
+/* --- Agent chip (URL-based selection) ---
+ *
+ * Surfaces the current agent name next to the composer so the
+ * user can see which registered agent will run the next
+ * prompt. The "Clear" button sends the user back to
+ * `/chat/:sessionId`, which re-runs the default-resolution
+ * effect (so the chip repopulates from the configured
+ * default). */
+.nt-chat__agent-chip {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  padding: 6px 10px;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  font-family: var(--font-sans);
+  font-size: var(--fs-sm);
+  color: var(--text-secondary);
+}
+.nt-chat__agent-chip code {
+  font-family: var(--font-mono);
+  color: var(--text-primary);
+  background: var(--bg-secondary);
+  padding: 1px 6px;
+  border-radius: 3px;
+}
+
+/* --- Pending attachments (multimodal composer) ---
+ *
+ * Row of previews above the textarea. Each item shows an
+ * image thumbnail (or a generic file icon for non-image
+ * kinds), the file name, and a small ✕ to drop the
+ * attachment. The previews are deliberately compact so a
+ * single row of 3-4 attachments fits comfortably above the
+ * composer without pushing the chat history off-screen. */
+.nt-chat__attachments {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--spacing-sm);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.nt-chat__attachment {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 6px 4px 4px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  background: var(--bg-tertiary);
+  font-family: var(--font-sans);
+  font-size: var(--fs-xs);
+  color: var(--text-secondary);
+  max-width: 220px;
+}
+
+.nt-chat__attachment-thumb {
+  width: 28px;
+  height: 28px;
+  object-fit: cover;
+  border-radius: 3px;
+  border: 1px solid var(--border-subtle);
+}
+
+.nt-chat__attachment-audio {
+  height: 28px;
+  max-width: 120px;
+}
+
+.nt-chat__attachment-icon {
+  width: 28px;
+  height: 28px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 16px;
+  color: var(--text-primary);
+}
+
+.nt-chat__attachment-name {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* --- Attach-file button (multimodal composer) ---
+ *
+ * A `<label>` wrapping a hidden `<input type="file">` so the
+ * click handler is automatic. Matches the existing Button
+ * surface so the row reads as a single visual group. */
+.nt-chat__attach-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+  font-family: var(--font-sans);
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-medium);
+  cursor: pointer;
+  transition:
+    background-color var(--transition-fast),
+    border-color var(--transition-fast);
+  width: fit-content;
+}
+.nt-chat__attach-button:hover {
+  background: var(--bg-tertiary);
+  border-color: var(--accent-primary);
+}
+.nt-chat__attach-button input[type='file'] {
+  display: none;
+}
+
+/* --- Model selector (composer) ---
+ *
+ * ChatGPT/Claude/Gemini all surface a model picker above the
+ * composer. We mirror that with a native dropdown — small,
+ * predictable, accessible without an ARIA combobox.
+ */
+.nt-chat__model-selector {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  font-family: var(--font-sans);
+  font-size: var(--fs-sm);
+  color: var(--text-secondary);
+}
+.nt-chat__model-label {
+  font-weight: 500;
+}
+.nt-chat__model-select {
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  padding: 4px 8px;
+  font-family: var(--font-mono);
+  font-size: var(--fs-sm);
+  cursor: pointer;
+}
+.nt-chat__model-select:focus-visible {
+  outline: 2px solid var(--accent-primary);
+  outline-offset: 1px;
+}
+
+/* --- Agent selector (composer) ---
+ *
+ * Mirrors the model selector. Rendered only when the server has
+ * more than one registered agent; a single agent keeps the chip.
+ * "Default" re-enters the default-resolution flow.
+ */
+.nt-chat__agent-selector {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  font-family: var(--font-sans);
+  font-size: var(--fs-sm);
+  color: var(--text-secondary);
+}
+.nt-chat__agent-label {
+  font-weight: 500;
+}
+.nt-chat__agent-select {
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  padding: 4px 8px;
+  font-family: var(--font-mono);
+  font-size: var(--fs-sm);
+  cursor: pointer;
+}
+.nt-chat__agent-select:focus-visible {
+  outline: 2px solid var(--accent-primary);
+  outline-offset: 1px;
+}
+
+/* --- Usage chip (header) ---
+ *
+ * Cumulative token counters, polled from `/api/v1/chat/usage`.
+ * Compact so it can sit in the page chrome without competing
+ * for attention with the transcript.
+ */
+.nt-chat__usage-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+  color: var(--text-secondary);
+  width: fit-content;
+  margin-bottom: var(--spacing-sm);
+}
+
+/* --- Typing dots (streaming indicator) ---
+ *
+ * Three bouncing dots that pulse while the model is
+ * generating. Borrowed straight from the ChatGPT convention.
+ */
+.nt-chat__streaming-indicator {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  font-family: var(--font-sans);
+  font-size: var(--fs-sm);
+  color: var(--text-secondary);
+  width: fit-content;
+}
+.nt-chat__typing-dot {
+  width: 6px;
+  height: 6px;
+  background: var(--text-secondary);
+  border-radius: 50%;
+  display: inline-block;
+  animation: nt-chat__typing-bounce 1.2s infinite ease-in-out;
+}
+.nt-chat__typing-dot:nth-child(2) {
+  animation-delay: 0.15s;
+}
+.nt-chat__typing-dot:nth-child(3) {
+  animation-delay: 0.3s;
+}
+@keyframes nt-chat__typing-bounce {
+  0%,
+  60%,
+  100% {
+    transform: translateY(0);
+    opacity: 0.5;
+  }
+  30% {
+    transform: translateY(-4px);
+    opacity: 1;
+  }
+}
+.nt-chat__typing-label {
+  font-style: italic;
+}
+
+/* --- Message actions toolbar (Regenerate + Feedback) ---
+ *
+ * Action row beneath the trailing assistant turn. Only
+ * visible when the last turn has finished, mirroring
+ * ChatGPT / Claude / Gemini's behaviour.
+ */
+.nt-chat__message-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+  margin-bottom: var(--spacing-sm);
+}

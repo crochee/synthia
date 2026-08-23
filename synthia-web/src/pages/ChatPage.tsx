@@ -6,6 +6,7 @@ import {
   useCallback,
   type FormEvent,
   type KeyboardEvent,
+  type ChangeEvent,
 } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { Button } from '../components/ui/Button';
@@ -14,44 +15,91 @@ import { ChatMessageList, type ChatMessageViewItem } from '../components/chat/Ch
 import {
   sendMessageStream,
   extractFromMessage,
-  type A2AStreamEvent,
+  regenerate as apiRegenerate,
+  cancelSession as apiCancelSession,
+  submitFeedback as apiSubmitFeedback,
+  listModels as apiListModels,
+  type SessionStreamEvent,
   type SegmentType,
   type SegmentMetadata,
-} from '../api/a2a-stream';
+  type AttachmentPart,
+  type ModelEntry,
+} from '../api/chat-stream';
 import type { MessageSegment } from '../api/chat-message';
-import type { TaskPart } from '../api/types';
-import { appendArtifactSegment } from '../lib/append-artifact-segment';
-import { stripArtifactSegments } from '../lib/strip-artifact-segments';
+import type { AgentDetail, List, SessionPart } from '../api/types';
+import { appendAttachmentSegment } from '../lib/append-attachment-segment';
+import { stripAttachmentSegments } from '../lib/strip-attachment-segments';
 import { useServerHealth, setServerHealth } from '../hooks/useServerHealth';
 import { useToast } from '../hooks/useToast';
+import { api } from '../api/client';
 import './ChatPage.css';
 
 /**
- * Map A2A TaskState enum names (TASK_STATE_*) to the CSS class
- * suffix used by nt-chat__message-status (.status-{suffix}).
+ * MIME prefixes the chat composer accepts as multimodal
+ * attachments. Image and audio are the two categories the
+ * MVP exposes; everything else falls through to the generic
+ * `file` attachment type and is sent as `Part.raw`.
  *
- * Canonical enum set is fixed by `@a2a-js/sdk@1.0.0` `TaskState`.
- * Each canonical value maps to a CSS class suffix that already
- * exists on `.nt-chat__message-status`. Inputs that don't match
- * any key fall back to `'unknown'`.
+ * Keep this list narrow — every entry is a UI affordance
+ * (icon, accept-attribute, preview), so the user can tell
+ * upfront what the model will receive.
  */
-const TASK_STATE_MIGRATION: Record<string, string> = {
-  TASK_STATE_UNSPECIFIED: 'unspecified',
-  TASK_STATE_SUBMITTED: 'submitted',
-  TASK_STATE_WORKING: 'working',
-  TASK_STATE_COMPLETED: 'completed',
-  TASK_STATE_FAILED: 'failed',
-  TASK_STATE_CANCELED: 'canceled',
-  TASK_STATE_INPUT_REQUIRED: 'input-required',
-  TASK_STATE_REJECTED: 'rejected',
-  TASK_STATE_AUTH_REQUIRED: 'auth-required',
+const ATTACHMENT_IMAGE_PREFIXES = ['image/'];
+const ATTACHMENT_AUDIO_PREFIXES = ['audio/'];
+const ATTACHMENT_FILE_PREFIXES = ['application/pdf', 'text/plain', 'text/markdown'];
+
+/**
+ * Classify a `File`'s MIME type into the matching
+ * `AttachmentPart` kind. Returns `null` when the MIME type
+ * isn't supported — the caller surfaces a toast and skips
+ * the file.
+ */
+function classifyAttachment(mimeType: string): 'image' | 'audio' | 'file' | null {
+  if (ATTACHMENT_IMAGE_PREFIXES.some((p) => mimeType.startsWith(p))) return 'image';
+  if (ATTACHMENT_AUDIO_PREFIXES.some((p) => mimeType.startsWith(p))) return 'audio';
+  if (ATTACHMENT_FILE_PREFIXES.some((p) => mimeType.startsWith(p))) return 'file';
+  return null;
+}
+
+/** Read a `File` into a base64 `data:` URL. */
+function readFileAsDataUrl(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = () => reject(reader.error ?? new Error('FileReader failed'));
+    reader.onload = () => {
+      if (typeof reader.result === 'string') resolve(reader.result);
+      else reject(new Error('FileReader did not return a string'));
+    };
+    reader.readAsDataURL(file);
+  });
+}
+
+/**
+ * Map session state enum names (SESSION_STATE_*) to the CSS
+ * class suffix used by nt-chat__message-status
+ * (.status-{suffix}). The canonical status set is closed and
+ * surfaced by the `infer_status` helper on the backend; each
+ * canonical value maps to a CSS class suffix that already
+ * exists on `.nt-chat__message-status`. Inputs that don't
+ * match any key fall back to `'unknown'`.
+ */
+const SESSION_STATE_MIGRATION: Record<string, string> = {
+  SESSION_STATE_UNSPECIFIED: 'unspecified',
+  SESSION_STATE_SUBMITTED: 'submitted',
+  SESSION_STATE_WORKING: 'working',
+  SESSION_STATE_COMPLETED: 'completed',
+  SESSION_STATE_FAILED: 'failed',
+  SESSION_STATE_CANCELED: 'canceled',
+  SESSION_STATE_INPUT_REQUIRED: 'input-required',
+  SESSION_STATE_REJECTED: 'rejected',
+  SESSION_STATE_AUTH_REQUIRED: 'auth-required',
 };
 
-function normalizeTaskState(state: string): string {
-  if (Object.prototype.hasOwnProperty.call(TASK_STATE_MIGRATION, state)) {
-    return TASK_STATE_MIGRATION[state];
+function normalizeSessionState(state: string): string {
+  if (Object.prototype.hasOwnProperty.call(SESSION_STATE_MIGRATION, state)) {
+    return SESSION_STATE_MIGRATION[state];
   }
-  console.error('[chat] unknown TaskState on wire:', state);
+  console.error('[chat] unknown session state on wire:', state);
   return 'unknown';
 }
 
@@ -59,8 +107,17 @@ interface Message {
   id: string;
   role: 'user' | 'assistant';
   segments: MessageSegment[];
-  taskId?: string;
+  sessionId?: string;
   status?: string;
+  /**
+   * User-supplied multimodal attachments for this turn.
+   * Stored only on `user` turns; `assistant` turns never carry
+   * attachments. Persisted to localStorage alongside
+   * `segments` so a session restored from a cold load still
+   * shows the previews. Re-rendered as inline previews in the
+   * message bubble.
+   */
+  attachments?: AttachmentPart[];
 }
 
 const STORAGE_KEY = 'synthia.sessions.v1';
@@ -146,12 +203,12 @@ function findPendingToolBlockIndex(segments: MessageSegment[], toolUseId?: strin
 }
 
 /**
- * Main chat page. Sends user messages to the A2A backend via
+ * Main chat page. Sends user messages to the chat backend via
  * `message/stream` and renders incremental assistant segments as
  * SSE events arrive.
  *
- * The wire is A2A v1.0 `Message` + `Part`s. Classification lives
- * in `api/a2a-stream.ts::classifyPart` and dispatches by natural
+ * The wire is `Message` + `Part`s. Classification lives
+ * in `api/chat-stream.ts::classifyPartPayload` and dispatches by natural
  * Part shape:
  *   - `Part.text`                         → text segment
  *   - `Part.data { id, name, input }`     → tool_call segment
@@ -164,14 +221,17 @@ function findPendingToolBlockIndex(segments: MessageSegment[], toolUseId?: strin
  * the source — providers that emit `<think>…</think>` markers
  * inline have those markers extracted by
  * `synthia-provider::streaming::ThinkExtractor` before chunks
- * reach the A2A layer, so the frontend never parses marker
+ * reach the chat layer, so the frontend never parses marker
  * syntax.
  *
  * No wire-level `kind` discriminator is consulted. Session id
  * is read from the route param and persisted to localStorage.
  */
 export function ChatPage() {
-  const { sessionId: routeSessionId } = useParams<{ sessionId?: string }>();
+  const { sessionId: routeSessionId, agentName: routeAgentName } = useParams<{
+    sessionId?: string;
+    agentName?: string;
+  }>();
   const navigate = useNavigate();
 
   // Ensure a session exists: if none in URL, create one and
@@ -201,6 +261,61 @@ export function ChatPage() {
   }, [routeSessionId, navigate]);
 
   const sessionId = routeSessionId;
+
+  /**
+   * URL-based agent selection:
+   *
+   *   /chat/:sessionId                  → no agent, redirect to the
+   *                                       default agent (configured or
+   *                                       first registered)
+   *   /chat/:sessionId/agent/:agentName → use the named agent
+   *                                       verbatim; if the name doesn't
+   *                                       match a registered agent, the
+   *                                       user gets a clear inline error
+   *                                       (no silent fallback — explicit
+   *                                       intent is the contract).
+   *
+   * `navigate` is the only correct side-effect here: it
+   * updates the URL bar, makes the choice shareable /
+   * bookmarkable, and keeps React Router's history in sync
+   * with the user's selection. The agent name also rides
+   * along on every `sendMessageStream` call so the backend's
+   * chat layer can route the dispatch to the same agent
+   * even if the URL and the metadata ever diverge.
+   */
+  const [agentName, setAgentName] = useState<string | null>(routeAgentName ?? null);
+  const [agentError, setAgentError] = useState<string | null>(null);
+  useEffect(() => {
+    if (!sessionId) return; // wait for the session redirect above
+    if (routeAgentName !== undefined) {
+      setAgentName(routeAgentName);
+      setAgentError(null);
+      return;
+    }
+    // No agent in the URL — resolve the default via the
+    // backend and replace the path so the URL stays in sync
+    // with reality. A `404` (no agents registered) is treated
+    // as a permanent error so the user isn't stuck in a
+    // redirect loop on a fresh install.
+    let cancelled = false;
+    (async () => {
+      try {
+        const resp = await api.get<{ name: string; source: string }>('/api/v1/agents/default');
+        if (cancelled) return;
+        setAgentError(null);
+        setAgentName(resp.name);
+        navigate(`/chat/${sessionId}/agent/${encodeURIComponent(resp.name)}`, {
+          replace: true,
+        });
+      } catch (err) {
+        if (cancelled) return;
+        setAgentError(err instanceof Error ? err.message : 'No agents registered.');
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [routeAgentName, sessionId, navigate]);
 
   // Read the initial message list from localStorage synchronously
   // (lazy initializer). The previous design used a useEffect to
@@ -235,6 +350,40 @@ export function ChatPage() {
     }
   });
   const [isStreaming, setIsStreaming] = useState(false);
+  /**
+   * Multimodal attachments queued for the next submission.
+   * Each entry is one `AttachmentPart`. The list is cleared
+   * on successful submit and survives across input edits so
+   * the user can attach, type, edit, and send without losing
+   * the attachments.
+   */
+  const [pendingAttachments, setPendingAttachments] = useState<AttachmentPart[]>([]);
+  /**
+   * Available models + currently-selected model id. The chat
+   * UI's model selector surfaces this so the user can swap
+   * models mid-session — a per-turn override that mirrors what
+   * ChatGPT / Claude / Gemini all offer today. Falls back to
+   * an empty list when `/api/v1/models` is unreachable.
+   */
+  const [models, setModels] = useState<ModelEntry[]>([]);
+  const [selectedModel, setSelectedModel] = useState<string | null>(null);
+  /**
+   * Registered agents (from `GET /api/v1/agents`). When more
+   * than one agent exists the composer renders an agent
+   * dropdown; a single agent keeps the chip. Empty (fetch
+   * failed) falls back to the chip so routing still works.
+   */
+  const [agents, setAgents] = useState<AgentDetail[]>([]);
+  /**
+   * Process-wide usage counters, polled every 30s. Surfaced
+   * as a chip in the header so the user sees the cumulative
+   * token spend without having to dig into a settings page.
+   */
+  const [usage, setUsage] = useState<{ tokens_in: number; tokens_out: number; turns: number }>({
+    tokens_in: 0,
+    tokens_out: 0,
+    turns: 0,
+  });
   /**
    * Stream-level error state. Lives at the page level so the
    * banner survives across remounts of the message list and so
@@ -594,7 +743,7 @@ export function ChatPage() {
       const raw = localStorage.getItem(`synthia.messages.${sessionId}`);
       if (!cancelled) {
         const parsed = raw ? (JSON.parse(raw) as Message[]) : [];
-        setMessages(stripArtifactSegments(parsed));
+        setMessages(stripAttachmentSegments(parsed));
       }
     } catch {
       if (!cancelled) setMessages([]);
@@ -626,6 +775,12 @@ export function ChatPage() {
   // segments in a few seconds, and serialising the whole array
   // per event is wasted I/O. 300ms is short enough to feel
   // instant on refresh, long enough to coalesce bursts.
+  //
+  // `attachments` are NOT persisted — the base64 payloads
+  // would bloat localStorage past the ~5 MB quota on a single
+  // large image, and a cold reload loses the original `File`
+  // anyway. The next message starts fresh; past turns are
+  // reconstructed from the assistant's replies alone.
   useEffect(() => {
     if (!sessionId) return;
     if (persistSkipRef.current) {
@@ -634,9 +789,10 @@ export function ChatPage() {
     }
     const timer = setTimeout(() => {
       try {
+        const stripped = messages.map((m) => ({ ...m, attachments: undefined }));
         localStorage.setItem(
           `synthia.messages.${sessionId}`,
-          JSON.stringify(stripArtifactSegments(messages)),
+          JSON.stringify(stripAttachmentSegments(stripped)),
         );
       } catch {
         // Quota errors on long conversations are non-fatal —
@@ -649,28 +805,29 @@ export function ChatPage() {
   const handleSubmit = async (e?: FormEvent) => {
     e?.preventDefault();
     const text = input.trim();
-    // Validate inputs up-front so users get explicit feedback
-    // when they press Enter past a visually-disabled state
-    // (e.g. while the page is server-offline but the input is
-    // still focused). The submit button itself reflects these
-    // same conditions via the `disabled` prop, but Enter bypasses
-    // a disabled button — so a focused-but-disabled input is
-    // otherwise a silent dead-end.
-    //
-    // We deliberately do *not* toast on every Enter press here:
-    // the server-health transition effect below already fires a
-    // single toast when the badge flips to OFFLINE, so the user
-    // is informed exactly once. Repeating the message on every
-    // Enter press would just be noise.
-    if (!text || isStreaming || !sessionId || !isServerAvailable) return;
+    // Multimodal turns can be sent with zero typed text (e.g.
+    // "describe this image") — the attachments carry the
+    // content. A purely-attachment submission is still valid;
+    // a purely-empty submission is rejected (no signal at
+    // all would just trip the model's no-op handler).
+    const hasAttachments = pendingAttachments.length > 0;
+    if ((!text && !hasAttachments) || isStreaming || !sessionId || !isServerAvailable) return;
+    if (agentName === null && agentError === null) return; // still resolving default
 
     const userMessage: Message = {
       id: crypto.randomUUID(),
       role: 'user',
       segments: [{ id: crypto.randomUUID(), type: 'text', content: text }],
+      attachments: hasAttachments ? pendingAttachments : undefined,
     };
     setMessages((prev) => [...prev, userMessage]);
     setInput('');
+    // Snapshot the attachments before clearing so we can
+    // hand them to the stream below — `pendingAttachments`
+    // is cleared immediately so the next message starts
+    // clean.
+    const attachmentsSnapshot = hasAttachments ? [...pendingAttachments] : undefined;
+    setPendingAttachments([]);
     setLastSubmittedText(text);
     setIsStreaming(true);
     setStreamError(null);
@@ -686,8 +843,22 @@ export function ChatPage() {
       { id: assistantId, role: 'assistant', segments: [], status: 'working' },
     ]);
 
+    // Mirror the URL's `:agentName` segment onto the wire so
+    // the chat layer can route the dispatch to the same
+    // agent even if the URL and the metadata ever diverge
+    // (e.g. a custom client invoking the same backend
+    // without a URL). `agentName` is `null` while the redirect
+    // is in flight — early-out above guarantees we don't
+    // reach this line in that state.
+    const metadata = agentName ? { 'synthia.agent_name': agentName } : undefined;
+
     try {
-      for await (const event of sendMessageStream(text, sessionId)) {
+      for await (const event of sendMessageStream(text, {
+        sessionId,
+        attachments: attachmentsSnapshot,
+        metadata,
+        model: selectedModel ?? undefined,
+      })) {
         applyStreamEvent(assistantId, event);
       }
       // Successful end of stream — drop the cached submission
@@ -781,7 +952,10 @@ export function ChatPage() {
     let cancelled = false;
     (async () => {
       try {
-        for await (const event of sendMessageStream(lastSubmittedText, sessionId)) {
+        for await (const event of sendMessageStream(lastSubmittedText, {
+          sessionId,
+          metadata: agentName ? { 'synthia.agent_name': agentName } : undefined,
+        })) {
           if (cancelled) return;
           applyStreamEvent(assistantId, event);
         }
@@ -825,18 +999,94 @@ export function ChatPage() {
   // a stale-effect loop.
 
   /**
+   * Fetch the model catalog from `/api/v1/models` once on mount.
+   * If the request fails (server down, version too old) we
+   * silently fall back to an empty list and the composer
+   * hides its model selector. The user can keep chatting
+   * through the default model — a feature, not a regression.
+   */
+  useEffect(() => {
+    if (!isServerAvailable) return;
+    let cancelled = false;
+    apiListModels()
+      .then((resp) => {
+        if (cancelled) return;
+        setModels(resp.models);
+        // Seed the selector with the workspace default so the
+        // first send picks up the same model the server would
+        // otherwise resolve internally.
+        const seed = `${resp.default_provider}/${resp.default_model}`;
+        setSelectedModel(seed);
+      })
+      .catch(() => {
+        // Network failure — leave the selector hidden.
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [isServerAvailable]);
+
+  // Fetch the registered agent list once on mount so the
+  // composer can render a dropdown when the server has more
+  // than one agent. On failure we keep the chip fallback.
+  useEffect(() => {
+    if (!isServerAvailable) return;
+    let cancelled = false;
+    api
+      .get<List<AgentDetail>>('/api/v1/agents')
+      .then((resp) => {
+        if (cancelled) return;
+        setAgents(resp.data);
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setAgents([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [isServerAvailable]);
+
+  /**
+   * Poll `/api/v1/chat/usage` every 30s. Cheap endpoint
+   * (returns three integers) so we don't bother with an
+   * explicit connection. Interval is cleared on unmount.
+   */
+  useEffect(() => {
+    if (!isServerAvailable) return;
+    let cancelled = false;
+    const tick = async () => {
+      try {
+        const resp = await import('../api/chat-stream').then((m) => m.getUsage());
+        if (!cancelled) {
+          setUsage({ tokens_in: resp.tokens_in, tokens_out: resp.tokens_out, turns: resp.turns });
+        }
+      } catch {
+        // Ignore — the chip will just keep showing the prior
+        // value until the next tick succeeds.
+      }
+    };
+    tick();
+    const id = window.setInterval(tick, 30_000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(id);
+    };
+  }, [isServerAvailable]);
+
+  /**
    * Dispatch a single (segment type, text, metadata) payload to
    * the right segment-append helper. The segment type is the
    * natural-shape classification already done by
    * `extractFromMessage` — no wire-level `kind` discriminator
-   * is consulted (per A2A v1.0: `Part.text` is text,
+   * is consulted (`Part.text` is text,
    * `Part.data` carries tool calls / results via the
    * provider-native shape).
    *
    * Returns `true` if the payload was consumed and the message
    * state was updated, `false` if the payload was a no-op
    * (empty text / unknown shape) so the caller can decide
-   * whether to also update the task state.
+   * whether to also update the session status.
    */
   const dispatchPartPayload = useCallback(
     (
@@ -913,7 +1163,7 @@ export function ChatPage() {
     [appendText, appendThinkingFromReasoning, appendToolSegment],
   );
 
-  const applyStreamEvent = (assistantId: string, event: A2AStreamEvent) => {
+  const applyStreamEvent = (assistantId: string, event: SessionStreamEvent) => {
     if (event.type === 'error') {
       const errorSegment: MessageSegment = {
         id: crypto.randomUUID(),
@@ -931,17 +1181,17 @@ export function ChatPage() {
     }
 
     switch (event.type) {
-      case 'statusUpdate': {
-        if (!event.statusUpdate) return;
-        // `event.statusUpdate.status.state` is the A2A v1.0
-        // wire enum name (e.g. `TASK_STATE_WORKING`) — it
+      case 'turnStatus': {
+        if (!event.turnStatus) return;
+        // `event.turnStatus.status.state` is the
+        // wire enum name (e.g. `SESSION_STATE_WORKING`) — it
         // comes through `StreamResponse.toJSON` already in
         // wire form, so we feed it straight to
-        // `normalizeTaskState` (no `taskStateToJSON` round
+        // `normalizeSessionState` (no serialization round
         // trip — that helper expects the SDK's in-memory
         // numeric enum and would return `UNRECOGNIZED`).
-        const state = normalizeTaskState(event.statusUpdate.status.state);
-        const statusMsg = event.statusUpdate.status.message;
+        const state = normalizeSessionState(event.turnStatus.status.state);
+        const statusMsg = event.turnStatus.status.message;
 
         // Update the message's task state regardless of whether
         // the status carries a part payload — the user wants to
@@ -953,8 +1203,10 @@ export function ChatPage() {
           );
 
         if (statusMsg) {
-          const { type, text, metadata } = extractFromMessage(statusMsg);
-          dispatchPartPayload(assistantId, type, text, metadata);
+          const extracted = extractFromMessage(statusMsg);
+          if (extracted) {
+            dispatchPartPayload(assistantId, extracted.type, extracted.text, extracted.metadata);
+          }
           setState();
         } else {
           setState();
@@ -964,45 +1216,47 @@ export function ChatPage() {
 
       case 'message': {
         if (!event.message) return;
-        const { type, text, metadata } = extractFromMessage(event.message);
-        dispatchPartPayload(assistantId, type, text, metadata);
+        const extracted = extractFromMessage(event.message);
+        if (extracted) {
+          dispatchPartPayload(assistantId, extracted.type, extracted.text, extracted.metadata);
+        }
         break;
       }
 
-      case 'artifactUpdate': {
-        // A2A v1.0 §3.7: ArtifactUpdate is reserved for tangible
-        // task deliverables (e.g. a generated file). The MVP
+      case 'attachment': {
+        // The `attachment` event is reserved for tangible
+        // session deliverables (e.g. a generated file). The MVP
         // backend doesn't emit any, but we still parse it for
-        // forward-compat — see `a2a-stream.ts::sendMessageStream`.
+        // forward-compat — see `chat-stream.ts::sendMessageStream`.
         //
         // The reducer is the only place that decides what to do
         // with the append/lastChunk protocol. Strict mode drops
-        // malformed events (see `appendArtifactSegment`'s doc).
-        if (!event.artifactUpdate) return;
-        const au = event.artifactUpdate;
-        const artifactId = au.artifact?.artifactId;
-        console.debug('[applyStreamEvent artifact]', {
-          artifactId,
-          append: au.append,
-          lastChunk: au.lastChunk,
-          partCount: Array.isArray(au.artifact?.parts) ? au.artifact.parts.length : 0,
+        // malformed events (see `appendAttachmentSegment`'s doc).
+        if (!event.attachment) return;
+        const att = event.attachment;
+        const attachmentId = att.attachment?.attachmentId;
+        console.debug('[applyStreamEvent attachment]', {
+          attachmentId,
+          append: att.append,
+          lastChunk: att.lastChunk,
+          partCount: Array.isArray(att.attachment?.parts) ? att.attachment.parts.length : 0,
         });
         setMessages((prev) =>
           prev.map((m) =>
             m.id === assistantId
               ? {
                   ...m,
-                  segments: appendArtifactSegment(m.segments, {
-                    taskId: au.taskId ?? '',
-                    contextId: au.contextId ?? '',
-                    artifact: {
-                      artifactId: artifactId ?? '',
-                      name: au.artifact?.name,
-                      parts: (au.artifact?.parts ?? []) as ReadonlyArray<TaskPart>,
-                      metadata: au.artifact?.metadata,
+                  segments: appendAttachmentSegment(m.segments, {
+                    sessionId: att.sessionId ?? '',
+                    contextId: att.contextId ?? '',
+                    attachment: {
+                      attachmentId: attachmentId ?? '',
+                      name: att.attachment?.name,
+                      parts: (att.attachment?.parts ?? []) as ReadonlyArray<SessionPart>,
+                      metadata: att.attachment?.metadata,
                     },
-                    append: au.append,
-                    lastChunk: au.lastChunk,
+                    append: att.append,
+                    lastChunk: att.lastChunk,
                   }),
                 }
               : m,
@@ -1011,13 +1265,13 @@ export function ChatPage() {
         break;
       }
 
-      case 'task': {
-        if (!event.task) return;
-        // `event.task.status?.state` is the A2A wire enum
-        // name string (already through `toJSON`); pass it
-        // directly to `normalizeTaskState`.
-        const taskState = event.task.status?.state;
-        const state = taskState ? normalizeTaskState(taskState) : 'unknown';
+      case 'sessionStatus': {
+        if (!event.session) return;
+        // `event.session.status?.state` is the session
+        // status enum name string; pass it directly to
+        // `normalizeSessionState`.
+        const sessionState = event.session.status?.state;
+        const state = sessionState ? normalizeSessionState(sessionState) : 'unknown';
         setMessages((prev) =>
           prev.map((m) => (m.id === assistantId ? { ...m, status: state } : m)),
         );
@@ -1045,7 +1299,7 @@ export function ChatPage() {
   // Project the chat-side `Message` shape onto the shared
   // ChatMessageView shape so the same renderer powers both
   // the live `/chat/:sessionId` page and the
-  // `/tasks/:id` reconstructed history view. `isStreaming`
+  // `/sessions/:id` reconstructed history view. `isStreaming`
   // propagates only for the active assistant turn so the
   // blinking-cursor affordance lights up while the model
   // is generating.
@@ -1057,34 +1311,144 @@ export function ChatPage() {
     isStreaming: isStreaming && msg.role === 'assistant' && msg.status === 'working',
   }));
 
+  // Identify the most recent user/assistant turn pair so we
+  // can wire up the "Regenerate" affordance against the
+  // trailing assistant message. Per ChatGPT/Claude/Gemini
+  // convention, regenerate is only available when the last
+  // turn has finished (completed / failed / canceled) and is
+  // not currently streaming.
+  const lastAssistant = (() => {
+    for (let i = messages.length - 1; i >= 0; i -= 1) {
+      if (messages[i].role === 'assistant') return messages[i];
+    }
+    return null;
+  })();
+  const canRegenerate =
+    !isStreaming &&
+    lastAssistant !== null &&
+    lastAssistant !== undefined &&
+    lastAssistant.status !== 'working';
+
+  const handleRegenerate = useCallback(async () => {
+    if (!sessionId || isStreaming) return;
+    try {
+      await apiRegenerate(sessionId);
+    } catch (err) {
+      pushToast({
+        variant: 'error',
+        message: `Regenerate failed: ${err instanceof Error ? err.message : String(err)}`,
+        durationMs: 5000,
+      });
+    }
+  }, [sessionId, isStreaming, pushToast]);
+
+  const handleFeedback = useCallback(
+    async (messageId: string, thumbsUp: boolean) => {
+      try {
+        await apiSubmitFeedback(messageId, thumbsUp);
+        pushToast({
+          variant: 'success',
+          message: thumbsUp ? 'Thanks for the feedback 👍' : 'Thanks for the feedback 👎',
+          durationMs: 2000,
+        });
+      } catch (err) {
+        pushToast({
+          variant: 'error',
+          message: `Feedback failed: ${err instanceof Error ? err.message : String(err)}`,
+          durationMs: 5000,
+        });
+      }
+    },
+    [pushToast],
+  );
+
   return (
     <div className="nt-chat">
+      <div className="nt-chat__usage-chip" data-testid="usage-chip">
+        <span aria-hidden>🧮</span>
+        <span>
+          {usage.tokens_in.toLocaleString()} in · {usage.tokens_out.toLocaleString()} out ·{' '}
+          {usage.turns} turn{usage.turns === 1 ? '' : 's'}
+        </span>
+      </div>
       {messages.length === 0 ? (
-        <Card title="System">
-          <p>
-            Welcome to <strong>Synthia</strong>. Type a message below to start an A2A task. Session:{' '}
-            <code>{sessionId?.slice(0, 8)}</code>
-          </p>
-        </Card>
+        <div className="nt-chat__messages">
+          <Card title="System">
+            <p>
+              Welcome to <strong>Synthia</strong>. Type a message below to start a chat. Session:{' '}
+              <code>{sessionId?.slice(0, 8)}</code>
+            </p>
+          </Card>
+        </div>
       ) : (
         <ChatMessageList messages={viewMessages} now={now} />
       )}
       <div ref={messagesEndRef} aria-hidden />
+      {lastAssistant && canRegenerate && (
+        <div className="nt-chat__message-actions" data-testid="message-actions">
+          <Button
+            size="1"
+            variant="soft"
+            color="gray"
+            onClick={handleRegenerate}
+            data-testid="regenerate-button"
+            aria-label="Regenerate response"
+          >
+            <span aria-hidden>↻</span>
+            Regenerate
+          </Button>
+          <Button
+            size="1"
+            variant="ghost"
+            color="gray"
+            onClick={() => handleFeedback(lastAssistant.id, true)}
+            data-testid={`feedback-up-${lastAssistant.id}`}
+            aria-label="Mark response as helpful"
+          >
+            <span aria-hidden>👍</span>
+          </Button>
+          <Button
+            size="1"
+            variant="ghost"
+            color="gray"
+            onClick={() => handleFeedback(lastAssistant.id, false)}
+            data-testid={`feedback-down-${lastAssistant.id}`}
+            aria-label="Mark response as unhelpful"
+          >
+            <span aria-hidden>👎</span>
+          </Button>
+        </div>
+      )}
+      {isStreaming && (
+        <div className="nt-chat__streaming-indicator" data-testid="typing-dots">
+          <span className="nt-chat__typing-dot" />
+          <span className="nt-chat__typing-dot" />
+          <span className="nt-chat__typing-dot" />
+          <span className="nt-chat__typing-label">Thinking…</span>
+        </div>
+      )}
       {isStreaming && (
         <button
           type="button"
           aria-label="Stop generating"
           data-testid="stop-button"
           className="nt-chat__stop-button"
-          onClick={() => {
-            // Local cancellation only: stop listening to the
-            // stream on the client side. The SDK cannot abort
-            // an in-flight SSE fetch (verified against
-            // @a2a-js/sdk v1.0 wire shape — no signal option
-            // exposed), so the server may keep emitting
-            // events that this client now discards. We mark
-            // the assistant turn `cancelled` so the user sees
-            // an unambiguous terminal state.
+          onClick={async () => {
+            // Local cancellation + server cancel. The REST
+            // surface exposes `POST /chat/sessions/{id}/cancel`
+            // which the controller translates into a
+            // `SessionOp::Cancel` so the in-flight ReAct run
+            // exits at its next yield point. Without this the
+            // user clicks Stop but the model keeps generating
+            // and the next SSE frame still arrives.
+            if (sessionId) {
+              try {
+                await apiCancelSession(sessionId);
+              } catch {
+                // Best-effort — the local state update still
+                // closes the user's session.
+              }
+            }
             setIsStreaming(false);
             setMessages((prev) =>
               prev.map((m) =>
@@ -1130,6 +1494,55 @@ export function ChatPage() {
       )}
 
       <form onSubmit={handleSubmit} className="nt-chat__form">
+        {agentError && (
+          <div
+            className="nt-chat__error-banner"
+            role="alert"
+            aria-live="assertive"
+            data-testid="agent-error"
+          >
+            <span className="nt-chat__error-banner-text">
+              <strong>Agent routing unavailable:</strong> {agentError}
+            </span>
+          </div>
+        )}
+        {pendingAttachments.length > 0 && (
+          <ul className="nt-chat__attachments" data-testid="pending-attachments">
+            {pendingAttachments.map((a, idx) => (
+              <li
+                key={`${a.kind}-${idx}-${'filename' in a ? (a.filename ?? '') : ''}`}
+                className="nt-chat__attachment"
+              >
+                {a.kind === 'image' && a.dataUrl ? (
+                  <img
+                    src={a.dataUrl}
+                    alt={a.filename ?? 'attached image'}
+                    className="nt-chat__attachment-thumb"
+                  />
+                ) : a.kind === 'audio' && a.dataUrl ? (
+                  <audio src={a.dataUrl} controls className="nt-chat__attachment-audio" />
+                ) : (
+                  <span aria-hidden className="nt-chat__attachment-icon">
+                    📎
+                  </span>
+                )}
+                <span className="nt-chat__attachment-name">
+                  {'filename' in a && a.filename ? a.filename : a.kind}
+                </span>
+                <Button
+                  size="1"
+                  variant="ghost"
+                  color="gray"
+                  onClick={() => setPendingAttachments((prev) => prev.filter((_, i) => i !== idx))}
+                  data-testid={`attachment-remove-${idx}`}
+                  aria-label="Remove attachment"
+                >
+                  ✕
+                </Button>
+              </li>
+            ))}
+          </ul>
+        )}
         <textarea
           ref={inputRef}
           className="nt-chat__input"
@@ -1142,13 +1555,138 @@ export function ChatPage() {
           data-testid="chat-input"
           aria-label="Message input"
         />
-        <Button
-          type="submit"
-          disabled={!input.trim() || isStreaming || !isServerAvailable}
-          data-testid="send-button"
-        >
-          {isStreaming ? 'Streaming...' : 'Send'}
-        </Button>
+        <div className="nt-chat__composer-bar">
+          {models.length > 0 && (
+            <div className="nt-chat__model-selector" data-testid="model-selector">
+              <label htmlFor="chat-model-select" className="nt-chat__model-label">
+                Model:
+              </label>
+              <select
+                id="chat-model-select"
+                className="nt-chat__model-select"
+                value={selectedModel ?? ''}
+                onChange={(e) => setSelectedModel(e.target.value || null)}
+                data-testid="model-select"
+              >
+                {models.map((m) => (
+                  <option key={`${m.provider}/${m.model}`} value={`${m.provider}/${m.model}`}>
+                    {m.provider}/{m.model}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
+          {agentName &&
+            (agents.length > 1 ? (
+              <div className="nt-chat__agent-selector" data-testid="agent-selector">
+                <label htmlFor="chat-agent-select" className="nt-chat__agent-label">
+                  Agent:
+                </label>
+                <select
+                  id="chat-agent-select"
+                  className="nt-chat__agent-select"
+                  value={agentName}
+                  onChange={(e) => {
+                    if (e.target.value === '') {
+                      // Back to the default-resolution flow.
+                      navigate(`/chat/${sessionId}`);
+                    } else {
+                      navigate(`/chat/${sessionId}/agent/${encodeURIComponent(e.target.value)}`, {
+                        replace: true,
+                      });
+                    }
+                  }}
+                  data-testid="agent-select"
+                >
+                  <option value="">Default</option>
+                  {agents.map((a) => (
+                    <option key={a.name} value={a.name}>
+                      {a.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            ) : (
+              <div className="nt-chat__agent-chip" data-testid="agent-chip">
+                <span aria-hidden>🤖</span>
+                <span>
+                  Agent: <code data-testid="agent-chip-name">{agentName}</code>
+                </span>
+                <Button
+                  size="1"
+                  variant="ghost"
+                  onClick={() => navigate(`/chat/${sessionId}`)}
+                  data-testid="agent-clear"
+                  aria-label="Clear agent selection"
+                >
+                  Clear
+                </Button>
+              </div>
+            ))}
+          <label className="nt-chat__attach-button">
+            <input
+              type="file"
+              accept="image/*,audio/*,application/pdf,text/plain,text/markdown"
+              multiple
+              onChange={async (e: ChangeEvent<HTMLInputElement>) => {
+                const files = Array.from(e.target.files ?? []);
+                if (files.length === 0) return;
+                const added: AttachmentPart[] = [];
+                for (const file of files) {
+                  const kind = classifyAttachment(file.type);
+                  if (kind === null) {
+                    pushToast({
+                      variant: 'warning',
+                      message: `Skipping ${file.name}: unsupported type ${file.type || 'unknown'}.`,
+                      durationMs: 4000,
+                    });
+                    continue;
+                  }
+                  try {
+                    const dataUrl = await readFileAsDataUrl(file);
+                    added.push({
+                      kind,
+                      dataUrl,
+                      mimeType: file.type,
+                      filename: file.name,
+                    } as AttachmentPart);
+                  } catch (err) {
+                    pushToast({
+                      variant: 'error',
+                      message: `Failed to read ${file.name}: ${
+                        err instanceof Error ? err.message : String(err)
+                      }`,
+                      durationMs: 5000,
+                    });
+                  }
+                }
+                if (added.length > 0) {
+                  setPendingAttachments((prev) => [...prev, ...added]);
+                }
+                // Reset the file input so the same file can be
+                // re-selected after removal.
+                e.target.value = '';
+              }}
+              data-testid="attachment-input"
+              aria-label="Attach files"
+            />
+            <span aria-hidden>📎</span>
+            <span>Attach</span>
+          </label>
+          <Button
+            type="submit"
+            className="nt-chat__send-button"
+            disabled={
+              (!input.trim() && pendingAttachments.length === 0) ||
+              isStreaming ||
+              !isServerAvailable ||
+              agentName === null
+            }
+            data-testid="send-button"
+          >
+            {isStreaming ? 'Streaming...' : 'Send'}
+          </Button>
+        </div>
       </form>
     </div>
   );

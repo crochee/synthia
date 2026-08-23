@@ -3,34 +3,19 @@ name = "synthia-telemetry"
 version.workspace = true
 edition.workspace = true
 
-[features]
-# OpenTelemetry OTLP export (default disabled). Enables OTLP tracing and
-# metrics exporters + the `init_otlp_tracing` pipeline. The OTel core
-# crates (`opentelemetry`, `opentelemetry_sdk`, semantic conventions)
-# are always-on dependencies — needed for the W3C TraceContext
-# propagator (used by `synthia-server` to honor the standard
-# `traceparent` / `tracestate` HTTP headers).
-otel = [
-    "dep:opentelemetry-otlp",
-    "dep:tracing-opentelemetry",
-    "dep:tokio",
-    "opentelemetry-otlp/grpc-tonic",
-    "opentelemetry-otlp/http-proto",
-    "opentelemetry-otlp/reqwest-client",
-    "opentelemetry-semantic-conventions/semconv_experimental",
-]
-
 [dependencies]
 synthia-core.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true
 uuid.workspace = true
-opentelemetry = { workspace = true }
-opentelemetry_sdk = { version = "0.32", features = ["rt-tokio"] }
-opentelemetry-semantic-conventions = "0.32"
-opentelemetry-otlp = { workspace = true, optional = true }
-tracing-opentelemetry = { workspace = true, optional = true }
-tokio = { workspace = true, optional = true }
+opentelemetry.workspace = true
+opentelemetry_sdk.workspace = true
+opentelemetry-semantic-conventions.workspace = true
+opentelemetry-otlp.workspace = true
+tracing-opentelemetry.workspace = true
+tokio.workspace = true
+prometheus.workspace = true
+lazy_static.workspace = true
 
 [dev-dependencies]
 tempfile.workspace = true

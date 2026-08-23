@@ -18,27 +18,25 @@
 
 use std::sync::Arc;
 
-use axum::{
-    Json,
-    extract::{Path, Query, State},
-    http::StatusCode,
-};
+use axum::{Json, extract::State, http::StatusCode};
 use parking_lot::RwLock;
 use serde::{Deserialize, Serialize};
 use synthia_agent::agent::{
     Agent,
     descriptor::{AgentDescriptor, AgentEntry},
 };
-use synthia_core::registry::Registry;
+use synthia_core::{Error, registry::Registry};
 use synthia_provider::ModelProvider;
 
 use super::helpers::paginate;
 use crate::{
     api::{
-        ErrorCode,
+        AppError,
+        AppJson,
+        AppPath,
+        AppQuery,
         List,
         PageQuery,
-        UserError,
         resolve_page,
         validate_resource_name,
         validate_sort,
@@ -55,8 +53,9 @@ const AGENT_SORT_WHITELIST: &[&str] = &["name", "kind"];
 /// touching handler logic.
 const PROTECTED_AGENTS: &[&str] = &["agent"];
 
-#[derive(Deserialize)]
+#[derive(Deserialize, validator::Validate)]
 pub struct AgentDescriptorRequest {
+    #[validate(length(min = 1, message = "must not be empty"))]
     pub name: String,
     pub description: String,
     pub kind: String,
@@ -179,8 +178,8 @@ fn build_react_agent(
 /// GET /api/v1/agents — list registered agents (cursor paginated).
 pub async fn list_agents(
     State(state): State<Arc<AppState>>,
-    Query(page): Query<PageQuery>,
-) -> Result<Json<List<AgentDetail>>, UserError> {
+    AppQuery(page): AppQuery<PageQuery>,
+) -> Result<Json<List<AgentDetail>>, AppError> {
     validate_sort(
         page.sort.as_deref().unwrap_or("name"),
         AGENT_SORT_WHITELIST,
@@ -232,10 +231,10 @@ pub async fn list_agents(
 async fn rebuild_entries_cache(
     state: &Arc<AppState>,
     version: u64,
-) -> Result<Arc<Vec<AgentEntry>>, UserError> {
+) -> Result<Arc<Vec<AgentEntry>>, AppError> {
     let entries =
         state.agent_registry.list(None).await.map_err(|e| {
-            UserError::from(format!("agent registry error: {e}"))
+            Error::internal(format!("agent registry error: {e}"))
         })?;
     let arc = Arc::new(entries);
     // Re-check inside the write guard — another request may
@@ -258,23 +257,19 @@ async fn rebuild_entries_cache(
 /// POST /api/v1/agents — register a new agent from a descriptor.
 pub async fn create_agent(
     State(state): State<Arc<AppState>>,
-    Json(req): Json<AgentDescriptorRequest>,
-) -> Result<(StatusCode, Json<AgentDetail>), UserError> {
+    AppJson(req): AppJson<AgentDescriptorRequest>,
+) -> Result<(StatusCode, Json<AgentDetail>), AppError> {
     validate_resource_name(&req.name)?;
     if req.description.trim().is_empty() {
-        return Err(UserError::new(
-            ErrorCode::BadRequest,
+        return Err(AppError::from(Error::invalid_item(
             "description must not be empty",
-        ));
+        )));
     }
     if is_protected(&req.name) {
-        return Err(UserError::new(
-            ErrorCode::Conflict,
-            format!(
-                "agent '{}' is a protected built-in and cannot be re-registered",
-                req.name
-            ),
-        ));
+        return Err(AppError::from(Error::already_exists(format!(
+            "agent '{}' (protected built-in, cannot be re-registered)",
+            req.name
+        ))));
     }
 
     let descriptor = AgentDescriptor {
@@ -299,31 +294,92 @@ pub async fn create_agent(
         display_name: None,
     };
 
-    let agent_name = descriptor.name.clone();
     let entry = AgentEntry::new(build_react_agent(&state, descriptor.clone()));
     state.agent_registry.put(entry).await.map_err(|e| match e {
-        synthia_core::Error::AlreadyExists { .. } => UserError::new(
-            ErrorCode::Conflict,
-            format!("agent '{agent_name}' already registered"),
-        ),
-        other => UserError::from(format!("registration failed: {other}")),
+        // Pass the classified core error through untouched —
+        // `AlreadyExists` maps to 409 with code "already_exists".
+        already @ synthia_core::Error::AlreadyExists { .. } => already,
+        other => Error::internal(format!("registration failed: {other}")),
     })?;
 
     Ok((StatusCode::CREATED, Json(detail_from(&descriptor))))
 }
 
+/// Response shape for `GET /api/v1/agents/default`. Carries the
+/// resolved name plus the source the ladder landed on, so the
+/// frontend can show "using default agent X (from config)" vs
+/// "defaulting to first registered agent X" without a second
+/// round-trip.
+#[derive(Serialize)]
+pub struct DefaultAgentResponse {
+    /// Resolved agent name to redirect to.
+    pub name: String,
+    /// Which rung of `explicit > configured default > first
+    /// registered` supplied `name`. Lets the frontend render a
+    /// tooltip explaining the routing decision.
+    pub source: &'static str,
+}
+
+/// GET /api/v1/agents/default — resolve the default agent name
+/// via the same ladder the controller uses
+/// (`explicit > configured default > first registered`) and
+/// return it. The frontend uses this on `/chat/:sessionId`
+/// (no agent in the URL) to redirect to
+/// `/chat/:sessionId/agent/:name`. Returns 404 only when the
+/// registry is empty.
+pub async fn get_default_agent(
+    State(state): State<Arc<AppState>>,
+) -> Result<Json<DefaultAgentResponse>, AppError> {
+    let explicit: Option<String> = None;
+    let configured = state.default_agent_name.read().clone();
+    let entries =
+        state.agent_registry.list(None).await.map_err(|e| {
+            Error::internal(format!("agent registry error: {e}"))
+        })?;
+    if entries.is_empty() {
+        return Err(AppError::from(Error::not_found("registered agents")));
+    }
+
+    let resolved = AppState::resolve_agent_name(
+        &state.agent_registry,
+        configured.as_deref(),
+        explicit.as_deref(),
+    )
+    .ok_or_else(|| AppError::from(Error::not_found("registered agents")))?;
+
+    // Mirror the ladder semantics so the source tag is honest.
+    // If the requested name actually matches the registry's
+    // first registered agent AND there's no configured default
+    // AND no explicit override, label it as "first-registered".
+    let source = if configured.as_deref() == Some(resolved.as_str()) {
+        "configured"
+    } else if configured.is_some() {
+        // The configured default wasn't matched (registry
+        // doesn't contain it). The fallback was either the
+        // explicit request or the first-registered agent.
+        "first-registered"
+    } else {
+        "first-registered"
+    };
+
+    Ok(Json(DefaultAgentResponse {
+        name: resolved,
+        source,
+    }))
+}
+
 /// GET /api/v1/agents/{name} — fetch one agent.
 pub async fn get_agent(
     State(state): State<Arc<AppState>>,
-    Path(name): Path<String>,
-) -> Result<Json<AgentDetail>, UserError> {
+    AppPath(name): AppPath<String>,
+) -> Result<Json<AgentDetail>, AppError> {
     validate_resource_name(&name)?;
-    let entry =
+    let entries =
         state.agent_registry.get(&name).await.map_err(|e| {
-            UserError::from(format!("agent registry error: {e}"))
+            Error::internal(format!("agent registry error: {e}"))
         })?;
-    let entry = entry.ok_or_else(|| {
-        UserError::new(ErrorCode::NotFound, format!("agent '{name}' not found"))
+    let entry = entries.ok_or_else(|| {
+        AppError::from(Error::not_found(format!("agent '{name}'")))
     })?;
     Ok(Json(detail_from(entry.descriptor())))
 }
@@ -333,25 +389,22 @@ pub async fn get_agent(
 /// (204 — DELETE is idempotent).
 pub async fn delete_agent(
     State(state): State<Arc<AppState>>,
-    Path(name): Path<String>,
-) -> Result<(StatusCode, ()), UserError> {
+    AppPath(name): AppPath<String>,
+) -> Result<(StatusCode, ()), AppError> {
     validate_resource_name(&name)?;
     if is_protected(&name) {
-        return Err(UserError::new(
-            ErrorCode::Forbidden,
-            format!(
-                "agent '{name}' is a protected built-in and cannot be removed"
-            ),
-        ));
+        return Err(AppError::from(Error::forbidden(format!(
+            "agent '{name}' (protected built-in, cannot be removed)"
+        ))));
     }
     match state.agent_registry.delete(&name).await {
         Ok(()) => Ok((StatusCode::NO_CONTENT, ())),
         Err(synthia_core::Error::NotFound { .. }) => {
             Ok((StatusCode::NO_CONTENT, ()))
         }
-        Err(other) => {
-            Err(UserError::from(format!("unregister failed: {other}")))
-        }
+        Err(other) => Err(AppError::from(Error::internal(format!(
+            "unregister failed: {other}"
+        )))),
     }
 }
 
@@ -419,5 +472,28 @@ mod tests {
         };
         let d = detail_from(&desc);
         assert!(d.protected);
+    }
+
+    /// `DefaultAgentResponse::source` MUST be `configured`
+    /// when the configured default resolves and matches the
+    /// registry. Verifies the simple happy path; the
+    /// fall-through cases are exercised by the integration
+    /// tests under `tests/` once the controller is wired.
+    #[test]
+    fn default_agent_response_source_label() {
+        // The source field is a constant string per request;
+        // assert the contract is a stable set of values.
+        let resp = DefaultAgentResponse {
+            name: "agent".into(),
+            source: "configured",
+        };
+        assert_eq!(resp.name, "agent");
+        assert_eq!(resp.source, "configured");
+
+        let resp = DefaultAgentResponse {
+            name: "fallback".into(),
+            source: "first-registered",
+        };
+        assert_eq!(resp.source, "first-registered");
     }
 }

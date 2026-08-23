@@ -1,4 +1,4 @@
-/* Shared styles for metadata tables, markdown surfaces, and tasks search. */
+/* Shared styles for metadata tables and markdown surfaces. */
 
 /* ---- Generic metadata table ---- */
 
@@ -177,74 +177,6 @@
   border: none;
   border-top: 1px solid var(--border-subtle);
   margin: var(--spacing-lg) 0;
-}
-
-/* ---- Tasks page search block ---- */
-
-.nt-tasks__search {
-  display: flex;
-  gap: var(--spacing-sm);
-  align-items: stretch;
-}
-
-.nt-tasks__search-input {
-  flex: 1;
-  background: var(--bg-secondary);
-  border: 1px solid var(--border-strong);
-  border-radius: var(--radius-sm);
-  color: var(--text-primary);
-  font-family: var(--font-mono);
-  font-size: var(--fs-base);
-  padding: var(--spacing-sm);
-}
-
-.nt-tasks__search-input:focus {
-  outline: none;
-  border-color: var(--color-input-focus-border);
-  box-shadow: 0 0 0 3px var(--color-input-focus-ring);
-}
-
-.nt-tasks__search-error {
-  margin: var(--spacing-sm) 0 0;
-  color: var(--accent-red);
-  font-size: var(--fs-sm);
-}
-
-.nt-tasks__search-results {
-  margin-top: var(--spacing-md);
-  border-top: 1px dashed var(--border-subtle);
-  padding-top: var(--spacing-sm);
-}
-
-.nt-tasks__search-results ul {
-  list-style: none;
-  padding: 0;
-  margin: 0;
-  display: flex;
-  flex-direction: column;
-  gap: var(--spacing-sm);
-}
-
-.nt-tasks__search-results li {
-  background: var(--color-tool-result-bg);
-  border-left: 3px solid var(--accent-green);
-  padding: var(--spacing-sm);
-  border-radius: var(--radius-sm);
-}
-
-.nt-tasks__search-results li p {
-  margin: var(--spacing-xs) 0 0;
-  color: var(--text-secondary);
-  font-size: var(--fs-sm);
-  white-space: pre-wrap;
-  word-break: break-word;
-}
-
-.nt-tasks__actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--spacing-sm);
-  align-items: center;
 }
 
 /* Warning state for Input.warning — orange ring. */

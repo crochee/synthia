@@ -21,7 +21,7 @@ export interface InputProps extends InputHTMLAttributes<HTMLInputElement> {
  *
  * - `error` switches the TextField to `color="red"` (red ring).
  * - `warning` adds `data-state="warning"` on the root (CSS rule for
- *   orange ring lives in page.css — added in Task 7).
+ *   orange ring lives in page.css).
  * - `icon` is rendered as a leading slot.
  */
 export function Input({ label, error, warning, icon, className, id, ...rest }: InputProps) {

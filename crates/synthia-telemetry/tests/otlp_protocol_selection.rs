@@ -5,8 +5,6 @@
 //! (4317 / 4318), preserving backward compatibility with the prior gRPC-only
 //! behavior.
 
-#![cfg(feature = "otel")]
-
 use synthia_telemetry::{OtlpProtocol, detect_protocol};
 
 #[test]

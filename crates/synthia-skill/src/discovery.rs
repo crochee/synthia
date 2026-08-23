@@ -171,6 +171,12 @@ mod tests {
         dir: tempfile::TempDir,
     }
     impl ScopedHome {
+        /// The caller MUST hold `HOME_LOCK` for the lifetime
+        /// of the returned guard (see `with_scoped_home`).
+        /// Splitting the lock acquire from `new()` keeps the
+        /// critical section minimal and avoids re-entrant
+        /// `std::sync::Mutex` deadlocks if `new()` is called
+        /// from a context that already holds the lock.
         fn new() -> Self {
             let dir = tempfile::tempdir().unwrap();
             let previous = std::env::var_os("HOME");

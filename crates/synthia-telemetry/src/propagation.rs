@@ -29,8 +29,6 @@
 //!
 //! [w3c]: https://www.w3.org/TR/trace-context/
 
-use std::str::FromStr;
-
 use opentelemetry::{
     Context,
     propagation::{Extractor, Injector},
@@ -51,10 +49,6 @@ pub const TRACEPARENT_HEADER: &str = "traceparent";
 
 /// Standard W3C `tracestate` header name.
 pub const TRACESTATE_HEADER: &str = "tracestate";
-
-/// Short-form header carrying just the trace id. Convenient for
-/// log aggregators that do not parse the full `traceparent`.
-pub const X_TRACE_ID_HEADER: &str = "x-trace-id";
 
 /// Extracted W3C trace context from the inbound request.
 #[derive(Debug, Clone)]
@@ -184,18 +178,6 @@ pub fn inject_trace_context(
     });
 }
 
-/// Parse a 32-char lowercase hex trace id. Returns `None` for any
-/// deviation from the spec.
-pub fn parse_trace_id(s: &str) -> Option<TraceId> {
-    TraceId::from_hex(s).ok()
-}
-
-/// Parse a 16-char lowercase hex span id. Returns `None` for any
-/// deviation from the spec.
-pub fn parse_span_id(s: &str) -> Option<SpanId> {
-    SpanId::from_hex(s).ok()
-}
-
 /// Format a hex trace id as 32 lowercase chars (the W3C requirement).
 pub fn format_trace_id(id: TraceId) -> String {
     format!("{:032x}", id)
@@ -206,15 +188,9 @@ pub fn format_span_id(id: SpanId) -> String {
     format!("{:016x}", id)
 }
 
-/// Parse a [`TraceState`] from a header value, falling back to the empty
-/// default if the input is malformed.
-pub fn parse_trace_state(s: &str) -> TraceState {
-    TraceState::from_str(s).unwrap_or_default()
-}
-
 #[cfg(test)]
 mod tests {
-    use std::collections::HashMap;
+    use std::{collections::HashMap, str::FromStr};
 
     use super::*;
 

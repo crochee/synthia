@@ -3,8 +3,7 @@
 //! Asserts the request gating contract implemented by
 //! `AuthMiddleware`:
 //!
-//! - Public paths (`/livez`, `/readyz`,
-//!   `/.well-known/agent-card.json`) succeed WITHOUT an
+//! - Public paths (`/livez`, `/readyz`) succeed WITHOUT an
 //!   `Authorization` header.
 //! - When `SYNTHIA_API_KEY` is unset, all paths behave like
 //!   public paths and return success (dev-mode opt-out).
@@ -16,7 +15,7 @@
 
 use std::sync::Arc;
 
-use axum::http::{Request, StatusCode};
+use axum::http::Request;
 use synthia_server::{create_router, state::AppState};
 use tower::ServiceExt;
 
@@ -48,24 +47,6 @@ async fn test_unauthenticated_request_to_probes_succeeds() {
             resp.status()
         );
     }
-}
-
-#[tokio::test]
-async fn test_unauthenticated_request_to_agent_card_succeeds() {
-    let app = make_app().await;
-
-    let req = Request::builder()
-        .uri("/.well-known/agent-card.json")
-        .method("GET")
-        .body(axum::body::Body::empty())
-        .unwrap();
-
-    let resp = app.oneshot(req).await.unwrap();
-    assert_eq!(
-        resp.status(),
-        StatusCode::OK,
-        "agent-card must be on the public allow-list"
-    );
 }
 
 #[tokio::test]
@@ -109,11 +90,11 @@ async fn test_skills_list_succeeds_when_auth_unconfigured() {
 }
 
 #[tokio::test]
-async fn test_tasks_list_succeeds_when_auth_unconfigured() {
+async fn test_sessions_list_succeeds_when_auth_unconfigured() {
     let app = make_app().await;
 
     let req = Request::builder()
-        .uri("/api/v1/tasks")
+        .uri("/api/v1/sessions")
         .method("GET")
         .body(axum::body::Body::empty())
         .unwrap();
@@ -121,7 +102,7 @@ async fn test_tasks_list_succeeds_when_auth_unconfigured() {
     let resp = app.oneshot(req).await.unwrap();
     assert!(
         resp.status().is_success(),
-        "/api/v1/tasks must succeed when SYNTHIA_API_KEY is unset, got {}",
+        "/api/v1/sessions must succeed when SYNTHIA_API_KEY is unset, got {}",
         resp.status()
     );
 }

@@ -55,7 +55,7 @@
 
 ## 3. 设计原则
 
-1. **协议优先不破**：UI 不发明 A2A 字段；样式不破坏 wire shape 检测。
+1. **协议优先不破**：UI 不发明 wire 字段；样式不破坏 wire shape 检测。
 2. **最小代码原则**（CLAUDE.md §2）：只改必要代码；不引入新依赖、不重写可工作模块。
 3. **Radix 优先**：复用 Radix Themes 已有组件（`Box` / `Flex` / `Text` / `Button` / `Heading` / `Badge`），不引入 shadcn。
 4. **设计 token 收敛**：颜色 / 间距 / 圆角 / 阴影 / 字体全部走 `var(--token)`，无内联 hex。
@@ -164,7 +164,7 @@
 | `src/pages/ChatPage.tsx` | useReducer + debounce + auto-grow + error banner + retry | 1, 4 |
 | `src/pages/ChatPage.css` | 颜色 token 化 + auto-grow | 1, 2 |
 | `src/components/chat/ChatMessageView.tsx` | memo + aria 属性 + ToolBlock 渲染优化 | 1, 3 |
-| `src/api/a2a-stream.ts` | 错误分类 + retry-once | 4 |
+| `src/api/chat-stream.ts` | 错误分类 + retry-once | 4 |
 | `src/api/client.ts` | 加 AbortSignal 透传 + 错误标准化 | 4 |
 | `src/hooks/useServerHealth.ts` | 暴露事件总线（让 ChatPage 订阅 offline） | 4 |
 | `src/hooks/useKeyboardShortcuts.ts` | 新增 | 3 |

@@ -19,7 +19,7 @@ Agent runtime + multi-agent registry for the Synthia framework.
 ## `AgentDescriptor` (industry-aligned)
 
 `AgentDescriptor` mirrors the de-facto shape used by the Anthropic
-Agents SDK, the OpenAI Swarm/Agents SDK, and the A2A / MCP-aligned
+Agents SDK, the OpenAI Swarm/Agents SDK, and the MCP-aligned
 reference designs. Fields are additive — older payloads that
 populate only `name`, `description`, `kind`, `version`, and
 `capabilities` keep deserializing.

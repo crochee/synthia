@@ -44,6 +44,24 @@ impl AgentInput {
         }
     }
 
+    /// Create an input from a multi-part payload with a prior
+    /// conversation history. Mirrors
+    /// [`AgentInput::history`] but for multimodal inputs —
+    /// the run loop treats the trailing user message as the
+    /// sum of every `ContentPart` in `parts`, while `history`
+    /// is the transcript the agent has already seen in
+    /// previous turns.
+    pub fn multi_with_history(
+        history: Vec<Message>,
+        parts: Vec<ContentPart>,
+    ) -> Self {
+        Self {
+            content: parts,
+            history,
+            prompt_context: None,
+        }
+    }
+
     /// Create an input that resumes a session by replaying the given
     /// prior conversation messages and ending with a fresh user
     /// prompt.

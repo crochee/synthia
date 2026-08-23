@@ -1,3 +1,12 @@
+// Allow `result_large_err` for the whole file: P1b added 4 hidden
+// fields to every struct-form variant (frames, backtrace, source,
+// and the synthetic source chain), so every `Result<_, Error>` is
+// at least 128 bytes. Boxing the error would force every call site
+// to `.map_err(|e| *e)` (or accept the allocation), and the existing
+// API has no `Box<Error>` in the public surface. Accept the size
+// cost; revisit if profiling shows it matters.
+#![allow(clippy::result_large_err)]
+
 use std::{collections::HashMap, path::Path};
 
 use serde::{Deserialize, Serialize};

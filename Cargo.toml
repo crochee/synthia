@@ -39,8 +39,9 @@ schemars = { version = "1.2", features = ["derive", "preserve_order"] }
 schemars_derive = "1.2"
 
 # Error handling
-thiserror = "2.0"
 anyhow = "1.0"
+thiserror = "2.0"
+validator = { version = "0.21", features = ["derive"] }
 
 # Utilities
 ulid = { version = "3.0", features = ["serde"] }
@@ -58,12 +59,47 @@ http = "1.5"
 # HTTP client
 reqwest = { version = "0.13", features = ["json", "stream"] }
 
-# Tracing
-tracing = "0.1"
-tracing-subscriber = { version = "0.3", features = ["env-filter"] }
-opentelemetry = "0.32"
-opentelemetry-otlp = "0.32"
-tracing-opentelemetry = "0.33"
+# Tracing pillars, feature sets centralized here so every crate opts in to
+# exactly what the code uses (default-features = false on the OTel /
+# tracing-subscriber families). The three telemetry pillars:
+#   - logging  → tracing + tracing-subscriber (fmt / ansi console + env-filter)
+#   - traces   → opentelemetry OTLP (tonic gRPC + reqwest HTTP transports,
+#                TLS for `https://` gRPC endpoints; metrics/logs signals off)
+#   - metrics  → prometheus (text exposition only; protobuf / push off)
+# Crate-level feature gates (`otel`, `metrics`) live in
+# `crates/synthia-telemetry/Cargo.toml` and re-export through downstream
+# crates that opt into observability.
+tracing = { version = "0.1", default-features = false, features = [
+  "std",
+  "attributes",
+] }
+tracing-subscriber = { version = "0.3", default-features = false, features = [
+  "fmt",
+  "ansi",
+  "env-filter",
+] }
+opentelemetry = { version = "0.32", default-features = false, features = [
+  "trace",
+] }
+opentelemetry_sdk = { version = "0.32", default-features = false, features = [
+  "trace",
+  "rt-tokio",
+  "experimental_trace_batch_span_processor_with_async_runtime",
+] }
+opentelemetry-semantic-conventions = { version = "0.32", features = [
+  "semconv_experimental",
+] }
+opentelemetry-otlp = { version = "0.32", default-features = false, features = [
+  "trace",
+  "grpc-tonic",
+  "http-proto",
+  "reqwest-client",
+  "tls-ring",
+  "tls-webpki-roots",
+] }
+tracing-opentelemetry = { version = "0.33", default-features = false }
+prometheus = { version = "0.14", default-features = false }
+lazy_static = "1.5"
 
 # Encoding
 base64 = "0.22"
@@ -71,7 +107,6 @@ base64 = "0.22"
 # Additional utilities
 dashmap = "6.2"
 regex = "1.13"
-lazy_static = "1.5"
 sha2 = "0.10"
 hex = "0.4"
 tokio-tungstenite = "0.29"

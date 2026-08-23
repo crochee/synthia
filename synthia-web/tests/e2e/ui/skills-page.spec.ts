@@ -13,11 +13,19 @@ test.describe('Skills page', () => {
   });
 
   test('shows empty state when no skills registered', async ({ page }) => {
+    // Stub /api/v1/skills to return an empty list so the page
+    // reaches the empty-state branch regardless of which
+    // fixture the workspace has pre-seeded.
+    await page.route('**/api/v1/skills**', (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ data: [], total: 0, next_cursor: null }),
+      }),
+    );
+
     const skills = new SkillsPage(page);
     await skills.goto();
-    // Either skill cards or empty state card should be visible
-    const hasContent =
-      (await skills.skillCards.count()) > 0 || (await skills.noSkillsCard.count()) > 0;
-    expect(hasContent).toBe(true);
+    await expect(skills.noSkillsCard).toBeVisible({ timeout: 5_000 });
   });
 });

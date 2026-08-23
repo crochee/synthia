@@ -290,7 +290,7 @@ fn parse_tool_input_handles_invalid_json() {
 }
 
 /// Inline `<think>…</think>` markers in `delta.content` get split into
-/// a Reasoning chunk followed by a Text chunk so the downstream A2A
+/// a Reasoning chunk followed by a Text chunk so the downstream
 /// mapping can route each piece through the correct `kind`.
 #[test]
 fn inline_think_marker_in_content_is_split() {

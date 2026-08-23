@@ -5,7 +5,15 @@
 
 export type HttpMethod = 'GET' | 'POST' | 'PUT' | 'DELETE' | 'PATCH';
 
-export type A2AJsonRpcMethod = 'message:send' | 'tasks:get' | 'tasks:cancel';
+/**
+ * JSON-RPC style method name used by the legacy chat surface.
+ *
+ * Retained as a string-literal union so historical contract.yaml
+ * rows that still record `method: message:send` continue to parse.
+ * The chat surface is a REST + SSE contract — there is no separate
+ * RPC layer to enumerate beyond `message:send` itself.
+ */
+export type JsonRpcMethod = 'message:send';
 
 export interface SseEventSpec {
   name: string;
@@ -36,7 +44,7 @@ export type EndpointStatus = 'open' | 'closed';
 
 export interface Endpoint {
   id: string;
-  method: HttpMethod | A2AJsonRpcMethod;
+  method: HttpMethod | JsonRpcMethod;
   path: string;
   source: 'backend' | 'frontend' | 'both';
   source_files: {

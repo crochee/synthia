@@ -1,20 +1,22 @@
 use std::sync::Arc;
 
-use axum::{
-    Json,
-    extract::{Path, Query, State},
-};
+use axum::{Json, extract::State};
 use parking_lot::RwLock;
 use serde::Serialize;
-use synthia_core::registry::{Registry, RegistryItem};
+use synthia_core::{
+    Error,
+    registry::{Registry, RegistryItem},
+};
 
 use super::helpers::paginate;
 use crate::{
     api::{
-        ErrorCode,
+        AppError,
+        AppJson,
+        AppPath,
+        AppQuery,
         List,
         PageQuery,
-        UserError,
         resolve_page,
         validate_resource_name,
         validate_sort,
@@ -102,8 +104,8 @@ async fn collect_tool_defs(
 /// GET /api/tools - List registered tools.
 pub async fn list_tools(
     State(state): State<Arc<AppState>>,
-    Query(page): Query<PageQuery>,
-) -> Result<Json<List<ToolInfo>>, UserError> {
+    AppQuery(page): AppQuery<PageQuery>,
+) -> Result<Json<List<ToolInfo>>, AppError> {
     validate_sort(page.sort.as_deref().unwrap_or("name"), TOOL_SORT_WHITELIST)?;
     let resolved = resolve_page(&page)?;
 
@@ -136,8 +138,8 @@ pub async fn list_tools(
 // arguments back.
 pub async fn register_tool(
     State(state): State<Arc<AppState>>,
-    Json(req): Json<RegisterToolRequest>,
-) -> Result<Json<ToolInfo>, UserError> {
+    AppJson(req): AppJson<RegisterToolRequest>,
+) -> Result<Json<ToolInfo>, AppError> {
     validate_resource_name(&req.name)?;
 
     let desc = req.description.clone();
@@ -155,16 +157,13 @@ pub async fn register_tool(
         .map(|entries| entries.iter().any(|e| e.name() == req.name))
         .unwrap_or(false);
     if existed {
-        return Err(UserError::new(
-            ErrorCode::Conflict,
-            format!("Tool '{}' already registered", req.name),
-        ));
+        return Err(AppError::from(Error::already_exists(format!(
+            "tool '{}'",
+            req.name
+        ))));
     }
     reg.put(tool).await.map_err(|e| {
-        UserError::new(
-            ErrorCode::InternalServerError,
-            format!("failed to register tool: {e}"),
-        )
+        Error::internal(format!("failed to register tool: {e}"))
     })?;
 
     Ok(Json(ToolInfo {
@@ -174,9 +173,11 @@ pub async fn register_tool(
 }
 
 /// Request body for `POST /api/v1/tools`.
-#[derive(serde::Deserialize)]
+#[derive(serde::Deserialize, validator::Validate)]
 pub struct RegisterToolRequest {
+    #[validate(length(min = 1, message = "must not be empty"))]
     pub name: String,
+    #[validate(length(min = 1, message = "must not be empty"))]
     pub description: String,
     pub input_schema: serde_json::Value,
 }
@@ -184,8 +185,8 @@ pub struct RegisterToolRequest {
 /// GET /api/tools/{name} - Get a single tool.
 pub async fn get_tool(
     State(state): State<Arc<AppState>>,
-    Path(name): Path<String>,
-) -> Result<Json<ToolDetail>, UserError> {
+    AppPath(name): AppPath<String>,
+) -> Result<Json<ToolDetail>, AppError> {
     validate_resource_name(&name)?;
     let tool_reg = state.tool_registry.read().await;
     // O(1) lookup against the registry's `HashMap<String, Vec<ToolEntry>>`
@@ -194,14 +195,13 @@ pub async fn get_tool(
     // just to find the one named entry. The previous path wasted
     // work on every detail-page render and the front-end's per-
     // detail-page prefetch.
-    let entry = tool_reg.get(&name).await.map_err(|e| {
-        UserError::new(ErrorCode::InternalServerError, e.to_string())
-    })?;
+    let entry = tool_reg
+        .get(&name)
+        .await
+        .map_err(|e| Error::internal(e.to_string()))?;
     let entry = entry.ok_or_else(|| {
-        UserError::new(ErrorCode::NotFound, format!("Tool '{name}' not found"))
+        AppError::from(Error::not_found(format!("tool '{name}'")))
     })?;
-    let description = entry.description().to_string();
-    let input_schema = entry.tool_instance().parameters();
     // Provenance isn't on `ToolEntry`; the registry exposes it via
     // a snapshot scan. The snapshot is cheap (one read-lock, single
     // pass over an in-memory `HashMap`) and much smaller than the
@@ -217,7 +217,8 @@ pub async fn get_tool(
         })
         .unwrap_or("dynamic")
         .to_string();
-
+    let description = entry.description().to_string();
+    let input_schema = entry.tool_instance().parameters();
     Ok(Json(ToolDetail {
         name: entry.name().to_string(),
         description,
@@ -232,8 +233,8 @@ pub async fn get_tool(
 // Returns `404 Not Found` if the tool is not registered.
 pub async fn unregister_tool(
     State(state): State<Arc<AppState>>,
-    Path(name): Path<String>,
-) -> Result<Json<ToolInfo>, UserError> {
+    AppPath(name): AppPath<String>,
+) -> Result<Json<ToolInfo>, AppError> {
     validate_resource_name(&name)?;
     let reg = state.tool_registry.write().await;
     let entries = reg.list(None).await.unwrap_or_default();
@@ -242,17 +243,11 @@ pub async fn unregister_tool(
             .into_iter()
             .find(|e| e.name() == name)
             .ok_or_else(|| {
-                UserError::new(
-                    ErrorCode::NotFound,
-                    format!("Tool '{}' not found", name),
-                )
+                AppError::from(Error::not_found(format!("tool '{name}'")))
             })?;
     let description = target.description().to_string();
     reg.delete(&name).await.map_err(|e| {
-        UserError::new(
-            ErrorCode::InternalServerError,
-            format!("failed to unregister tool: {e}"),
-        )
+        Error::internal(format!("failed to unregister tool: {e}"))
     })?;
     Ok(Json(ToolInfo { name, description }))
 }

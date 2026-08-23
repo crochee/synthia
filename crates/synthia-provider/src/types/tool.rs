@@ -37,7 +37,7 @@ pub struct ToolResult {
     /// field existed.
     ///
     /// The field is forwarded from `synthia_tool::ToolOutput`'s
-    /// `metadata` so the LLM, A2A clients, and the frontend
+    /// `metadata` so the LLM and the frontend
     /// can see tool-attached telemetry without parsing the
     /// content stream.
     #[serde(default, skip_serializing_if = "serde_json::Map::is_empty")]
@@ -271,7 +271,7 @@ mod tests {
 
     /// `ResourceLink` MUST serialize
     /// `mime_type` as `mimeType` (camelCase)
-    /// per MCP / A2A wire convention. Pin
+    /// per MCP wire convention. Pin
     /// so a refactor that drops the rename
     /// breaks compatibility.
     #[test]

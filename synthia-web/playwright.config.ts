@@ -5,7 +5,7 @@ import { defineConfig, devices } from '@playwright/test';
  *
  * Three layers are covered:
  *   - tests/e2e/ui/         – visual + DOM interactions
- *   - tests/e2e/integration – A2A / REST API contracts
+ *   - tests/e2e/integration – REST API contracts
  *   - tests/e2e/agent/      – agent functional logic (end-to-end conversations)
  *
  * The webServer block boots both Vite and cargo automatically

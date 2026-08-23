@@ -27,8 +27,14 @@ const targets = [
   { name: 'favicon', file: 'favicon.svg', bg: '#fafafa', color: '#18181b' },
 ];
 
-const browser = await chromium.launch({ chromiumSandbox: false, args: ['--no-sandbox', '--disable-dev-shm-usage'] });
-const context = await browser.newContext({ viewport: { width: 800, height: 200 }, deviceScaleFactor: 2 });
+const browser = await chromium.launch({
+  chromiumSandbox: false,
+  args: ['--no-sandbox', '--disable-dev-shm-usage'],
+});
+const context = await browser.newContext({
+  viewport: { width: 800, height: 200 },
+  deviceScaleFactor: 2,
+});
 const page = await context.newPage();
 
 for (const t of targets) {
@@ -39,13 +45,16 @@ for (const t of targets) {
   const svgData = readFileSync(svgPath);
   const dataUrl = `data:image/svg+xml;base64,${svgData.toString('base64')}`;
   await page.setViewportSize({ width: 800, height: 200 });
-  await page.setContent(`<!doctype html><html><head><style>
+  await page.setContent(
+    `<!doctype html><html><head><style>
       html, body { margin:0; padding:24px; background:${t.bg}; color:${t.color};
                    font-family: 'Inter var','Inter', system-ui, 'Helvetica Neue', Arial, sans-serif; }
       .holder { width: 400px; height: 88px; display: block; color: inherit; }
     </style></head><body>
       <img class="holder" src="${dataUrl}" alt="logo">
-    </body></html>`, { waitUntil: 'networkidle' });
+    </body></html>`,
+    { waitUntil: 'networkidle' },
+  );
   const buf = await page.locator('img').first().screenshot({ omitBackground: false });
   const out = resolve(outDir, `${t.name}.png`);
   writeFileSync(out, buf);

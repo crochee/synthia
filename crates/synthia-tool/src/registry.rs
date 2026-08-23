@@ -382,7 +382,7 @@ impl ToolRegistry {
     /// Snapshot of registered tools. Results are sorted by `name` so the
     /// output is stable across runs (the underlying `inner.tools` is a
     /// `HashMap`, so insertion order is not preserved). Stable ordering
-    /// matters for downstream consumers like the A2A agent card
+    /// matters for downstream consumers like the agent card
     /// builder, where any two snapshots of the same registry must
     /// serialize identically. Hidden tools (registered via
     /// `ToolEntry::with_is_hidden(true)`) are filtered out so the LLM

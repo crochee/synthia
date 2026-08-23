@@ -4,21 +4,21 @@
 
 ## 优先级（高 → 低）
 
-1. **A2A 官方协议 spec**
-   - 适用于 A2A 协议面（`/a2a/*` 端点、JSON-RPC method `message:send` / `tasks:get` / `tasks:cancel`、A2A SSE 事件等）。
-   - 引用方式：在修复卡片 Reason 段写明 "A2A v0.x §xx.x"。
-
-2. **`@a2a-js/sdk` TypeScript 类型**
-   - 适用于前端实际依赖的 A2A 客户端 SDK 类型。
-   - 引用方式：在 Reason 段写明 "`@a2a-js/sdk` <版本> `Message`/`Task`/`Part` 类型"。
-
-3. **Synthia 既有 stable spec**
-   - 适用于本地协议面（`/api/v2/*`、自研 SSE、`event-v2-system`、`session-replay-harness` 等）。
+1. **Synthia 既有 stable spec**
+   - 适用于本地协议面（`/api/v1/*`、自研 SSE、`event-v2-system`、`session-replay-harness` 等）。
    - 引用方式：在 Reason 段写明 "spec:`openspec/specs/<capability>/spec.md` §<Requirement>"。
+
+2. **Synthia chat wire contract**
+   - 适用于 `/api/v1/chat/sessions/*` 与 `/api/v1/sessions/*` 端点、REST + SSE 事件（`sessionStatus` / `message` / `turnStatus` / `attachment`）等。
+   - 引用方式：在 Reason 段写明 "spec:`docs/interface-contract/SCHEMA.md` §<Endpoint or SSE event>"。
+
+3. **历史 JSON-RPC 兼容**
+   - 适用于历史 `message:send` JSON-RPC method 字段命名（保留以兼容旧 contract.yaml 行）。
+   - 引用方式：在 Reason 段写明 "method:`message:send` (Synthia legacy)"。
 
 ## 无协议源时
 
-如果某条端点在 1–3 都没有源参考：
+如果某条端点在本协议集内没有源参考：
 - 必须附带最小 ADR（短文 ≤ 200 字）说明：为什么这个端点需要存在、命名约定参考哪一个上游、由谁 review。
 - 在 [verify.md](../../openspec/changes/synthia-interface-contract-closure/verify.md)（如果本仓库内）或 PR 描述里**显式提升为阻塞项**，禁止直接拍脑袋修改。
 

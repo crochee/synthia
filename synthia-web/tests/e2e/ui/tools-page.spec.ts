@@ -14,14 +14,21 @@ test.describe('Tools page', () => {
   });
 
   test('shows empty state when no tools registered', async ({ page }) => {
+    // Stub /api/v1/tools to return an empty list so the page
+    // reaches the empty-state branch regardless of which
+    // fixture the workspace has pre-seeded.
+    await page.route('**/api/v1/tools**', (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ data: [], total: 0, next_cursor: null }),
+      }),
+    );
+
     const tools = new ToolsPage(page);
     await tools.goto();
-    // Either tool cards or empty state card should be visible
-    const hasContent =
-      (await tools.toolCards.count()) > 0 ||
-      // Empty-state card has title "No tools" rendered as an
-      // `<h3>` (Radix Card wrapper).
-      (await page.locator('main h3', { hasText: /no tools/i }).count()) > 0;
-    expect(hasContent).toBe(true);
+    await expect(page.locator('main h3', { hasText: /no tools/i })).toBeVisible({
+      timeout: 5_000,
+    });
   });
 });

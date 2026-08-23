@@ -4,18 +4,19 @@
  *
  * Why this exists
  *
- * `Task.id` is a UUIDv7 minted by the A2A server. Two tasks
- * created within the same millisecond window share the same
- * leading 8 hex chars (`01a00ae2…`), so naive
- * `task.id.slice(0, 8)` makes a freshly-completed task look
- * like a duplicate of the previous one — the root cause of the
- * "two Task 01a00ae2 cards" confusion reported on
- * 2026-08-16.
+ * `Session.id` is a UUIDv7 minted by the server. Two
+ * sessions created within the same millisecond window share
+ * the same leading 8 hex chars (`01a00ae2…`), so naive
+ * `session.id.slice(0, 8)` makes a freshly-completed
+ * session look like a duplicate of the previous one — the
+ * root cause of the "two Session 01a00ae2 cards" confusion
+ * reported on 2026-08-16.
  *
- * The fix shows the FIRST 8 + LAST 6 hex chars joined with an
- * ellipsis. Two v7 ids minted close together still differ in
- * their last 6 chars (`…c1296e` vs `…a2f0b3`), so cards are
- * visually distinguishable even when their prefixes collide.
+ * The fix shows the FIRST 8 + LAST 6 hex chars joined with
+ * an ellipsis. Two v7 ids minted close together still differ
+ * in their last 6 chars (`…c1296e` vs `…a2f0b3`), so cards
+ * are visually distinguishable even when their prefixes
+ * collide.
  *
  * Non-UUID inputs (length <= 14) are returned verbatim so
  * short identifiers (e.g. legacy mock data) keep rendering

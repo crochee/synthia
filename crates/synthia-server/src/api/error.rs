@@ -1,532 +1,734 @@
-//! API error types for synthia-server.
+//! HTTP boundary for `synthia_core::Error` — the single error
+//! definition source for the whole workspace.
 //!
-//! Owns everything HTTP-wire related:
+//! The server owns **no error variants of its own**. Every error
+//! raised anywhere in the stack is a [`synthia_core::Error`]; this
+//! module is the transport adapter that turns one into an HTTP
+//!   + `From<domain::Error>` shape (axum's official error-handling
+//!     example, actix-web's `ResponseError`).
 //!
-//! - [`ErrorCode`] — stable snake_case classifier derived from
-//!   every [`synthia_core::Error`] variant via
-//!   [`synthia_core::Error::code`].
-//! - [`UserError`] — the user-facing error envelope
-//!   (`{ code, message, result? }`). Implements `From<&str>`,
-//!   `From<String>`, and `From<synthia_core::Error>` so handlers
-//!   can `return Err(UserError::from(err))` without manual
-//!   wiring.
-//! - [`ErrorCode::http_status`] — the canonical HTTP status
-//!   mapping. Unmapped variants fall back to 500.
-//! - `IntoResponse for UserError` — pairs the JSON envelope with
-//!   the derived status code.
+//! # `AppError`
 //!
-//! This module previously held an unused [`ApiError`] enum
-//! describing a future V2 envelope; that was deleted in favor of
-//! reusing [`UserError`] (which already implements the
-//! `{code, message, result?}` shape) across handlers.
+//! The boundary error type. Holds the full source chain
+//! (`anyhow::Error` wrapping the original `synthia_core::Error`),
+//! the resolved HTTP status, the wire code, the human-facing
+//! message, and an optional KV context map (request id,
+//! authenticated subject, etc. — operator-facing; never crosses
+//! the wire).
+//!
+//! Build directly with [`AppError::new`] when you need explicit
+//! control, or rely on the `From<synthia_core::Error>` /
+//! `From<std::io::Error>` impls for `?` to wrap domain errors
+//! automatically. Add context via [`AppError::with_message`] /
+//! [`AppError::with_context`] / [`AppError::merge_context`] in
+//! `map_err` blocks.
+//!
+//! # Wire envelope (flat)
+//!
+//! ```json
+//! { "code": "<snake_case kind>", "message": "<Display>" }
+//! ```
+//!
+//! `message` is the error's full `Display` output (the
+//! thiserror-generated, prefix-included message). The `source`
+//! chain never crosses the wire; it is logged via `tracing::error!`
+//! when the response is produced (operator-only detail).
+//!
+//! `RateLimited` additionally surfaces its payload as a
+//! `Retry-After` header (seconds, minimum 1).
 
-use std::fmt;
+use std::collections::HashMap;
 
 use axum::{
     Json,
-    http::StatusCode,
+    http::{HeaderName, HeaderValue, StatusCode},
     response::{IntoResponse, Response},
 };
-use serde::{Deserialize, Serialize};
+use serde_json::json;
+use synthia_core::Error;
 
-/// Stable wire-level classifier for [`synthia_core::Error`].
+/// HTTP boundary error wrapping the single core error type
+/// [`synthia_core::Error`].
 ///
-/// Codes are **stable**: once a variant ships it must not be renamed
-/// or repurposed. New variants may be added at the end without breaking
-/// downstream consumers, thanks to `#[non_exhaustive]` (the compiler
-/// enforces a wildcard arm in external `match` blocks).
-///
-/// Serialization uses snake_case; the [`Display`](fmt::Display) impl
-/// carries the canonical string.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-#[non_exhaustive]
-pub enum ErrorCode {
-    BadRequest,
-    Unauthorized,
-    Forbidden,
-    NotFound,
-    Conflict,
-    InternalServerError,
-    ServiceUnavailable,
-    ToolExecutionError,
-    ProviderError,
-    ValidationError,
-    SessionError,
-    SkillError,
-    MemoryError,
-    AlreadyExists,
-    InvalidItem,
-    Io,
-    Parse,
-    RateLimited,
-    RetryExhausted,
-    Stream,
-    Timeout,
-    ModelNotFound,
-    ModelUnavailable,
-    GuardianViolation,
-    ConfigError,
-    RouterError,
-    TaskError,
-    ExecutorError,
-    ContextError,
-    TelemetryError,
-    MultiagentError,
-    EvaluationError,
-    EditConflict,
-    InvalidCursor,
-    InvalidSortField,
-    NotImplemented,
-    ContextOverflow,
-    DoomLoop,
-    PromptInjection,
-}
-
-impl ErrorCode {
-    /// Map this [`ErrorCode`] to its canonical HTTP status code per
-    /// the v1 API spec. Unmapped variants fall back to 500.
-    pub fn http_status(&self) -> StatusCode {
-        match self {
-            ErrorCode::BadRequest
-            | ErrorCode::InvalidCursor
-            | ErrorCode::InvalidSortField
-            | ErrorCode::InvalidItem
-            | ErrorCode::Parse => StatusCode::BAD_REQUEST,
-            ErrorCode::Unauthorized => StatusCode::UNAUTHORIZED,
-            ErrorCode::Forbidden | ErrorCode::GuardianViolation => {
-                StatusCode::FORBIDDEN
-            }
-            ErrorCode::NotFound | ErrorCode::ModelNotFound => {
-                StatusCode::NOT_FOUND
-            }
-            ErrorCode::Conflict
-            | ErrorCode::AlreadyExists
-            | ErrorCode::EditConflict => StatusCode::CONFLICT,
-            ErrorCode::ValidationError => StatusCode::UNPROCESSABLE_ENTITY,
-            ErrorCode::RateLimited => StatusCode::TOO_MANY_REQUESTS,
-            ErrorCode::Timeout => StatusCode::REQUEST_TIMEOUT,
-            ErrorCode::ServiceUnavailable
-            | ErrorCode::ModelUnavailable
-            | ErrorCode::RetryExhausted => StatusCode::SERVICE_UNAVAILABLE,
-            ErrorCode::NotImplemented => StatusCode::NOT_IMPLEMENTED,
-            ErrorCode::ProviderError => StatusCode::BAD_GATEWAY,
-            ErrorCode::ContextOverflow => StatusCode::PAYLOAD_TOO_LARGE,
-            ErrorCode::DoomLoop => StatusCode::CONFLICT,
-            ErrorCode::PromptInjection => StatusCode::UNPROCESSABLE_ENTITY,
-            // Unmapped variants → 500 (per spec).
-            ErrorCode::InternalServerError
-            | ErrorCode::ToolExecutionError
-            | ErrorCode::SessionError
-            | ErrorCode::SkillError
-            | ErrorCode::MemoryError
-            | ErrorCode::Io
-            | ErrorCode::Stream
-            | ErrorCode::ConfigError
-            | ErrorCode::RouterError
-            | ErrorCode::TaskError
-            | ErrorCode::ExecutorError
-            | ErrorCode::ContextError
-            | ErrorCode::TelemetryError
-            | ErrorCode::MultiagentError
-            | ErrorCode::EvaluationError => StatusCode::INTERNAL_SERVER_ERROR,
-        }
-    }
-}
-
-impl fmt::Display for ErrorCode {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let s = match self {
-            ErrorCode::BadRequest => "bad_request",
-            ErrorCode::Unauthorized => "unauthorized",
-            ErrorCode::Forbidden => "forbidden",
-            ErrorCode::NotFound => "not_found",
-            ErrorCode::Conflict => "conflict",
-            ErrorCode::InternalServerError => "internal_server_error",
-            ErrorCode::ServiceUnavailable => "service_unavailable",
-            ErrorCode::ToolExecutionError => "tool_execution_error",
-            ErrorCode::ProviderError => "provider_error",
-            ErrorCode::ValidationError => "validation_error",
-            ErrorCode::SessionError => "session_error",
-            ErrorCode::SkillError => "skill_error",
-            ErrorCode::MemoryError => "memory_error",
-            ErrorCode::AlreadyExists => "already_exists",
-            ErrorCode::InvalidItem => "invalid_item",
-            ErrorCode::Io => "io_error",
-            ErrorCode::Parse => "parse_error",
-            ErrorCode::RateLimited => "rate_limited",
-            ErrorCode::RetryExhausted => "retry_exhausted",
-            ErrorCode::Stream => "stream_error",
-            ErrorCode::Timeout => "timeout",
-            ErrorCode::ModelNotFound => "model_not_found",
-            ErrorCode::ModelUnavailable => "model_unavailable",
-            ErrorCode::GuardianViolation => "guardian_violation",
-            ErrorCode::ConfigError => "config_error",
-            ErrorCode::RouterError => "router_error",
-            ErrorCode::TaskError => "task_error",
-            ErrorCode::ExecutorError => "executor_error",
-            ErrorCode::ContextError => "context_error",
-            ErrorCode::TelemetryError => "telemetry_error",
-            ErrorCode::MultiagentError => "multiagent_error",
-            ErrorCode::EvaluationError => "evaluation_error",
-            ErrorCode::EditConflict => "edit_conflict",
-            ErrorCode::InvalidCursor => "invalid_cursor",
-            ErrorCode::InvalidSortField => "invalid_sort_field",
-            ErrorCode::NotImplemented => "not_implemented",
-            ErrorCode::ContextOverflow => "context_overflow",
-            ErrorCode::DoomLoop => "doom_loop",
-            ErrorCode::PromptInjection => "prompt_injection",
-        };
-        f.write_str(s)
-    }
-}
-
-/// A structured, user-facing error suitable for API responses.
-///
-/// Serialized wire format: `{ "code": "<snake_case>", "message":
-/// "<human-readable>" }` with an optional `"result"` field
-/// carrying a structured payload (validation errors, rate-limit
-/// metadata, etc.). The `result` field is omitted from JSON when
-/// `None`, so the common case stays compact.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct UserError {
-    pub code: ErrorCode,
+/// Carries the full source chain via [`anyhow::Error`] so the
+/// original cause stays reachable for logging. Constructors
+/// ([`AppError::new`], [`AppError::with_code`],
+/// [`AppError::with_message`], [`AppError::with_context`],
+/// [`AppError::merge_context`]) are fluent and chainable for
+/// use in `map_err` blocks.
+#[derive(Debug)]
+pub struct AppError {
+    /// HTTP status the response will carry.
+    pub status_code: StatusCode,
+    /// Original error chain (wraps the original
+    /// `synthia_core::Error` for core failures, or any foreign
+    /// error for `From<std::io::Error>` / etc.).
+    pub source: anyhow::Error,
+    /// Stable wire code (snake_case, e.g. `"not_found"`,
+    /// `"internal_server_error"`).
+    pub code: &'static str,
+    /// Human-facing message that crosses the wire in the envelope.
     pub message: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub result: Option<serde_json::Value>,
+    /// Operator-facing KV context (request id, subject, etc.).
+    /// Never crosses the wire — logged via `tracing::error!`.
+    pub context: HashMap<String, String>,
 }
 
-impl UserError {
-    pub fn new(code: ErrorCode, message: impl Into<String>) -> Self {
-        Self {
-            code,
-            message: message.into(),
-            result: None,
-        }
-    }
-
-    pub fn with_result(
-        code: ErrorCode,
-        message: impl Into<String>,
-        result: serde_json::Value,
+impl AppError {
+    /// Wrap an error source at a specific HTTP status. The
+    /// wire code defaults to the canonical HTTP reason text
+    /// (e.g. `"Internal Server Error"`) — refine via
+    /// [`AppError::with_code`] when you have a more specific
+    /// domain code. The message defaults to
+    /// `source.to_string()`.
+    pub fn new(
+        status_code: StatusCode,
+        source: impl Into<anyhow::Error>,
     ) -> Self {
+        let source = source.into();
+        let message = source.to_string();
+        // `canonical_reason()` returns a static str for known
+        // status codes; fall back to `"UNKNOWN"`.
+        let code: &'static str =
+            status_code.canonical_reason().unwrap_or("UNKNOWN");
         Self {
+            status_code,
+            source,
             code,
-            message: message.into(),
-            result: Some(result),
+            message,
+            context: HashMap::new(),
+        }
+    }
+
+    /// Override the wire code. Returns `self` for fluent chaining.
+    #[must_use]
+    pub fn with_code(mut self, code: &'static str) -> Self {
+        self.code = code;
+        self
+    }
+
+    /// Override the message. Returns `self` for fluent chaining.
+    #[must_use]
+    pub fn with_message(mut self, message: impl Into<String>) -> Self {
+        self.message = message.into();
+        self
+    }
+
+    /// Add a single KV entry to the operator-facing context map.
+    /// Returns `self` for fluent chaining.
+    #[must_use]
+    pub fn with_context(
+        mut self,
+        key: impl Into<String>,
+        value: impl Into<String>,
+    ) -> Self {
+        self.context.insert(key.into(), value.into());
+        self
+    }
+
+    /// Merge another KV map into the operator-facing context.
+    /// Existing keys are overwritten (last writer wins).
+    /// Returns `self` for fluent chaining.
+    #[must_use]
+    pub fn merge_context(mut self, other: HashMap<String, String>) -> Self {
+        self.context.extend(other);
+        self
+    }
+}
+
+impl From<Error> for AppError {
+    /// Wrap a domain error. Resolves the HTTP status and the
+    /// wire code inline from the variant — no helper table.
+    /// The human-facing message comes from the thiserror-generated
+    /// variant-appropriate prefix. Variant-specific payload
+    /// fields (resource name, retry-after duration, token
+    /// counts, …) are folded into the operator-facing
+    /// `context` map so they show up in the `tracing::error!`
+    /// log line without going on the wire.
+    ///
+    /// A future variant addition touches exactly one site: add
+    /// a new arm with its `(status, code)` pair; the message
+    /// comes for free from `Display`, and `payload_context`
+    /// picks up the new fields automatically if you wire them
+    /// into its match.
+    fn from(err: Error) -> Self {
+        let message = err.to_string();
+        let mut context: HashMap<String, String> = HashMap::new();
+        let (status_code, code) = match &err {
+            Error::NotFound { item } => {
+                context.insert("item".into(), item.clone());
+                (StatusCode::NOT_FOUND, "not_found")
+            }
+            Error::AlreadyExists { item } => {
+                context.insert("item".into(), item.clone());
+                (StatusCode::CONFLICT, "already_exists")
+            }
+            Error::InvalidItem { item } => {
+                context.insert("item".into(), item.clone());
+                (StatusCode::BAD_REQUEST, "invalid_item")
+            }
+            Error::Parse { .. } => (StatusCode::BAD_REQUEST, "parse"),
+            Error::Internal { .. } => {
+                (StatusCode::INTERNAL_SERVER_ERROR, "internal_server_error")
+            }
+            Error::Unauthorized { .. } => {
+                (StatusCode::UNAUTHORIZED, "unauthorized")
+            }
+            Error::Forbidden { .. } => (StatusCode::FORBIDDEN, "forbidden"),
+            Error::Validation { .. } => {
+                (StatusCode::UNPROCESSABLE_ENTITY, "validation")
+            }
+            Error::ToolExecution { .. } => {
+                (StatusCode::INTERNAL_SERVER_ERROR, "tool_execution")
+            }
+            Error::Provider { .. } => {
+                (StatusCode::BAD_GATEWAY, "request_failed")
+            }
+            Error::RequestFailed { status, .. } => {
+                context.insert("status".into(), status.to_string());
+                (StatusCode::BAD_GATEWAY, "request_failed")
+            }
+            Error::Session { .. } => {
+                (StatusCode::INTERNAL_SERVER_ERROR, "session")
+            }
+            Error::Skill { .. } => (StatusCode::INTERNAL_SERVER_ERROR, "skill"),
+            Error::Memory { .. } => {
+                (StatusCode::INTERNAL_SERVER_ERROR, "memory")
+            }
+            Error::GuardianViolation { .. } => {
+                (StatusCode::FORBIDDEN, "guardian_violation")
+            }
+            Error::EditConflict {
+                path,
+                original_hash,
+                current_hash,
+            } => {
+                context.insert("path".into(), path.display().to_string());
+                context
+                    .insert("original_hash".into(), original_hash.to_string());
+                context.insert("current_hash".into(), current_hash.to_string());
+                (StatusCode::CONFLICT, "edit_conflict")
+            }
+            Error::RateLimited { retry_after } => {
+                if let Some(d) = retry_after {
+                    context.insert(
+                        "retry_after_secs".into(),
+                        d.as_secs().to_string(),
+                    );
+                }
+                (StatusCode::TOO_MANY_REQUESTS, "rate_limited")
+            }
+            Error::Stream { .. } => {
+                (StatusCode::INTERNAL_SERVER_ERROR, "stream")
+            }
+            Error::StreamHttpFailure { .. } => {
+                (StatusCode::INTERNAL_SERVER_ERROR, "stream_http_failure")
+            }
+            Error::StreamProtocolError { .. } => {
+                (StatusCode::INTERNAL_SERVER_ERROR, "stream_protocol_error")
+            }
+            Error::StreamAborted { .. } => {
+                (StatusCode::INTERNAL_SERVER_ERROR, "stream_aborted")
+            }
+            Error::StreamInternal { .. } => {
+                (StatusCode::INTERNAL_SERVER_ERROR, "stream_internal")
+            }
+            Error::Timeout { .. } => (StatusCode::REQUEST_TIMEOUT, "timeout"),
+            Error::RetryExhausted { attempts, .. } => {
+                context.insert("attempts".into(), attempts.to_string());
+                (StatusCode::SERVICE_UNAVAILABLE, "retry_exhausted")
+            }
+            Error::ModelNotFound { .. } => {
+                (StatusCode::NOT_FOUND, "model_not_found")
+            }
+            Error::ModelUnavailable { .. } => {
+                (StatusCode::SERVICE_UNAVAILABLE, "model_unavailable")
+            }
+            Error::Config { .. } => {
+                (StatusCode::INTERNAL_SERVER_ERROR, "config")
+            }
+            Error::Router { .. } => {
+                (StatusCode::INTERNAL_SERVER_ERROR, "router")
+            }
+            Error::Context { .. } => {
+                (StatusCode::INTERNAL_SERVER_ERROR, "context")
+            }
+            Error::Telemetry { .. } => {
+                (StatusCode::INTERNAL_SERVER_ERROR, "telemetry")
+            }
+            Error::Multiagent { .. } => {
+                (StatusCode::INTERNAL_SERVER_ERROR, "multiagent")
+            }
+            Error::Evaluation { .. } => {
+                (StatusCode::INTERNAL_SERVER_ERROR, "evaluation")
+            }
+            Error::ContextOverflow {
+                limit_tokens,
+                actual_tokens,
+            } => {
+                context.insert("limit_tokens".into(), limit_tokens.to_string());
+                context
+                    .insert("actual_tokens".into(), actual_tokens.to_string());
+                (StatusCode::PAYLOAD_TOO_LARGE, "context_overflow")
+            }
+            Error::DoomLoop {
+                tool_name,
+                iterations,
+            } => {
+                context.insert("tool_name".into(), tool_name.clone());
+                context.insert("iterations".into(), iterations.to_string());
+                (StatusCode::CONFLICT, "doom_loop")
+            }
+            Error::PromptInjection {
+                input_source,
+                pattern,
+            } => {
+                context.insert("input_source".into(), input_source.clone());
+                context.insert("pattern".into(), pattern.clone());
+                (StatusCode::UNPROCESSABLE_ENTITY, "prompt_injection")
+            }
+            Error::Io { inner } => {
+                context.insert("io_kind".into(), format!("{:?}", inner.kind()));
+                (StatusCode::INTERNAL_SERVER_ERROR, "io")
+            }
+            _ => (StatusCode::INTERNAL_SERVER_ERROR, "internal_server_error"),
+        };
+        Self {
+            status_code,
+            source: anyhow::Error::new(err),
+            code,
+            message,
+            context,
         }
     }
 }
 
-impl fmt::Display for UserError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "[{}] {}", self.code, self.message)
+impl From<std::io::Error> for AppError {
+    /// Foreign `io::Error` — classifies by the OS error kind so
+    /// callers keep their transport-specific semantics.
+    fn from(err: std::io::Error) -> Self {
+        let status = match err.kind() {
+            std::io::ErrorKind::NotFound => StatusCode::NOT_FOUND,
+            std::io::ErrorKind::PermissionDenied => StatusCode::FORBIDDEN,
+            std::io::ErrorKind::TimedOut => StatusCode::REQUEST_TIMEOUT,
+            _ => StatusCode::INTERNAL_SERVER_ERROR,
+        };
+        let msg = err.to_string();
+        Self::new(status, err)
+            .with_code("io_error")
+            .with_message(format!("I/O error: {msg}"))
     }
 }
 
-impl std::error::Error for UserError {}
-
-impl From<&str> for UserError {
-    fn from(s: &str) -> Self {
-        UserError::new(ErrorCode::InternalServerError, s)
+impl From<serde_json::Error> for AppError {
+    fn from(err: serde_json::Error) -> Self {
+        let msg = err.to_string();
+        Self::new(StatusCode::BAD_REQUEST, err)
+            .with_code("parse")
+            .with_message(format!("JSON error: {msg}"))
     }
 }
 
-impl From<String> for UserError {
-    fn from(s: String) -> Self {
-        UserError::new(ErrorCode::InternalServerError, s)
+impl From<serde_yaml::Error> for AppError {
+    fn from(err: serde_yaml::Error) -> Self {
+        let msg = err.to_string();
+        Self::new(StatusCode::BAD_REQUEST, err)
+            .with_code("parse")
+            .with_message(format!("YAML error: {msg}"))
     }
 }
 
-impl From<synthia_core::Error> for UserError {
-    fn from(err: synthia_core::Error) -> Self {
-        // Strip operator-only context: `Error::Display` includes
-        // the (at <location>) suffix and any `with_context` pairs,
-        // but neither is safe to leak across the wire.
-        UserError::new(error_code_for(&err), err.wire_message())
-    }
-}
-
-/// Map every [`synthia_core::Error`] variant to the corresponding
-/// wire-level [`ErrorCode`]. Kept here (the server) so the core
-/// crate stays transport-agnostic — a non-HTTP consumer can reuse
-/// the [`synthia_core::Error`] enum without pulling in the
-/// 39-variant wire classifier.
-fn error_code_for(err: &synthia_core::Error) -> ErrorCode {
-    use synthia_core::Error as E;
-    match err {
-        E::NotFound { .. } | E::ModelNotFound { .. } => ErrorCode::NotFound,
-        E::AlreadyExists { .. } | E::EditConflict { .. } => ErrorCode::Conflict,
-        E::InvalidItem { .. } => ErrorCode::InvalidItem,
-        E::Io(_) => ErrorCode::Io,
-        E::Parse { .. } => ErrorCode::Parse,
-        E::Internal { .. } => ErrorCode::InternalServerError,
-        E::Unauthorized { .. } => ErrorCode::Unauthorized,
-        E::Forbidden { .. } => ErrorCode::Forbidden,
-        E::Validation { .. } => ErrorCode::ValidationError,
-        E::ToolExecution { .. } => ErrorCode::ToolExecutionError,
-        E::Provider { .. } | E::RequestFailed { .. } => {
-            ErrorCode::ProviderError
-        }
-        E::Session { .. } => ErrorCode::SessionError,
-        E::Skill { .. } => ErrorCode::SkillError,
-        E::Memory { .. } => ErrorCode::MemoryError,
-        E::GuardianViolation { .. } => ErrorCode::GuardianViolation,
-        E::RateLimited { .. } => ErrorCode::RateLimited,
-        E::Stream { .. } | E::StreamError { .. } => ErrorCode::Stream,
-        E::Timeout { .. } => ErrorCode::Timeout,
-        E::RetryExhausted { .. } => ErrorCode::RetryExhausted,
-        E::ModelUnavailable { .. } => ErrorCode::ModelUnavailable,
-        E::Config { .. } | E::ConfigWatcher { .. } => ErrorCode::ConfigError,
-        E::Router { .. } => ErrorCode::RouterError,
-        E::Task { .. } => ErrorCode::TaskError,
-        E::Executor { .. } => ErrorCode::ExecutorError,
-        E::Context { .. } => ErrorCode::ContextError,
-        E::Telemetry { .. } => ErrorCode::TelemetryError,
-        E::Multiagent { .. } => ErrorCode::MultiagentError,
-        E::Evaluation { .. } => ErrorCode::EvaluationError,
-        E::ContextOverflow { .. } => ErrorCode::ContextOverflow,
-        E::DoomLoop { .. } => ErrorCode::DoomLoop,
-        E::PromptInjection { .. } => ErrorCode::PromptInjection,
-    }
-}
-
-impl IntoResponse for UserError {
+impl IntoResponse for AppError {
     fn into_response(self) -> Response {
-        let status = self.code.http_status();
-        // `UserError`'s serde shape already matches the spec
-        // (`{ code, message, result? }` with `result` omitted when
-        // `None`), so we just hand it to `Json` and pair it with
-        // the status code derived from `ErrorCode`.
-        (status, Json(self)).into_response()
+        // Operator-facing log line: the full detail (status, wire
+        // code, message, source chain, KV context). The wire body
+        // below carries only code + message.
+        tracing::error!(
+            status = self.status_code.as_u16(),
+            code = self.code,
+            message = %self.message,
+            context = ?self.context,
+            source = %self.source,
+            "request failed"
+        );
+
+        let body = Json(json!({
+            "code": self.code,
+            "message": self.message,
+        }));
+        let mut response = (self.status_code, body).into_response();
+
+        // `RateLimited` carries a `retry_after` payload — surface
+        // it through the standard header so clients can back off
+        // without parsing the body. Walk the source chain for
+        // the original `Error::RateLimited`.
+        let retry_after = self.source.chain().find_map(|src| {
+            match src.downcast_ref::<Error>() {
+                Some(Error::RateLimited { retry_after, .. }) => *retry_after,
+                _ => None,
+            }
+        });
+        if let Some(retry_after) = retry_after {
+            let seconds = retry_after.as_secs().max(1);
+            if let Ok(value) = HeaderValue::from_str(&seconds.to_string()) {
+                response
+                    .headers_mut()
+                    .insert(HeaderName::from_static("retry-after"), value);
+            }
+        }
+
+        response
+    }
+}
+
+// -----------------------------------------------------------------------------
+// Extractor wrappers
+//
+// axum's `Json` / `Query` / `Path` extractors fail with their own
+// `*Rejection` types, whose default `IntoResponse` is a plain-text
+// body. The front-end `ApiClient.toError` parser only understands
+// the flat `{"code","message"}` envelope, so we wrap each
+// extractor and map every rejection through `AppError`.
+//
+// Handler usage keeps the same shape as before:
+//
+//   async fn create(State(state): State<Arc<AppState>>,
+//                   AppJson(req): AppJson<CreateSkillRequest>)
+//       -> Result<Json<SkillInfo>, AppError>
+// -----------------------------------------------------------------------------
+
+use axum::extract::{
+    FromRequest,
+    FromRequestParts,
+    Path as AxumPath,
+    Query as AxumQuery,
+};
+
+/// [`axum::Json`] wrapper that rejects through [`AppError`] so the
+/// unified envelope covers malformed / missing request bodies.
+pub struct AppJson<T>(pub T);
+
+impl<T, S> FromRequest<S> for AppJson<T>
+where
+    T: serde::de::DeserializeOwned + validator::Validate,
+    S: Send + Sync,
+{
+    type Rejection = AppError;
+
+    async fn from_request(
+        req: axum::http::Request<axum::body::Body>,
+        state: &S,
+    ) -> Result<Self, Self::Rejection> {
+        let Json(value) = Json::<T>::from_request(req, state)
+            .await
+            .map_err(AppError::from)?;
+        value.validate()?;
+        Ok(Self(value))
+    }
+}
+
+/// [`axum::extract::Query`] wrapper that rejects through
+/// [`AppError`] so the unified envelope covers malformed query
+/// strings.
+pub struct AppQuery<T>(pub T);
+
+impl<T, S> FromRequestParts<S> for AppQuery<T>
+where
+    T: serde::de::DeserializeOwned + validator::Validate,
+    S: Send + Sync,
+{
+    type Rejection = AppError;
+
+    async fn from_request_parts(
+        parts: &mut axum::http::request::Parts,
+        state: &S,
+    ) -> Result<Self, Self::Rejection> {
+        let AxumQuery(value) = AxumQuery::<T>::from_request_parts(parts, state)
+            .await
+            .map_err(AppError::from)?;
+        value.validate()?;
+        Ok(Self(value))
+    }
+}
+
+/// [`axum::extract::Path`] wrapper that rejects through
+/// [`AppError`] so the unified envelope covers malformed path
+/// parameters.
+pub struct AppPath<T>(pub T);
+
+impl<T, S> FromRequestParts<S> for AppPath<T>
+where
+    T: serde::de::DeserializeOwned + Send,
+    S: Send + Sync,
+{
+    type Rejection = AppError;
+
+    async fn from_request_parts(
+        parts: &mut axum::http::request::Parts,
+        state: &S,
+    ) -> Result<Self, Self::Rejection> {
+        let AxumPath(value) = AxumPath::<T>::from_request_parts(parts, state)
+            .await
+            .map_err(AppError::from)?;
+        Ok(Self(value))
+    }
+}
+
+impl From<axum::extract::rejection::JsonRejection> for AppError {
+    fn from(err: axum::extract::rejection::JsonRejection) -> Self {
+        let status = err.status();
+        let message = err.body_text();
+        Self::new(status, err)
+            .with_code("invalid_json")
+            .with_message(message)
+    }
+}
+
+impl From<axum::extract::rejection::QueryRejection> for AppError {
+    fn from(err: axum::extract::rejection::QueryRejection) -> Self {
+        let status = err.status();
+        let message = err.body_text();
+        Self::new(status, err)
+            .with_code("invalid_query")
+            .with_message(message)
+    }
+}
+
+impl From<axum::extract::rejection::PathRejection> for AppError {
+    fn from(err: axum::extract::rejection::PathRejection) -> Self {
+        let status = err.status();
+        let message = err.body_text();
+        Self::new(status, err)
+            .with_code("invalid_path")
+            .with_message(message)
+    }
+}
+
+/// Schema-level validation failure from the `validator` crate
+/// (the `#[validate(...)]` attributes on request DTOs). The
+/// extractor wrappers (`AppJson` / `AppQuery` / `AppPath`) call
+/// `Validate::validate` after deserialization, so this maps the
+/// failure onto the unified envelope: 422 + `validation` code +
+/// a flattened `field: message` summary.
+impl From<validator::ValidationErrors> for AppError {
+    fn from(err: validator::ValidationErrors) -> Self {
+        let message = err
+            .field_errors()
+            .iter()
+            .map(|(field, errors)| {
+                let reasons: Vec<String> = errors
+                    .iter()
+                    .map(|e| {
+                        e.message
+                            .clone()
+                            .unwrap_or_else(|| e.code.to_string().into())
+                            .to_string()
+                    })
+                    .collect();
+                format!("{field}: {}", reasons.join(", "))
+            })
+            .collect::<Vec<_>>()
+            .join("; ");
+        Error::validation(message).into()
     }
 }
 
 #[cfg(test)]
 mod tests {
+    use std::time::Duration;
+
     use axum::body::to_bytes;
 
     use super::*;
 
-    fn status_of(code: ErrorCode) -> StatusCode {
-        code.http_status()
-    }
-
-    async fn body_str(err: UserError) -> String {
-        let response = err.into_response();
-        let bytes = to_bytes(response.into_body(), usize::MAX).await.unwrap();
-        String::from_utf8(bytes.to_vec()).unwrap()
+    async fn body_json(response: Response) -> serde_json::Value {
+        let bytes = to_bytes(response.into_body(), usize::MAX)
+            .await
+            .expect("body is collectable");
+        serde_json::from_slice(&bytes).expect("body is valid JSON")
     }
 
     #[test]
-    fn mapped_codes_use_canonical_statuses() {
-        assert_eq!(status_of(ErrorCode::BadRequest), StatusCode::BAD_REQUEST);
+    fn from_core_error_populates_status_code_message() {
+        let err =
+            AppError::from(Error::validation("limit must be greater than 0"));
+        assert_eq!(err.status_code, StatusCode::UNPROCESSABLE_ENTITY);
+        assert_eq!(err.code, "validation");
         assert_eq!(
-            status_of(ErrorCode::InvalidCursor),
-            StatusCode::BAD_REQUEST
+            err.message,
+            "validation error: limit must be greater than 0"
+        );
+        assert!(err.context.is_empty());
+    }
+    #[test]
+    fn context_populated_for_variant_payloads() {
+        // The `From<Error> for AppError` arm body folds
+        // variant-specific payload fields into the
+        // operator-facing `context` map. Confirm the structured
+        // fields for the most-instrumented variants below.
+        let app = AppError::from(Error::not_found("session-123"));
+        assert_eq!(
+            app.context.get("item").map(String::as_str),
+            Some("session-123")
+        );
+
+        let app =
+            AppError::from(Error::rate_limited(Some(Duration::from_secs(42))));
+        assert_eq!(
+            app.context.get("retry_after_secs").map(String::as_str),
+            Some("42")
+        );
+
+        let path = std::path::PathBuf::from("/etc/config.toml");
+        let app =
+            AppError::from(Error::edit_conflict(path.clone(), 0xDEAD, 0xCAFE));
+        assert_eq!(
+            app.context.get("path").map(String::as_str),
+            Some("/etc/config.toml")
         );
         assert_eq!(
-            status_of(ErrorCode::InvalidSortField),
-            StatusCode::BAD_REQUEST
+            app.context.get("original_hash").map(String::as_str),
+            Some("57005")
         );
         assert_eq!(
-            status_of(ErrorCode::Unauthorized),
-            StatusCode::UNAUTHORIZED
+            app.context.get("current_hash").map(String::as_str),
+            Some("51966")
         );
-        assert_eq!(status_of(ErrorCode::Forbidden), StatusCode::FORBIDDEN);
-        assert_eq!(status_of(ErrorCode::NotFound), StatusCode::NOT_FOUND);
-        assert_eq!(status_of(ErrorCode::Conflict), StatusCode::CONFLICT);
-        assert_eq!(status_of(ErrorCode::AlreadyExists), StatusCode::CONFLICT);
+
+        let app = AppError::from(Error::context_overflow(100, 200));
         assert_eq!(
-            status_of(ErrorCode::ValidationError),
-            StatusCode::UNPROCESSABLE_ENTITY
+            app.context.get("limit_tokens").map(String::as_str),
+            Some("100")
         );
         assert_eq!(
-            status_of(ErrorCode::RateLimited),
-            StatusCode::TOO_MANY_REQUESTS
+            app.context.get("actual_tokens").map(String::as_str),
+            Some("200")
+        );
+
+        let app = AppError::from(Error::doom_loop("bash", 5));
+        assert_eq!(
+            app.context.get("tool_name").map(String::as_str),
+            Some("bash")
         );
         assert_eq!(
-            status_of(ErrorCode::InternalServerError),
-            StatusCode::INTERNAL_SERVER_ERROR
-        );
-        assert_eq!(
-            status_of(ErrorCode::ServiceUnavailable),
-            StatusCode::SERVICE_UNAVAILABLE
+            app.context.get("iterations").map(String::as_str),
+            Some("5")
         );
     }
 
     #[test]
-    fn unmapped_codes_default_to_500() {
+    fn builder_methods_are_chainable() {
+        let err = AppError::new(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            anyhow::anyhow!("base"),
+        )
+        .with_code("internal_server_error")
+        .with_message("human text")
+        .with_context("request_id", "abc-123")
+        .with_context("subject", "user:42");
+        assert_eq!(err.status_code, StatusCode::INTERNAL_SERVER_ERROR);
+        assert_eq!(err.code, "internal_server_error");
+        assert_eq!(err.message, "human text");
         assert_eq!(
-            status_of(ErrorCode::ToolExecutionError),
-            StatusCode::INTERNAL_SERVER_ERROR
+            err.context.get("request_id").map(String::as_str),
+            Some("abc-123")
         );
         assert_eq!(
-            status_of(ErrorCode::ProviderError),
-            StatusCode::BAD_GATEWAY
-        );
-        assert_eq!(
-            status_of(ErrorCode::MemoryError),
-            StatusCode::INTERNAL_SERVER_ERROR
-        );
-        assert_eq!(
-            status_of(ErrorCode::TelemetryError),
-            StatusCode::INTERNAL_SERVER_ERROR
-        );
-        assert_eq!(
-            status_of(ErrorCode::ContextOverflow),
-            StatusCode::PAYLOAD_TOO_LARGE
-        );
-        assert_eq!(status_of(ErrorCode::DoomLoop), StatusCode::CONFLICT);
-        assert_eq!(
-            status_of(ErrorCode::PromptInjection),
-            StatusCode::UNPROCESSABLE_ENTITY
+            err.context.get("subject").map(String::as_str),
+            Some("user:42")
         );
     }
 
-    /// `http_status()` MUST cover every variant: a new variant
-    /// added without a status mapping will fall through to the
-    /// default arm (500) silently. This test enumerates the
-    /// full variant set so any unmapped code fails fast.
     #[test]
-    fn http_status_covers_every_variant() {
-        let all = [
-            ErrorCode::BadRequest,
-            ErrorCode::Unauthorized,
-            ErrorCode::Forbidden,
-            ErrorCode::NotFound,
-            ErrorCode::Conflict,
-            ErrorCode::InternalServerError,
-            ErrorCode::ServiceUnavailable,
-            ErrorCode::ToolExecutionError,
-            ErrorCode::ProviderError,
-            ErrorCode::ValidationError,
-            ErrorCode::SessionError,
-            ErrorCode::SkillError,
-            ErrorCode::MemoryError,
-            ErrorCode::AlreadyExists,
-            ErrorCode::InvalidItem,
-            ErrorCode::Io,
-            ErrorCode::Parse,
-            ErrorCode::RateLimited,
-            ErrorCode::RetryExhausted,
-            ErrorCode::Stream,
-            ErrorCode::Timeout,
-            ErrorCode::ModelNotFound,
-            ErrorCode::ModelUnavailable,
-            ErrorCode::GuardianViolation,
-            ErrorCode::ConfigError,
-            ErrorCode::RouterError,
-            ErrorCode::TaskError,
-            ErrorCode::ExecutorError,
-            ErrorCode::ContextError,
-            ErrorCode::TelemetryError,
-            ErrorCode::MultiagentError,
-            ErrorCode::EvaluationError,
-            ErrorCode::EditConflict,
-            ErrorCode::InvalidCursor,
-            ErrorCode::InvalidSortField,
-            ErrorCode::NotImplemented,
-            ErrorCode::ContextOverflow,
-            ErrorCode::DoomLoop,
-            ErrorCode::PromptInjection,
-        ];
-        for code in all {
-            // Just exercise the mapping; any variant that hits
-            // the fallback (500) is still mapped, so the contract
-            // is "every variant returns SOMETHING". Specific
-            // status assertions live in the targeted tests
-            // above.
-            let _ = code.http_status();
-        }
+    fn merge_context_overwrites() {
+        let mut base = HashMap::new();
+        base.insert("k".to_string(), "first".to_string());
+        let extra = HashMap::from([
+            ("k".to_string(), "second".to_string()),
+            ("new".to_string(), "v".to_string()),
+        ]);
+        let err = AppError::new(StatusCode::BAD_REQUEST, anyhow::anyhow!("x"))
+            .merge_context(base)
+            .merge_context(extra);
+        assert_eq!(err.context.get("k").map(String::as_str), Some("second"));
+        assert_eq!(err.context.get("new").map(String::as_str), Some("v"));
     }
 
     #[tokio::test]
-    async fn body_has_code_and_message_no_result_when_absent() {
-        let err = UserError::new(ErrorCode::NotFound, "session not found");
-        let body = body_str(err).await;
-        assert!(body.contains("\"code\":\"not_found\""));
-        assert!(body.contains("\"message\":\"session not found\""));
-        assert!(!body.contains("result"));
-        assert!(!body.contains("details"));
+    async fn envelope_carries_core_code_and_display_message() {
+        let response =
+            AppError::from(Error::not_found("session 'abc'")).into_response();
+        assert_eq!(response.status(), StatusCode::NOT_FOUND);
+        let body = body_json(response).await;
+        assert_eq!(body["code"], "not_found");
+        assert_eq!(body["message"], "not found: session 'abc'");
     }
 
     #[tokio::test]
-    async fn body_includes_result_when_present() {
-        let err = UserError::with_result(
-            ErrorCode::ValidationError,
-            "invalid input",
-            serde_json::json!({"field": "name", "issue": "required"}),
-        );
-        let body = body_str(err).await;
-        assert!(body.contains("\"code\":\"validation_error\""));
-        assert!(body.contains("\"result\""));
-        assert!(body.contains("\"field\":\"name\""));
+    async fn internal_error_uses_core_wire_name() {
+        let response = AppError::from(Error::internal("boom")).into_response();
+        assert_eq!(response.status(), StatusCode::INTERNAL_SERVER_ERROR);
+        let body = body_json(response).await;
+        // The `Internal` variant's stable wire name is
+        // "internal_server_error" — pinned by the per-variant
+        // arm body in `From<Error> for AppError`.
+        assert_eq!(body["code"], "internal_server_error");
+        assert_eq!(body["message"], "internal error: boom");
     }
 
     #[tokio::test]
-    async fn into_response_status_matches_code() {
-        let err = UserError::new(ErrorCode::Conflict, "in conflict");
-        let response = err.into_response();
-        assert_eq!(response.status(), StatusCode::CONFLICT);
-    }
-
-    #[tokio::test]
-    async fn into_response_rate_limit_includes_result() {
-        let err = UserError::with_result(
-            ErrorCode::RateLimited,
-            "Too many requests",
-            serde_json::json!({
-                "retry_after_seconds": 30,
-                "limit": 100,
-                "remaining": 0
-            }),
-        );
-        let response = err.into_response();
+    async fn rate_limited_emits_retry_after_header() {
+        let response =
+            AppError::from(Error::rate_limited(Some(Duration::from_secs(42))))
+                .into_response();
         assert_eq!(response.status(), StatusCode::TOO_MANY_REQUESTS);
-        let bytes = to_bytes(response.into_body(), usize::MAX).await.unwrap();
-        let value: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
-        assert_eq!(value["code"], "rate_limited");
-        assert_eq!(value["result"]["retry_after_seconds"], 30);
+        let header = response
+            .headers()
+            .get("retry-after")
+            .expect("retry-after header should be present");
+        assert_eq!(header, "42");
+    }
+
+    #[tokio::test]
+    async fn rate_limited_without_retry_after_omits_header() {
+        let response =
+            AppError::from(Error::rate_limited(None)).into_response();
+        assert_eq!(response.status(), StatusCode::TOO_MANY_REQUESTS);
+        assert!(response.headers().get("retry-after").is_none());
     }
 
     #[test]
-    fn from_str_slice_uses_internal_server_error_code() {
-        let e: UserError = "boom".into();
-        assert_eq!(e.code, ErrorCode::InternalServerError);
-        assert_eq!(e.message, "boom");
-        assert!(e.result.is_none());
+    fn source_downcasts_back_to_core_error() {
+        // Round-tripping the synthia_core::Error through anyhow
+        // must keep the original error reachable (the `source`
+        // chain feeds `tracing::error!` and rate-limit detection).
+        let inner = Error::timeout("upstream");
+        let app = AppError::from(inner);
+        assert!(
+            app.source.downcast_ref::<synthia_core::Error>().is_some(),
+            "downcast_ref must recover the original Error"
+        );
     }
 
     #[test]
-    fn from_string_uses_internal_server_error_code() {
-        let e: UserError = String::from("kaboom").into();
-        assert_eq!(e.code, ErrorCode::InternalServerError);
-        assert_eq!(e.message, "kaboom");
-        assert!(e.result.is_none());
-    }
+    fn validation_errors_map_to_422_envelope() {
+        // Schema-level validation failure (the `#[validate(...)]`
+        // attributes on request DTOs) must produce the unified
+        // envelope: 422 + `validation` code + a flattened
+        // `field: message` summary.
+        use validator::Validate;
 
-    #[test]
-    fn from_core_error_preserves_code_mapping() {
-        let cases = [
-            (synthia_core::Error::not_found("x"), ErrorCode::NotFound),
-            (
-                synthia_core::Error::validation("x"),
-                ErrorCode::ValidationError,
-            ),
-            (
-                synthia_core::Error::context_overflow(100, 200),
-                ErrorCode::ContextOverflow,
-            ),
-            (synthia_core::Error::doom_loop("t", 1), ErrorCode::DoomLoop),
-            (
-                synthia_core::Error::prompt_injection("s", "p"),
-                ErrorCode::PromptInjection,
-            ),
-        ];
-        for (err, expected_code) in cases {
-            let user_err: UserError = err.into();
-            assert_eq!(user_err.code, expected_code);
+        #[derive(validator::Validate)]
+        struct Sample {
+            #[validate(length(min = 3, message = "too short"))]
+            name: String,
         }
+
+        let err = Sample { name: "ab".into() }.validate().unwrap_err();
+        let app = AppError::from(err);
+        assert_eq!(app.status_code, StatusCode::UNPROCESSABLE_ENTITY);
+        assert_eq!(app.code, "validation");
+        assert!(app.message.contains("name"));
+        assert!(app.message.contains("too short"));
     }
 }

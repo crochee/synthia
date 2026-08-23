@@ -10,7 +10,7 @@
 //!    by a reverse proxy — silently turns into a stale-view bug
 //!    after the user edits a skill or registers an agent. The
 //!    `no-store` directive disables all of those caches in one
-//!    declaration. The `/a2a/*` and `/livez`-`/readyz` paths are
+//!    declaration. The `/api/v1/chat/stream` and `/livez`-`/readyz` paths are
 //!    *not* marked no-store because `Cache-Control` on a streaming
 //!    response is meaningless (the body never completes) and the
 //!    probe endpoints set their own `Cache-Control: no-store`.
@@ -23,7 +23,7 @@
 //!    aware network panels, giving operators and developers a
 //!    zero-config latency breakdown without needing an APM. We keep
 //!    it scoped to non-streaming paths because streaming endpoints
-//!    (`/a2a/*` SSE) only flush headers at the *start* of the
+//!    (`/api/v1/chat/stream` SSE) only flush headers at the *start* of the
 //!    stream — measuring "total" there would either be the wrong
 //!    metric (header flush at byte 0) or impossible (the stream
 //!    never completes).
@@ -85,7 +85,7 @@ pub async fn response_headers_middleware(
         .and_then(|v| v.to_str().ok())
         .unwrap_or("");
     let is_sse = content_type.starts_with("text/event-stream")
-        || path.starts_with("/a2a");
+        || path.starts_with("/api/v1/chat/stream");
 
     if path.starts_with(API_PREFIX)
         && !response.headers().contains_key(&CACHE_CONTROL)
@@ -110,7 +110,7 @@ pub async fn response_headers_middleware(
         // Streams also need an explicit `Cache-Control: no-store`
         // so any shared cache drops the partial response body
         // rather than trying to replay a truncated stream. The
-        // upstream A2A SDK doesn't set this itself, so we own it
+        // upstream SDK doesn't set this itself, so we own it
         // here. Skip if a handler / upstream has already set one.
         if !response.headers().contains_key(&CACHE_CONTROL) {
             response.headers_mut().insert(CACHE_CONTROL, NO_STORE);
@@ -182,7 +182,7 @@ mod tests {
         let resp = app
             .oneshot(
                 HttpRequest::builder()
-                    .uri("/a2a")
+                    .uri("/api/v1/chat/stream")
                     .body(Body::empty())
                     .unwrap(),
             )

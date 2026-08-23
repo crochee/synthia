@@ -13,6 +13,7 @@ use axum::{
 };
 use parking_lot::RwLock;
 use serde::Serialize;
+use synthia_telemetry::TEXT_EXPOSITION_CONTENT_TYPE;
 
 use crate::state::AppState;
 
@@ -146,6 +147,33 @@ struct CachedModels {
     default_model: String,
     etag: String,
     body: Arc<ModelsResponse>,
+}
+
+/// GET /metrics - Prometheus text exposition endpoint.
+///
+/// Available only behind the `metrics` cargo feature. Returns the
+/// aggregated `prometheus::gather()` payload in the standard text
+/// exposition format (version 0.0.4), suitable for scraping by a
+/// Prometheus server.
+///
+/// Like `/livez` and `/readyz`, this endpoint is intentionally
+/// mounted OUTSIDE the auth / trace-context / RED metrics layers:
+/// - Not tracked itself by the metrics middleware (a scrape that
+///   counts itself is noise).
+/// - Not auth-protected (Prometheus servers scrape anonymously).
+/// - No `traceparent` minted (orchestrator probes flood the trace
+///   pipeline).
+pub async fn metrics() -> Response {
+    let body = synthia_telemetry::gather_text();
+    (
+        StatusCode::OK,
+        [(
+            axum::http::header::CONTENT_TYPE,
+            HeaderValue::from_static(TEXT_EXPOSITION_CONTENT_TYPE),
+        )],
+        body,
+    )
+        .into_response()
 }
 
 /// GET /api/models - List available models with bare response (no envelope).
@@ -381,41 +409,17 @@ mod tests {
         assert!(body.get("failed").is_none(), "got: {body}");
     }
 
-    /// `readyz` MUST return 503 + the failing check names while
-    /// the A2A service OnceCell is untouched (i.e. the router was
-    /// not built through `create_router`, which initializes it
-    /// eagerly). The agent-registry check passes because
+    /// `readyz` MUST return 200 once every readiness check
+    /// passes. The agent-registry check passes because
     /// `AppState::new` registers the canonical ReAct agent.
+    /// Reserved for the future; the chat surface is the only
+    /// check; it was retired (kept for the future).
     #[tokio::test]
-    async fn readyz_is_503_before_a2a_service_initialized() {
+    async fn readyz_is_200_after_state_initialized() {
         let state =
             crate::state::AppState::new(std::path::PathBuf::from("."), None)
                 .await
                 .expect("workspace load should succeed in test");
-        let resp = readyz(State(state)).await;
-        assert_eq!(resp.status(), StatusCode::SERVICE_UNAVAILABLE);
-        use http_body_util::BodyExt;
-        let bytes = resp.into_body().collect().await.unwrap().to_bytes();
-        let body: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
-        assert_eq!(body["status"], "unavailable");
-        assert_eq!(
-            body["failed"],
-            serde_json::json!(["a2a_service"]),
-            "only the a2a_service check may fail here, got: {body}"
-        );
-    }
-
-    /// `readyz` MUST flip to 200 once every readiness check
-    /// passes — here triggered by initializing the A2A service
-    /// the same way `create_router` does.
-    #[tokio::test]
-    async fn readyz_is_200_after_a2a_service_initialized() {
-        let state =
-            crate::state::AppState::new(std::path::PathBuf::from("."), None)
-                .await
-                .expect("workspace load should succeed in test");
-        // Mirror the eager bootstrap in `create_router`.
-        let _ = state.a2a_service(None).await;
         let resp = readyz(State(state)).await;
         assert_eq!(resp.status(), StatusCode::OK);
         assert_eq!(resp.headers().get(CACHE_CONTROL).unwrap(), "no-store");
@@ -423,7 +427,10 @@ mod tests {
         let bytes = resp.into_body().collect().await.unwrap().to_bytes();
         let body: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
         assert_eq!(body["status"], "ok");
-        assert!(body.get("failed").is_none(), "got: {body}");
+        assert!(
+            body.get("failed").is_none(),
+            "readyz must report no failed checks once AppState is initialised, got: {body}"
+        );
     }
 
     /// `ProbeResponse` with failed checks MUST serialize the
@@ -433,11 +440,50 @@ mod tests {
     fn probe_response_serializes_failed_check_names() {
         let resp = ProbeResponse {
             status: "unavailable",
-            failed: vec!["a2a_service", "agent_registry"],
+            failed: vec!["agent_registry"],
         };
         let json = serde_json::to_value(&resp).unwrap();
         assert_eq!(json["status"], "unavailable");
-        assert_eq!(json["failed"][0], "a2a_service");
-        assert_eq!(json["failed"][1], "agent_registry");
+        assert_eq!(json["failed"][0], "agent_registry");
+    }
+
+    /// `/metrics` MUST return 200 with the Prometheus text
+    /// exposition MIME and a body containing the registered RED
+    /// metric families (after a labeled child has been observed).
+    /// Available only behind the `metrics` cargo feature. Uses
+    /// the global prometheus registry's lazy initialization by
+    /// observing a sample first — without a child,
+    /// `prometheus::gather()` drops childless families by design.
+    #[tokio::test]
+    async fn metrics_endpoint_serves_prometheus_text() {
+        // Seed at least one labeled sample so the family has a
+        // child — `prometheus::gather()` drops childless families
+        // by design, and the test must observe a populated body.
+        // Use a unique label so the test is order-independent
+        // when the global registry is shared with other tests.
+        let label_path = "/__metrics_endpoint_probe__";
+        synthia_telemetry::HTTP_REQUESTS_TOTAL
+            .with_label_values(&["GET", label_path])
+            .inc();
+
+        let response = metrics().await;
+        assert_eq!(response.status(), StatusCode::OK);
+        let mime = response
+            .headers()
+            .get(axum::http::header::CONTENT_TYPE)
+            .expect("content-type");
+        assert_eq!(mime, TEXT_EXPOSITION_CONTENT_TYPE);
+
+        use http_body_util::BodyExt;
+        let bytes = response.into_body().collect().await.unwrap().to_bytes();
+        let text = std::str::from_utf8(&bytes).expect("utf-8");
+        assert!(
+            text.contains("http_requests_total"),
+            "expected http_requests_total family in scrape, got: {text}"
+        );
+        assert!(
+            text.contains(label_path),
+            "expected labeled child `{label_path}` in scrape, got: {text}"
+        );
     }
 }

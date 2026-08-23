@@ -6,28 +6,32 @@ export async function getHealth(baseURL: string) {
   return res.json();
 }
 
-export async function listTasks(baseURL: string) {
-  const res = await fetch(`${baseURL}/api/tasks`, { method: "GET" });
+export async function listSessions(baseURL: string) {
+  const res = await fetch(`${baseURL}/api/v1/sessions`, { method: "GET" });
   return res.json();
 }
 
-export async function createTask(baseURL: string, body: unknown) {
-  const res = await fetch(`${baseURL}/api/tasks`, {
-    method: "POST",
-    body: JSON.stringify(body),
-  });
+export async function getSession(baseURL: string, id: string) {
+  const res = await fetch(`${baseURL}/api/v1/sessions/${id}`, { method: "GET" });
+  return res.json();
+}
+
+export async function sendChatMessage(
+  baseURL: string,
+  sessionId: string,
+  body: unknown,
+) {
+  const res = await fetch(
+    `${baseURL}/api/v1/chat/sessions/${sessionId}/messages`,
+    {
+      method: "POST",
+      body: JSON.stringify(body),
+    },
+  );
   return res.json();
 }
 
 export async function listTools(baseURL: string) {
   const res = await fetch(`${baseURL}/api/tools`, { method: "GET" });
-  return res.json();
-}
-
-export async function a2aSendMessage(baseURL: string, request: unknown) {
-  const res = await fetch(`${baseURL}/a2a/message:send`, {
-    method: "POST",
-    body: JSON.stringify(request),
-  });
   return res.json();
 }

@@ -1,18 +1,22 @@
 import { test, expect } from '@playwright/test';
 
 /**
- * Layer 1 — Task → Chat continuation flow (regression).
+ * Layer 1 — Session → Chat continuation flow (regression).
  *
  * Regression coverage for the user-visible "still does not work"
- * symptom: clicking "在 chat 中继续此 session" from the task
- * detail page dropped the user into an empty chat instead of
- * restoring the prior conversation tied to the task's
- * `context_id`. The root cause was a ChatPage effect-ordering bug
- * — its persist effect clobbered the stored messages with `[]`
- * on the first commit. The TaskDetailPage routing is now
- * covered end-to-end here.
+ * symptom: clicking "Continue this session in chat" from the
+ * session detail page dropped the user into an empty chat
+ * instead of restoring the prior conversation tied to the
+ * session's `context_id`. The root cause was a ChatPage
+ * effect-ordering bug — its persist effect clobbered the
+ * stored messages with `[]` on the first commit. The
+ * SessionDetailPage routing is now covered end-to-end here.
+ *
+ * Terminology note: the underlying REST endpoint is still
+ * `/api/v1/sessions` because the wire format predates the
+ * terminology refresh; UI text and routes use "session".
  */
-test.describe('Task → chat continuation', () => {
+test.describe('Session → chat continuation', () => {
   test('clicking continue-in-chat restores the prior conversation', async ({ page }) => {
     page.on('console', (msg) => {
       if (msg.type() === 'log') console.log('[browser]', msg.text());
@@ -44,9 +48,10 @@ test.describe('Task → chat continuation', () => {
       },
     );
 
-    // 2. Mock the task detail endpoint so we can assert on a
-    //    deterministic context_id.
-    await page.route('**/api/v1/tasks/test-continue-flow', async (route) => {
+    // 2. Mock the session detail endpoint so we can assert on a
+    //    deterministic context_id. The path remains /api/v1/sessions
+    //    to keep the server contract stable.
+    await page.route('**/api/v1/sessions/test-continue-flow', async (route) => {
       await route.fulfill({
         status: 200,
         contentType: 'application/json',
@@ -60,16 +65,17 @@ test.describe('Task → chat continuation', () => {
       });
     });
 
-    // 3. Land on the task detail page and click the link.
-    await page.goto('/tasks/test-continue-flow');
-    const link = page.getByTestId('task-detail-continue-chat');
+    // 3. Land on the session detail page and click the link.
+    await page.goto('/sessions/test-continue-flow');
+    const link = page.getByTestId('session-detail-continue-chat');
     await expect(link).toBeVisible({ timeout: 10000 });
     await link.click();
     await expect(page).toHaveURL(/\/chat\/ctx-existing-789$/);
 
     // 4. The prior conversation must be visible — proving the
-    //    task.context_id is used as the chat sessionId and that
-    //    the localStorage restore survived the SPA navigation.
+    //    session.context_id is used as the chat sessionId and
+    //    that the localStorage restore survived the SPA
+    //    navigation.
     await expect(page.getByTestId('message-user').first()).toBeVisible({
       timeout: 10000,
     });
@@ -81,22 +87,22 @@ test.describe('Task → chat continuation', () => {
     ).toBeVisible();
   });
 
-  test('reconstructs user + agent text from task history when localStorage is empty', async ({
+  test('reconstructs user + agent text from session history when localStorage is empty', async ({
     page,
   }) => {
     // The server now persists the full conversation into
-    // `task.history`. When the user clicks "继续 chat" with
-    // an empty localStorage, the reconstructor must seed the
-    // chat store with one user message and one assistant
+    // `session.history`. When the user clicks "Continue chat"
+    // with an empty localStorage, the reconstructor must seed
+    // the chat store with one user message and one assistant
     // message (the latter containing a tool_block whose call
     // and result sides are paired by tool_use_id).
     const sessionId = 'ctx-history-reconstruct';
-    await page.route('**/api/v1/tasks/task-with-history', async (route) => {
+    await page.route('**/api/v1/sessions/session-with-history', async (route) => {
       await route.fulfill({
         status: 200,
         contentType: 'application/json',
         body: JSON.stringify({
-          id: 'task-with-history',
+          id: 'session-with-history',
           status: 'completed',
           context_id: sessionId,
           history: [
@@ -142,8 +148,8 @@ test.describe('Task → chat continuation', () => {
       });
     });
 
-    await page.goto('/tasks/task-with-history');
-    await page.getByTestId('task-detail-continue-chat').click();
+    await page.goto('/sessions/session-with-history');
+    await page.getByTestId('session-detail-continue-chat').click();
     await expect(page).toHaveURL(new RegExp(`/chat/${sessionId}$`));
 
     // Both the user message and the assistant turn render in
@@ -157,33 +163,34 @@ test.describe('Task → chat continuation', () => {
     await expect(assistant.getByText('shell')).toBeVisible();
   });
 
-  test('reconstructs assistant tool blocks from task artifacts when localStorage is empty', async ({
+  test('reconstructs assistant tool blocks from session artifacts when localStorage is empty', async ({
     page,
   }) => {
     // Legacy fallback path: tool calls/results carried via
-    // `task.artifacts` with a `metadata.kind` discriminator. This
-    // path exists for tasks completed before the
-    // `Task.history`-based wire was wired up; new tasks route
-    // tool turns through `Message(agent) + Part::data` per
-    // A2A v1.0 §3.7 (no `kind` discriminator). Pin the legacy
-    // path so old tasks remain readable.
+    // `session.artifacts` with a `metadata.kind` discriminator.
+    // This path exists for sessions completed before the
+    // history-based wire was wired up; new sessions route tool
+    // turns through `Message(agent) + Part::data`
+    // §3.7 (no `kind` discriminator). Pin the legacy path so old
+    // sessions remain readable.
     //
-    // The task is loaded AFTER the click in the real flow, so the
-    // page already has `task` populated by the time the user can
-    // interact. We mock the detail endpoint and click the link.
+    // The session is loaded AFTER the click in the real flow,
+    // so the page already has the data populated by the time
+    // the user can interact. We mock the detail endpoint and
+    // click the link.
     const sessionId = 'ctx-reconstruct-1';
-    await page.route('**/api/v1/tasks/task-with-tools', async (route) => {
+    await page.route('**/api/v1/sessions/session-with-tools', async (route) => {
       await route.fulfill({
         status: 200,
         contentType: 'application/json',
         body: JSON.stringify({
-          id: 'task-with-tools',
+          id: 'session-with-tools',
           status: 'completed',
           context_id: sessionId,
           history: [],
           artifacts: [
             {
-              artifactId: 'artifact-call-1',
+              attachmentId: 'attachment-call-1',
               parts: [{ text: '{"command":"ls -la"}' }],
               metadata: {
                 kind: 'tool_call',
@@ -192,7 +199,7 @@ test.describe('Task → chat continuation', () => {
               },
             },
             {
-              artifactId: 'artifact-result-1',
+              attachmentId: 'attachment-result-1',
               parts: [{ text: 'exit: 0\n\nstdout:\nhi' }],
               metadata: {
                 kind: 'tool_result',
@@ -205,15 +212,15 @@ test.describe('Task → chat continuation', () => {
       });
     });
 
-    await page.goto('/tasks/task-with-tools');
-    await page.getByTestId('task-detail-continue-chat').click();
+    await page.goto('/sessions/session-with-tools');
+    await page.getByTestId('session-detail-continue-chat').click();
     await expect(page).toHaveURL(new RegExp(`/chat/${sessionId}$`));
 
     // No prior localStorage was seeded. After the click, the
     // click handler seeds the chat store with one assistant
     // message containing a tool_block reconstructed from the
-    // task's tool_call / tool_result pair. The chat view must
-    // render that tool block so the user can see what the
+    // session's tool_call / tool_result pair. The chat view
+    // must render that tool block so the user can see what the
     // previous run actually did.
     const assistant = page.getByTestId('message-assistant').first();
     await expect(assistant).toBeVisible({ timeout: 10000 });

@@ -12,8 +12,6 @@ import {
   computeCoverage,
   formatUncoveredPathsParagraph,
   type CoverageReport,
-  type UncoveredEndpoint,
-  type UncoveredSseEvent,
 } from '../contract-coverage.js';
 
 describe('computeCoverage', () => {
@@ -21,12 +19,12 @@ describe('computeCoverage', () => {
     const cf = {
       version: 1,
       endpoints: [
-        { id: 'GET /api/tasks', method: 'GET', path: '/api/tasks', source: 'backend' as const },
+        { id: 'GET /api/v1/sessions', method: 'GET', path: '/api/v1/sessions', source: 'backend' as const },
         { id: 'GET /health', method: 'GET', path: '/health', source: 'both' as const },
       ],
     };
     const specs = [
-      { file: '/fake/contract-closure.tasks-list.spec.ts', text: 'GET /api/tasks' },
+      { file: '/fake/contract-closure.sessions-list.spec.ts', text: 'GET /api/v1/sessions' },
       { file: '/fake/contract-closure.health.spec.ts', text: 'GET /health' },
     ];
 
@@ -43,7 +41,7 @@ describe('computeCoverage', () => {
     const cf = {
       version: 1,
       endpoints: [
-        { id: 'GET /api/tasks', method: 'GET', path: '/api/tasks', source: 'backend' as const },
+        { id: 'GET /api/v1/sessions', method: 'GET', path: '/api/v1/sessions', source: 'backend' as const },
         { id: 'GET /health', method: 'GET', path: '/health', source: 'both' as const },
       ],
     };
@@ -55,7 +53,7 @@ describe('computeCoverage', () => {
 
     expect(report.coveredEndpoints).toBe(1);
     expect(report.uncoveredEndpoints).toHaveLength(1);
-    expect(report.uncoveredEndpoints[0].id).toBe('GET /api/tasks');
+    expect(report.uncoveredEndpoints[0].id).toBe('GET /api/v1/sessions');
   });
 
   it('tracks SSE event coverage', () => {
@@ -63,22 +61,22 @@ describe('computeCoverage', () => {
       version: 1,
       endpoints: [
         {
-          id: 'GET /a2a/tasks/{key}:subscribe',
+          id: 'GET /api/v1/sessions/{id}/messages/stream',
           method: 'GET',
-          path: '/a2a/tasks/{key}:subscribe',
+          path: '/api/v1/sessions/{id}/messages/stream',
           source: 'both' as const,
           sse_events: [
-            { name: 'status-update', fields: ['taskId'] },
-            { name: 'artifact-update', fields: ['taskId'] },
+            { name: 'sessionStatus', fields: ['sessionId', 'sessionState'] },
+            { name: 'message', fields: ['sessionId'] },
           ],
         },
       ],
     };
-    // Only status-update is covered by the spec
+    // Only sessionStatus is covered by the spec
     const specs = [
       {
-        file: '/fake/contract-closure.sse-status-update.spec.ts',
-        text: 'status-update SSE subscribe /a2a/tasks/',
+        file: '/fake/contract-closure.sse-session-status.spec.ts',
+        text: 'sessionStatus SSE stream /api/v1/sessions/',
       },
     ];
 
@@ -87,7 +85,7 @@ describe('computeCoverage', () => {
     expect(report.totalSseEvents).toBe(2);
     expect(report.coveredSseEvents).toBe(1);
     expect(report.uncoveredSseEvents).toHaveLength(1);
-    expect(report.uncoveredSseEvents[0].eventName).toBe('artifact-update');
+    expect(report.uncoveredSseEvents[0].eventName).toBe('message');
   });
 });
 
@@ -111,7 +109,7 @@ describe('formatUncoveredPathsParagraph', () => {
       totalEndpoints: 3,
       coveredEndpoints: 1,
       uncoveredEndpoints: [
-        { id: 'GET /api/tasks', source: 'backend' },
+        { id: 'GET /api/v1/sessions', source: 'backend' },
         { id: 'DELETE /api/tools/{key}', source: 'backend' },
       ],
       totalSseEvents: 0,
@@ -122,7 +120,7 @@ describe('formatUncoveredPathsParagraph', () => {
     const paragraph = formatUncoveredPathsParagraph(report);
 
     expect(paragraph).toContain('Uncovered paths:');
-    expect(paragraph).toContain('GET /api/tasks');
+    expect(paragraph).toContain('GET /api/v1/sessions');
     expect(paragraph).toContain('DELETE /api/tools/{key}');
     expect(paragraph).toContain('Endpoints (2):');
   });
@@ -135,7 +133,7 @@ describe('formatUncoveredPathsParagraph', () => {
       totalSseEvents: 2,
       coveredSseEvents: 1,
       uncoveredSseEvents: [
-        { endpointId: 'GET /a2a/tasks/{key}:subscribe', eventName: 'artifact-update' },
+        { endpointId: 'GET /api/v1/sessions/{id}/messages/stream', eventName: 'attachment' },
       ],
     };
 
@@ -143,8 +141,8 @@ describe('formatUncoveredPathsParagraph', () => {
 
     expect(paragraph).toContain('Uncovered paths:');
     expect(paragraph).toContain('SSE events (1):');
-    expect(paragraph).toContain('artifact-update');
-    expect(paragraph).toContain('GET /a2a/tasks/{key}:subscribe');
+    expect(paragraph).toContain('attachment');
+    expect(paragraph).toContain('GET /api/v1/sessions/{id}/messages/stream');
   });
 
   it('includes both endpoints and SSE events when both are uncovered', () => {
@@ -152,12 +150,12 @@ describe('formatUncoveredPathsParagraph', () => {
       totalEndpoints: 2,
       coveredEndpoints: 0,
       uncoveredEndpoints: [
-        { id: 'GET /api/tasks', source: 'backend' },
+        { id: 'GET /api/v1/sessions', source: 'backend' },
       ],
       totalSseEvents: 1,
       coveredSseEvents: 0,
       uncoveredSseEvents: [
-        { endpointId: 'GET /a2a/tasks/{key}:subscribe', eventName: 'status-update' },
+        { endpointId: 'GET /api/v1/sessions/{id}/messages/stream', eventName: 'sessionStatus' },
       ],
     };
 

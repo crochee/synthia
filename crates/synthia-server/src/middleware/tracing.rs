@@ -14,9 +14,9 @@
 //! mint a separate `X-Request-ID` — the trace id and span id
 //! exposed by `trace_context` are sufficient to stitch logs,
 //! traces, and metrics together. The previous
-//! `X-Request-ID` header was redundant with `x-trace-id` and
-//! created two parallel correlation schemes; it has been removed
-//! in favour of the W3C standard.
+//! `X-Request-ID` header was redundant with the W3C trace id
+//! and created two parallel correlation schemes; it has been
+//! removed in favour of the W3C standard.
 //!
 //! [w3c]: https://www.w3.org/TR/trace-context/
 
@@ -175,8 +175,8 @@ mod tests {
     #[tokio::test]
     async fn request_tracing_no_longer_emits_request_id_header() {
         // The legacy X-Request-ID header has been retired in favour
-        // of W3C TraceContext (`traceparent` / `x-trace-id`). Make
-        // sure it does not silently come back.
+        // of W3C TraceContext (`traceparent`). Make sure it does
+        // not silently come back.
         let app = Router::new()
             .route("/probe", get(handler))
             .layer(RequestTracingLayer);
@@ -188,7 +188,7 @@ mod tests {
         let response = app.oneshot(req).await.unwrap();
         assert!(
             response.headers().get("X-Request-ID").is_none(),
-            "X-Request-ID must not be emitted; use x-trace-id + traceparent instead",
+            "X-Request-ID must not be emitted; use traceparent instead",
         );
     }
 }

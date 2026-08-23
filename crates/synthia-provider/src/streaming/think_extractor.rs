@@ -8,10 +8,10 @@
 //!
 //! Both the OpenAI and Anthropic streaming processors share this state
 //! machine so reasoning is split out into its own `ContentPart::Reasoning`
-//! chunks before the chunks reach the agent layer. The downstream A2A
-//! mapping then turns reasoning into `kind: "model_reasoning"` and text
-//! into `kind: "model_text"`, which the frontend dispatches on directly —
-//! no client-side marker parsing required.
+//! chunks before the chunks reach the agent layer. The downstream chat
+//! mapping then turns reasoning into `kind: "thinking"` and text
+//! into `kind: "text"` on the wire, which the frontend dispatches on
+//! directly — no client-side marker parsing required.
 //!
 //! Carry semantics:
 //! - Outside a `<think>` block, the last `THINK_OPEN_LEN - 1` characters

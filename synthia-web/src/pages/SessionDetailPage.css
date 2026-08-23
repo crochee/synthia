@@ -1,0 +1,33 @@
+/**
+ * Session detail page styling.
+ *
+ * The History card on `/sessions/:id` renders the same
+ * `ChatMessageList` component as `/chat/:sessionId`, so the
+ * page re-uses `pages/ChatPage.css` for the chat-message
+ * classes (`.nt-chat__message`, `.nt-chat__segment`,
+ * `.nt-chat__tool-block-*`, etc.). This file carries only the
+ * session-detail-only visual layer: page layout, summary card,
+ * and the legacy Artifacts card (kept for sessions that
+ * completed before history persistence landed).
+ *
+ * Base artifact-card rules live in
+ * `styles/artifact-card.css`, imported by `ChatPage.css`.
+ */
+
+.nt-session-detail {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-md);
+}
+
+.nt-session-detail__summary {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  font-family: var(--font-mono);
+  font-size: var(--fs-sm);
+}
+
+.nt-session-detail__summary code {
+  color: var(--text-primary);
+}

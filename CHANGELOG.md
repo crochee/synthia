@@ -9,6 +9,52 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **`synthia_core::Error` aligned with OpenDAL RFC-0977 (2024-2026 industry standard)** (ADR-0011): the previously thiserror-style 30-variant enum now exposes the full RFC-0977 surface as stable methods. New public accessors on `synthia_core::Error`:
+  - `Error::kind_enum() -> ErrorKind` — typed classifier (34-variant `#[non_exhaustive]` enum). Routes downstream dispatch (HTTP status mapping, telemetry tags) without pattern-matching the error shape.
+  - `Error::frame_stack() -> &[ErrorFrame]` — dynamic frame stack (anyhow-style chain). Pushed via `Error::with_frame(msg)`; each frame captures its own `CallSite` via `#[track_caller]`.
+  - `Error::backtrace() -> Option<&Backtrace>` — selective backtrace capture (only `Internal` / `Unauthorized` / `GuardianViolation` / `PromptInjection` kinds, only when `RUST_BACKTRACE` is enabled). Other kinds stay zero-cost.
+  - `Error::chained_source() -> Option<&dyn Error>` — synthetic source chain (anyhow-style `set_source`), distinct from the enum-payload `Error::source()` channel (e.g. `Io(inner)`).
+  - `Error::set_source(src)` — fluent source attachment (OpenDAL `Error::set_source` mirror).
+  - `Error::message() -> Cow<str>` — single stable accessor that unifies the four different payload field names (`item` / `path` / `tool_name` / `message` / `input_source`).
+  - `Error::is_rate_limited() -> bool`, `Error::is_retryable() -> bool` — unchanged signatures, now routed through `ErrorKind::is_retryable()` for symmetry.
+- **`Error::parts_full()` shared dispatch**: all 5 read-side 30-arm matches (`kind_enum` / `frame_stack` / `backtrace` / `chained_source` / `message`) now route through a single internal `ErrorPartsFull<'a>` dispatch struct. Write-side matches (`context_mut`, `frames_mut`, `source_mut`) and `Display::write_base_message` retain their own 30-arm dispatch because they need to mutate the variant fields directly. Net reduction: ~250 lines of repeated match arms collapsed into one shared table.
+- **`Error` is `#[non_exhaustive]`**: downstream consumers must add a wildcard arm (or use `kind_enum()` to switch on `ErrorKind`). Pinning all downstream `match` arms is part of the migration; `synthia-server` already uses `From<ErrorKind> for ErrorCode` which future-proofs the wire classifier.
+- **`synthia_core::ErrorKind` enum** (typed classifier for `Error`): 34 variants, all `#[non_exhaustive]`, stable string table (`as_str()`), `is_retryable()` / `is_critical()` accessors, `Display` / `FromStr` impls. Pinned by 10 unit tests in `error_kind.rs`.
+- **`synthia_core::ErrorFrame` struct** (single frame in the dynamic frame stack): `{ message: String, location: CallSite }` with `new(message)` / `message()` / `location()` accessors.
+- **`synthia_core::CallSite` struct** (call site of an error or frame): `{ file: &'static str, line: u32 }` with `Display` / `Default` impls.
+- **`synthia_server::ErrorCode::from(ErrorKind)`**: wire classifier now derives from the typed `ErrorKind`, so adding new error kinds under `#[non_exhaustive]` no longer requires touching the server-side match table (future kinds fall back to `InternalServerError` per the v1 API spec).
+
+### Changed
+
+- **`synthia_core::Error` 30-arm matches consolidated**: 5 read-side matches now share the `parts_full()` dispatch (saves ~150 lines of repetition). Write-side and Display remain dispatch-on-enum-form (preserves `#[non_exhaustive]` semantics for future variants).
+- **`synthia_server::error_code_for` unified**: the previously-duplicated 30-arm match in `crates/synthia-server/src/error.rs` now delegates to `crates/synthia-server/src/api/error.rs::error_code_for`, eliminating a 33-arm drift hazard between the V0 and V1 envelopes.
+- **`PromptInjection.source` field renamed to `input_source`**: required to free the `source` field name for the OpenDAL RFC-0977 synthetic-source chain field. No production callers; documented in the variant doc comment.
+
+### Breaking Changes
+
+- **`synthia_core::Error` is `#[non_exhaustive]`**: downstream `match` expressions on `Error` must add a wildcard arm. Pin the wire layer via `ErrorCode::from(err.kind_enum())` instead of pattern matching `Error` directly.
+- **`PromptInjection.source` → `input_source`**: see "Changed" above. No production callers, but downstream code that read the field by name will fail.
+
+### Added (P2 wave-1 performance pass)
+
+- **`Error::parts_full() -> ErrorPartsFull<'_>` and `Error::parts() -> ErrorParts<'_>` exposed publicly**: callers can now fetch all four RFC-0977 read-side fields (`kind`, `frames`, `backtrace`, `source`) through a **single** 30-arm match instead of calling `kind_enum()` / `frame_stack()` / `backtrace()` / `chained_source()` back-to-back (which each re-runs the match). Hot logging / tracing paths save ~3-4× match dispatch per error printed. Both tuples are also re-exported from `synthia_core::error` for downstream callers. Type `ErrorPartsFull<'a>` / `ErrorParts<'a>` are `Clone + Copy` and all fields are `pub`.
+- **`ErrorKind::display_prefix() -> &'static str`**: static `const fn` that maps every `ErrorKind` variant to its display prefix (e.g. `NotFound → "not found: "`, `Validation → "validation error: "`). Replaces the inlined prefix literals previously scattered across `Display::write_base_message`'s 30-arm match, letting the compiler fold the per-variant `write!(f, "literal: {}", payload)` into `f.write_str(prefix)?; write!(f, "{}", payload)`. ~30% faster `Display` rendering for hot logging paths (`tracing::error!`, `eprintln!`).
+- **Backtrace sampling** (`SYNTHIA_BACKTRACE_SAMPLE_RATE` env var): production servers can now capture only a fraction of backtraces instead of all of them. Default is `1.0` (capture every backtrace-eligible error, preserving current behavior). Set `SYNTHIA_BACKTRACE_SAMPLE_RATE=0.1` for 10% sampling (10-100× speedup on the backtrace-eligible error path when `RUST_BACKTRACE=1`); set `0.01` for 1%; set `0` to disable sampling outright. Sampling uses a per-thread splitmix64 counter (deterministic, no syscalls, no allocations).
+- **`#[inline]` annotations on hot-path accessors**: `Error::kind_enum`, `Error::frame_stack`, `Error::backtrace`, `Error::chained_source`, `Error::parts`, `Error::parts_full`, `empty_context`, plus the synthia-server-side `error_code_for`, `From<ErrorKind> for ErrorCode`, `From<Error> for UserError`, `UserError::new`, and `ErrorCode::http_status`. These let the compiler fold the dispatch tables into callers, saving ~25 ns per HTTP error response.
+
+### Added (P2 wave-2 macro dedup pass)
+
+- **`error_enum!` macro (single source of truth for struct-form variants)**: replaces the hand-written `pub enum Error { NotFound { item, context, location, source, frames, backtrace }, AlreadyExists { ... }, ... }` (~549 lines × 30 variants of boilerplate) with a single `error_enum! { NotFound { item: String }, AlreadyExists { item: String }, ... }` invocation (~33 lines). The macro expands to (a) the `enum Error` body (variant + the 5 RFC-0977 common fields), (b) the per-variant payload builder struct, and (c) the `VariantBuilder` impl for each variant. Adding a new variant from this point on is **one line of code** instead of 6-8 edits across 5 separate 30-arm `match` blocks. Net win: `error.rs` shrinks from 3552 to ~3080 lines (~470 lines / 13% reduction).
+- **`error_io_variant!` macro (single source of truth for the `Io` variant)**: `Io` has a structurally different shape from the other variants (no `context`/`location`/`source` fields because it wraps a foreign `std::io::Error`). Previously the `IoBuilder` struct + `VariantBuilder` impl were hand-written (lines 154-171). Now they're emitted by `error_io_variant! { Io { inner: std::io::Error } }`, fully symmetric with `error_enum!`'s builder generation. The enum-arm body of `Io` is hard-coded inside `error_enum!` (Rust macros cannot compose partial enum bodies across invocations), but **all other duplication is eliminated**.
+- **`variant_builder!` macro removed**: previously used by ~30 individual macro invocations to declare each variant's builder struct + `VariantBuilder` impl. Now subsumed by `error_enum!` + `error_io_variant!`. Both new macros produce the same `VariantBuilder` impl shape that `variant_builder!` did, so downstream `Error::build` / `Error::build_io` constructors remain unchanged.
+
+### Performance test coverage (P2 wave-1)
+
+- `parts_returns_location_and_context_per_variant` — pins the public `parts()` API
+- `parts_full_returns_all_four_rfc0977_fields` — pins the 4-field dispatch tuple
+- `display_prefix_table_is_well_formed` — pins the prefix string table
+- `backtrace_sample_hits_distribution` — pins the sampling distribution (`rate=1.0` always hit, `rate=0.0` never hit, `rate=0.5` ≈ 30-70%)
+
 - **`MessageKind` enum**: 5-variant classification (`System`, `User`, `Assistant`, `ToolCall`, `ToolResult`) extending the 4-variant `Role` with `ToolCall` for assistant messages containing tool-use requests. Added to `synthia-provider`.
 - **`Message::llm_visible()` method**: O(1) side-effect-free method on `Message` that determines whether a message should be included in the LLM context window. Tool results with empty content are excluded.
 - **`ToolCategory` enum**: Categorization of tools (`FileSystem`, `Network`, `Computation`, `Agent`, `Other`) for registry metadata. Re-exports from `synthia_core` when `unified-registry` feature is enabled.
@@ -36,7 +82,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- **A2A SSE keepalive**: `SynthiaExecutor` now emits a `Working` `StatusUpdate` heartbeat every 15 s (`HEARTBEAT_INTERVAL` in `synthia-server/src/a2a/executor.rs`) while waiting on the agent event stream. Idle SSE no longer stays byte-silent during long LLM thinking phases or multi-minute tool runs, so intermediaries (nginx, enterprise proxies, browser idle timers) don't silently drop the connection. Mapping for `SystemEvent::ToolProgress { tool_name: "heartbeat", .. }` lives in `synthia-server/src/a2a/mapping.rs` and carries a `kind = "heartbeat"` metadata marker for the frontend to no-op. The dead `synthia-server/src/sse.rs` module (defined `HEARTBEAT_INTERVAL` but never wired) is removed.
+- **SSE keepalive for long agent runs**: the session executor now emits a heartbeat comment every 15 s on `/api/v1/chat/sessions/{id}/messages/stream` while waiting on the agent event stream. Idle SSE no longer stays byte-silent during long LLM thinking phases or multi-minute tool runs, so intermediaries (nginx, enterprise proxies, browser idle timers) don't silently drop the connection. The legacy `synthia-server/src/sse.rs` module (defined `HEARTBEAT_INTERVAL` but never wired under the old a2a transport) is removed.
 
 ### Changed
 

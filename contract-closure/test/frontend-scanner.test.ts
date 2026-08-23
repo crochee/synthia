@@ -11,17 +11,19 @@ describe('scanFrontendFile', () => {
     const eps = scanFrontendFile(FIX);
     const methods = eps.map((e) => `${e.method} ${e.path}`).sort();
     expect(methods).toContain('GET /api/health');
-    expect(methods).toContain('GET /api/tasks');
-    expect(methods).toContain('POST /api/tasks');
+    expect(methods).toContain('GET /api/v1/sessions');
+    expect(methods).toContain('GET /api/v1/sessions/');
+    expect(methods).toContain('POST /api/v1/chat/sessions/messages');
     expect(methods).toContain('GET /api/tools');
-    expect(methods).toContain('POST /a2a/message:send');
   });
 
   it('records HTTP method when provided', () => {
     const eps = scanFrontendFile(FIX);
-    const tasks = eps.find((e) => e.path === '/api/tasks' && e.method === 'POST')!;
-    expect(tasks).toBeDefined();
-    expect(tasks.method).toBe('POST');
+    const chat = eps.find(
+      (e) => e.path === '/api/v1/chat/sessions/messages' && e.method === 'POST',
+    )!;
+    expect(chat).toBeDefined();
+    expect(chat.method).toBe('POST');
   });
 
   it('records source_files.frontend', () => {

@@ -5,7 +5,6 @@ pub mod cache_mark;
 pub mod cache_policy;
 pub mod config;
 pub mod context_overflow;
-pub mod error;
 pub mod openai;
 pub(crate) mod openai_streaming;
 pub mod retry;
@@ -33,7 +32,6 @@ pub use context_overflow::{
     is_silent_overflow,
     synthesize_orphan_result,
 };
-pub use error::ProviderError;
 pub use openai::OpenAICompatibleProvider;
 pub use retry::{
     RetryConfig,

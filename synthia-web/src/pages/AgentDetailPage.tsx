@@ -42,10 +42,7 @@ export function AgentDetailPage() {
     setDetail(null);
     setError(null);
     api
-      .get<AgentDetail>(
-        `/api/v1/agents/${encodeURIComponent(name)}`,
-        controller.signal,
-      )
+      .get<AgentDetail>(`/api/v1/agents/${encodeURIComponent(name)}`, controller.signal)
       .then((d) => {
         if (!cancelled) setDetail(d);
       })

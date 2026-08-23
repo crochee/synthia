@@ -4,9 +4,9 @@
 #   - server: synthia-server (Rust) on :8080
 #   - web: synthia-web (React/Vite dev server with HMR) on :5173
 #
-# The web service proxies /api and /a2a to the server (see
-# synthia-web/vite.config.ts), so the browser can call the
-# backend on the same origin.
+# The web service proxies /api and /readyz + /livez to the
+# server (see synthia-web/vite.config.ts), so the browser can
+# call the backend on the same origin.
 
 services:
   server:
@@ -42,7 +42,7 @@ services:
       - "5173:5173"
     environment:
       - VITE_API_URL=http://server:8080
-      - VITE_A2A_URL=/a2a
+      - VITE_CHAT_URL=/api/v1/chat
     volumes:
       - ./synthia-web:/app:ro
       - /app/node_modules

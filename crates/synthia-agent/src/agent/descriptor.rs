@@ -3,7 +3,7 @@
 //!
 //! `AgentDescriptor` mirrors the de-facto industry shape used by
 //! the Anthropic Agents SDK, the OpenAI Swarm/Agents SDK, and the
-//! A2A/MCP-aligned reference designs.
+//! MCP-aligned reference designs.
 //!
 //! ## Identity (industry-aligned)
 //!
@@ -58,7 +58,7 @@ use super::Agent;
 
 /// Industry-aligned metadata for one registered agent.
 ///
-/// Field semantics follow the Anthropic / OpenAI / MCP / A2A
+/// Field semantics follow the Anthropic / OpenAI / MCP
 /// conventions used across major agent frameworks (see module-level
 /// docs). Fields are additive — older agents that only populated
 /// the legacy subset (`name`, `description`, `kind`, `version`,
@@ -115,7 +115,7 @@ pub struct AgentDescriptor {
     #[serde(default)]
     pub persona: Option<String>,
     /// User-facing name rendered in the `<identity>` block and
-    /// on the A2A `AgentCard`. Mirrors the Anthropic /
+    /// on the agent card. Mirrors the Anthropic /
     /// OpenCode distinction between the programmatic agent
     /// id (`name`, used for routing and registry keys) and the
     /// human-readable label the model and external clients
@@ -140,7 +140,7 @@ impl RegistryItem for AgentDescriptor {
 
 impl AgentDescriptor {
     /// Human-readable name surfaced to the model (in the
-    /// `<identity>` block) and to A2A clients (on the
+    /// `<identity>` block) and to clients (on the
     /// `AgentCard`). Returns the trimmed `display_name`
     /// when set, otherwise falls back to the programmatic
     /// [`Self::name`]. The trim keeps " " / "\t" from

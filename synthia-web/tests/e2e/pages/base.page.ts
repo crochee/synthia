@@ -21,24 +21,19 @@ export abstract class BasePage {
 
   abstract goto(): Promise<void>;
 
-  /** Wait until the page header and sidebar are both rendered. */
+  /**
+   * Wait until the page header and sidebar are both rendered.
+   *
+   * Intentionally does NOT call `page.waitForLoadState('networkidle')`:
+   * the Chat page polls `/api/v1/chat/usage` every 30s and may
+   * open an SSE stream to `/chat/sessions/.../messages/stream`,
+   * neither of which ever settle into a true idle state. Waiting
+   * for header + sidebar is a sufficient "app shell is up" signal
+   * for the page objects that extend this base.
+   */
   async waitForReady(): Promise<void> {
     await this.header.waitFor({ state: 'visible' });
     await this.sidebar.waitFor({ state: 'visible' });
-    await this.page.waitForLoadState('networkidle');
-  }
-
-  /** Click a sidebar link by its visible shortcut letter. */
-  async navigateByShortcut(shortcut: 'C' | 'T' | 'K' | 'A' | 'J' | 'S') {
-    const map: Record<typeof shortcut, string> = {
-      C: 'CHAT',
-      T: 'TOOLS',
-      K: 'SKILLS',
-      A: 'TASKS',
-      J: 'JOBS',
-      S: 'SETTINGS',
-    };
-    await this.sidebar.getByText(map[shortcut]).click();
   }
 
   /** Wait for the connection indicator to become ONLINE. */

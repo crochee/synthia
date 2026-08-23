@@ -1,28 +1,29 @@
-#[cfg(feature = "otel")]
-use std::time::Duration;
-use std::{path::Path, sync::Mutex};
+// Allow `result_large_err` for the whole file: P1b added 4 hidden
+// fields to every struct-form variant (frames, backtrace, source,
+// and the synthetic source chain), so every `Result<_, Error>` is
+// at least 128 bytes. Boxing the error would force every call site
+// to `.map_err(|e| *e)` (or accept the allocation), and the existing
+// API has no `Box<Error>` in the public surface. Accept the size
+// cost; revisit if profiling shows it matters.
+#![allow(clippy::result_large_err)]
 
-#[cfg(feature = "otel")]
+use std::{path::Path, sync::Mutex, time::Duration};
+
 use opentelemetry::{global, trace::TracerProvider};
-#[cfg(feature = "otel")]
 use opentelemetry_otlp::{SpanExporter, WithExportConfig};
-#[cfg(feature = "otel")]
 use opentelemetry_sdk::{
     Resource,
     trace::{BatchSpanProcessor, Sampler, SdkTracerProvider},
 };
 use synthia_core::Error;
-#[cfg(feature = "otel")]
-use tracing_subscriber::Registry;
 use tracing_subscriber::{
     EnvFilter,
     Layer,
+    Registry,
     layer::SubscriberExt,
     util::SubscriberInitExt,
 };
 
-#[cfg(feature = "otel")]
-use crate::span::attributes_processor::SpanAttributesProcessor;
 use crate::{TelemetryConfig, propagation::register_global_propagator};
 
 /// Environment variable for the OTLP collector endpoint.
@@ -30,24 +31,21 @@ pub const SYNTHIA_OTLP_ENDPOINT_ENV: &str = "SYNTHIA_OTLP_ENDPOINT";
 
 /// Environment variable for the local log file directory.
 ///
-/// When set, [`init_tracing`] composes a file logging layer (writing to
-/// `{SYNTHIA_LOG_DIR}/synthia.log` in append mode, ANSI codes disabled)
-/// alongside the console fmt layer. File logging is independent of the
-/// `otel` cargo feature.
+/// When set, [`crate::init_tracing`] composes a file logging layer
+/// (writing to `{SYNTHIA_LOG_DIR}/synthia.log` in append mode, ANSI codes
+/// disabled) alongside the console fmt layer.
 pub const SYNTHIA_LOG_DIR_ENV: &str = "SYNTHIA_LOG_DIR";
 
 /// Environment variable for the OTel sampler configuration.
 ///
 /// Read at tracer initialization time by [`init_otlp_tracing`]. See
 /// [`parse_sampler`] for supported values.
-#[cfg(feature = "otel")]
 pub const SYNTHIA_OTEL_SAMPLER_ENV: &str = "SYNTHIA_OTEL_SAMPLER";
 
 /// The OTLP transport protocol to use for the span exporter.
 ///
 /// Selected automatically by [`detect_protocol`] based on the endpoint URL
 /// scheme and (for `http://`) the gRPC/HTTP standard ports.
-#[cfg(feature = "otel")]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum OtlpProtocol {
     /// gRPC exporter backed by tonic.
@@ -70,7 +68,6 @@ pub enum OtlpProtocol {
 ///    - port `4317` (gRPC standard) → gRPC.
 ///    - port `4318` (HTTP standard), any other port, or no port → HTTP.
 /// 4. No scheme or any other scheme → gRPC (backward compatible).
-#[cfg(feature = "otel")]
 pub fn detect_protocol(endpoint: &str) -> OtlpProtocol {
     let trimmed = endpoint.trim();
 
@@ -93,7 +90,6 @@ pub fn detect_protocol(endpoint: &str) -> OtlpProtocol {
 /// Extract the port from an authority string like `host:port`.
 ///
 /// Returns `None` when no port is present or it is not a valid `u16`.
-#[cfg(feature = "otel")]
 fn extract_port(authority: &str) -> Option<u16> {
     let port_str = authority.rsplit(':').next()?;
     if !port_str.is_empty() && port_str.bytes().all(|b| b.is_ascii_digit()) {
@@ -116,7 +112,6 @@ fn extract_port(authority: &str) -> Option<u16> {
 ///
 /// This is the "inner" sampler; [`build_sampler`] wraps it in
 /// `Sampler::ParentBased` so a parent trace's sampling decision is honored.
-#[cfg(feature = "otel")]
 pub fn parse_sampler(spec: &str) -> Sampler {
     let trimmed = spec.trim();
     match trimmed {
@@ -137,7 +132,6 @@ pub fn parse_sampler(spec: &str) -> Sampler {
 /// parent trace's sampling decision is honored (matching the SDK default
 /// behavior). When `spec` is `None` (env var unset) the inner sampler
 /// defaults to `AlwaysOn`, yielding `ParentBased(AlwaysOn)`.
-#[cfg(feature = "otel")]
 pub fn build_sampler(spec: Option<&str>) -> Sampler {
     let inner = match spec {
         Some(s) => parse_sampler(s),
@@ -149,7 +143,6 @@ pub fn build_sampler(spec: Option<&str>) -> Sampler {
 /// Result of initializing the tracing pipeline.
 pub enum TracerInitResult {
     /// OTLP tracing was successfully initialized.
-    #[cfg(feature = "otel")]
     Otlp(SdkTracerProvider),
     /// Fell back to console-only tracing (no OTLP endpoint configured).
     Console,
@@ -162,7 +155,6 @@ pub enum TracerInitResult {
 /// is auto-selected from the endpoint URL scheme by [`detect_protocol`]:
 /// `grpc://` / `https://` / no scheme → gRPC; `http://` → HTTP, except port
 /// 4317 which stays gRPC for backward compatibility.
-#[cfg(feature = "otel")]
 pub fn init_otlp_tracing(
     config: &TelemetryConfig,
 ) -> Result<TracerInitResult, Error> {
@@ -205,13 +197,7 @@ pub fn init_otlp_tracing(
 
     // Assembly order (per spec Requirement: "装配 MUST 在 exporter 装配之后、
     // provider `build()` 之前"):
-    //   resource → sampler → batch_exporter (exporter) → span_processor → build()
-    // `with_batch_processor` wraps the exporter in a `BatchSpanProcessor`
-    // and registers it; `with_span_processor` then appends
-    // `SpanAttributesProcessor` to the same processor list. Both processors
-    // run on every span: `SpanAttributesProcessor::on_start` injects the 6
-    // standard attributes, and the batch processor handles async export on
-    // `on_end`. They do not conflict.
+    //   resource → sampler → batch_exporter (exporter) → build()
     let sampler_spec = std::env::var(SYNTHIA_OTEL_SAMPLER_ENV).ok();
     let sampler = build_sampler(sampler_spec.as_deref());
 
@@ -219,7 +205,6 @@ pub fn init_otlp_tracing(
         .with_resource(resource)
         .with_sampler(sampler)
         .with_span_processor(BatchSpanProcessor::builder(exporter).build())
-        .with_span_processor(SpanAttributesProcessor::new())
         .build();
 
     // Set as the global tracer provider
@@ -299,8 +284,6 @@ pub fn init_console_tracing(config: &TelemetryConfig) -> Result<(), Error> {
 /// "global subscriber already set" conflict that would arise if file
 /// logging called `try_init` separately from `init_otlp_tracing` /
 /// `init_console_tracing`.
-///
-/// File logging is independent of the `otel` cargo feature.
 pub fn make_file_layer(
     log_dir: &Path,
 ) -> Result<Box<dyn Layer<tracing_subscriber::Registry> + Send + Sync>, Error> {
@@ -331,148 +314,114 @@ pub fn make_file_layer(
     Ok(layer)
 }
 
-/// Initialize file-based logging to `{log_dir}/synthia.log`.
-///
-/// Convenience wrapper that builds a file layer via [`make_file_layer`] and
-/// installs it as the global subscriber with `try_init`. Intended for tests
-/// and standalone tools. Production code should call [`make_file_layer`]
-/// directly and compose the layer with other layers in [`init_tracing`].
-///
-/// Note: `try_init` sets a process-wide global subscriber; calling this
-/// function twice (or after another `init_*_tracing` call) in the same
-/// process returns an error.
-pub fn init_file_logging(log_dir: &Path) -> Result<(), Error> {
-    let file_layer = make_file_layer(log_dir)?;
-
-    let filter = EnvFilter::try_from_default_env()
-        .unwrap_or_else(|_| EnvFilter::new("info"));
-
-    // `file_layer` is `Box<dyn Layer<Registry>>`, so it MUST be applied
-    // directly to `Registry` (before `filter`), because `Box<dyn Layer<S>>`
-    // only implements `Layer<S>`, not `Layer<Layered<..., S>>`.
-    tracing_subscriber::registry()
-        .with(file_layer)
-        .with(filter)
-        .try_init()
-        .map_err(|e| {
-            Error::telemetry(format!("Failed to init file logging: {e}"))
-        })?;
-
-    tracing::info!(log_dir = ?log_dir, "File logging initialized");
-    Ok(())
-}
-
 #[cfg(test)]
 mod tests {
-    #[cfg(feature = "otel")]
-    mod otel {
-        use opentelemetry_sdk::trace::Sampler;
+    use opentelemetry_sdk::trace::Sampler;
 
-        use super::super::*;
+    use super::*;
 
-        #[test]
-        fn test_parse_sampler_always_on() {
-            let s = parse_sampler("always_on");
-            assert!(matches!(s, Sampler::AlwaysOn));
+    #[test]
+    fn test_parse_sampler_always_on() {
+        let s = parse_sampler("always_on");
+        assert!(matches!(s, Sampler::AlwaysOn));
+    }
+
+    #[test]
+    fn test_parse_sampler_always_off() {
+        let s = parse_sampler("always_off");
+        assert!(matches!(s, Sampler::AlwaysOff));
+    }
+
+    #[test]
+    fn test_parse_sampler_trace_id_ratio() {
+        let s = parse_sampler("trace_id_ratio:0.1");
+        if let Sampler::TraceIdRatioBased(r) = s {
+            assert!((r - 0.1).abs() < 0.001);
+        } else {
+            panic!("expected TraceIdRatioBased, got {:?}", s);
         }
+    }
 
-        #[test]
-        fn test_parse_sampler_always_off() {
-            let s = parse_sampler("always_off");
-            assert!(matches!(s, Sampler::AlwaysOff));
-        }
+    #[test]
+    fn test_parse_sampler_invalid_defaults_to_always_on() {
+        let s = parse_sampler("garbage");
+        assert!(matches!(s, Sampler::AlwaysOn));
+    }
 
-        #[test]
-        fn test_parse_sampler_trace_id_ratio() {
-            let s = parse_sampler("trace_id_ratio:0.1");
-            if let Sampler::TraceIdRatioBased(r) = s {
-                assert!((r - 0.1).abs() < 0.001);
-            } else {
-                panic!("expected TraceIdRatioBased, got {:?}", s);
-            }
+    #[test]
+    fn test_parse_sampler_invalid_ratio_defaults_to_full() {
+        let s = parse_sampler("trace_id_ratio:abc");
+        if let Sampler::TraceIdRatioBased(r) = s {
+            assert!((r - 1.0).abs() < 0.001);
+        } else {
+            panic!("expected TraceIdRatioBased");
         }
+    }
 
-        #[test]
-        fn test_parse_sampler_invalid_defaults_to_always_on() {
-            let s = parse_sampler("garbage");
-            assert!(matches!(s, Sampler::AlwaysOn));
-        }
+    #[test]
+    fn test_build_sampler_wraps_in_parent_based() {
+        let s = build_sampler(Some("always_off"));
+        // ParentBased is opaque; verify it's not the raw AlwaysOff.
+        assert!(!matches!(s, Sampler::AlwaysOff));
+    }
 
-        #[test]
-        fn test_parse_sampler_invalid_ratio_defaults_to_full() {
-            let s = parse_sampler("trace_id_ratio:abc");
-            if let Sampler::TraceIdRatioBased(r) = s {
-                assert!((r - 1.0).abs() < 0.001);
-            } else {
-                panic!("expected TraceIdRatioBased");
-            }
-        }
+    #[test]
+    fn test_build_sampler_default_is_parent_based_always_on() {
+        let s = build_sampler(None);
+        // Default: ParentBased(AlwaysOn). We can only verify it's not
+        // raw AlwaysOn (it's wrapped).
+        assert!(!matches!(s, Sampler::AlwaysOn));
+    }
 
-        #[test]
-        fn test_build_sampler_wraps_in_parent_based() {
-            let s = build_sampler(Some("always_off"));
-            // ParentBased is opaque; verify it's not the raw AlwaysOff.
-            assert!(!matches!(s, Sampler::AlwaysOff));
-        }
+    #[test]
+    fn test_detect_protocol_grpc_scheme_forces_grpc() {
+        assert_eq!(
+            detect_protocol("grpc://collector.example:4317"),
+            OtlpProtocol::Grpc
+        );
+        assert_eq!(
+            detect_protocol("grpc://collector.example:443"),
+            OtlpProtocol::Grpc
+        );
+    }
 
-        #[test]
-        fn test_build_sampler_default_is_parent_based_always_on() {
-            let s = build_sampler(None);
-            // Default: ParentBased(AlwaysOn). We can only verify it's not
-            // raw AlwaysOn (it's wrapped).
-            assert!(!matches!(s, Sampler::AlwaysOn));
-        }
+    #[test]
+    fn test_detect_protocol_https_scheme_uses_grpc() {
+        assert_eq!(
+            detect_protocol("https://collector.example:443"),
+            OtlpProtocol::Grpc
+        );
+    }
 
-        #[test]
-        fn test_detect_protocol_grpc_scheme_forces_grpc() {
-            assert_eq!(
-                detect_protocol("grpc://collector.example:4317"),
-                OtlpProtocol::Grpc
-            );
-            assert_eq!(
-                detect_protocol("grpc://collector.example:443"),
-                OtlpProtocol::Grpc
-            );
-        }
+    #[test]
+    fn test_detect_protocol_http_4317_uses_grpc() {
+        assert_eq!(
+            detect_protocol("http://collector.example:4317"),
+            OtlpProtocol::Grpc
+        );
+    }
 
-        #[test]
-        fn test_detect_protocol_https_scheme_uses_grpc() {
-            assert_eq!(
-                detect_protocol("https://collector.example:443"),
-                OtlpProtocol::Grpc
-            );
-        }
+    #[test]
+    fn test_detect_protocol_http_4318_uses_http() {
+        assert_eq!(
+            detect_protocol("http://collector.example:4318"),
+            OtlpProtocol::Http
+        );
+    }
 
-        #[test]
-        fn test_detect_protocol_http_4317_uses_grpc() {
-            assert_eq!(
-                detect_protocol("http://collector.example:4317"),
-                OtlpProtocol::Grpc
-            );
-        }
+    #[test]
+    fn test_detect_protocol_http_other_port_uses_http() {
+        assert_eq!(
+            detect_protocol("http://collector.example:8080"),
+            OtlpProtocol::Http
+        );
+    }
 
-        #[test]
-        fn test_detect_protocol_http_4318_uses_http() {
-            assert_eq!(
-                detect_protocol("http://collector.example:4318"),
-                OtlpProtocol::Http
-            );
-        }
-
-        #[test]
-        fn test_detect_protocol_http_other_port_uses_http() {
-            assert_eq!(
-                detect_protocol("http://collector.example:8080"),
-                OtlpProtocol::Http
-            );
-        }
-
-        #[test]
-        fn test_detect_protocol_no_scheme_defaults_to_grpc() {
-            assert_eq!(
-                detect_protocol("collector.example:4317"),
-                OtlpProtocol::Grpc
-            );
-        }
+    #[test]
+    fn test_detect_protocol_no_scheme_defaults_to_grpc() {
+        assert_eq!(
+            detect_protocol("collector.example:4317"),
+            OtlpProtocol::Grpc
+        );
     }
 }

@@ -95,11 +95,11 @@ async fn test_memory_search_missing_query_returns_4xx() {
 }
 
 #[tokio::test]
-async fn test_task_get_returns_404_for_unknown_id() {
+async fn test_session_get_returns_404_for_unknown_id() {
     let app = make_app().await;
 
     let req = Request::builder()
-        .uri("/api/v1/tasks/this-does-not-exist")
+        .uri("/api/v1/sessions/this-does-not-exist")
         .method("GET")
         .body(axum::body::Body::empty())
         .unwrap();

@@ -194,7 +194,7 @@ mod tests {
         assert!(AuthMiddleware::<Request<()>>::is_public_path("/readyz"));
     }
 
-    /// `/.well-known/agent-card.json` (the A2A discovery
+    /// `/.well-known/agent-card.json` (the discovery
     /// endpoint) MUST be public.
     #[test]
     fn is_public_path_agent_card_is_public() {
@@ -244,7 +244,7 @@ mod tests {
     }
 
     /// `/.well-known/agent-card.json/foo/bar` (2 segments deep
-    /// under the A2A endpoint) MUST NOT be treated as public.
+    /// under the API endpoint) MUST NOT be treated as public.
     #[test]
     fn is_public_path_agent_card_two_levels_deep_not_public() {
         assert!(!AuthMiddleware::<Request<()>>::is_public_path(

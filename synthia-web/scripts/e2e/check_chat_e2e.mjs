@@ -14,15 +14,19 @@ const page = await ctx.newPage();
 const logs = [];
 const requests = [];
 page.on('console', (msg) => logs.push(`[${msg.type()}] ${msg.text().substring(0, 200)}`));
-page.on('framenavigated', (f) => { if (f === page.mainFrame()) logs.push(`NAV: ${f.url()}`); });
+page.on('framenavigated', (f) => {
+  if (f === page.mainFrame()) logs.push(`NAV: ${f.url()}`);
+});
 page.on('request', (req) => {
-  if (req.url().includes('/a2a/message:send')) {
+  if (req.url().includes('/api/v1/chat/message')) {
     let body = '';
-    req.postData().then((d) => logs.push(`SEND-REQ: ${req.url()} body=${(d ?? '').substring(0, 200)}`));
+    req
+      .postData()
+      .then((d) => logs.push(`SEND-REQ: ${req.url()} body=${(d ?? '').substring(0, 200)}`));
   }
 });
 page.on('response', async (resp) => {
-  if (resp.url().includes('/a2a/message:send')) {
+  if (resp.url().includes('/api/v1/chat/message')) {
     logs.push(`SEND-RESP: ${resp.status()} ${resp.url()}`);
   }
 });
@@ -69,7 +73,9 @@ console.log('Chat input state:', inputState);
 
 await chatInput.click({ timeout: 5000 }).catch((e) => console.log('Click failed:', e.message));
 await page.waitForTimeout(500);
-await chatInput.fill('What is 2 + 2?', { timeout: 5000 }).catch((e) => console.log('Fill failed:', e.message));
+await chatInput
+  .fill('What is 2 + 2?', { timeout: 5000 })
+  .catch((e) => console.log('Fill failed:', e.message));
 await chatInput.press('Enter').catch((e) => console.log('Enter failed:', e.message));
 await page.waitForTimeout(8000); // wait for response
 

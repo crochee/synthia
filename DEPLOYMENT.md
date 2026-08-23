@@ -28,14 +28,14 @@ fronted by Nginx.
 │   Nginx (:80)                                            │
 │   - Serves the built React app from `/`                  │
 │   - Proxies `/api/*` to synthia-server                  │
-│   - Proxies `/a2a/*` to synthia-server (SSE streaming)   │
+│   - Proxies `/api/v1/chat/stream` (SSE) to synthia-server│
 └────────────────────┬─────────────────────────────────────┘
                      │
                      ▼
 ┌──────────────────────────────────────────────────────────┐
 │   synthia-server (Rust + Axum, :8080 internal)           │
-│   - A2A protocol at `/a2a`                               │
-│   - Management API at `/api`                             │
+│   - Chat surface at `/api/v1/chat`                       │
+│   - Management API at `/api/v1/*`                        │
 │   - Health check at `/health`                            │
 └──────────────────────────────────────────────────────────┘
 ```
@@ -97,7 +97,7 @@ make test-e2e-report   # open the last HTML report
 ## Production deployment (separate)
 
 The recommended deployment is **split**: Nginx serves the
-compiled React app and reverse-proxies `/api` and `/a2a` to
+compiled React app and reverse-proxies `/api/v1/*` to
 ` synthia-server`. This lets the two parts scale and ship
 independently.
 
@@ -169,7 +169,7 @@ make clean-docker         # remove all containers + images
 | Var                    | Default               | Meaning                |
 |------------------------|-----------------------|------------------------|
 | `VITE_API_URL`         | `/api` (proxied)      | REST base URL          |
-| `VITE_A2A_URL`         | `/a2a` (proxied)      | A2A endpoint URL       |
+| `VITE_CHAT_URL`        | `/api/v1/chat`        | Chat surface URL       |
 | `VITE_WS_URL`          | `/ws` (proxied)       | WebSocket approvals    |
 
 Both services can also be configured through their
@@ -192,8 +192,9 @@ check names while the server is not ready to serve traffic.
 ### SSE streaming cuts off mid-response
 
 The Nginx config **must** include `proxy_buffering off;` for
-the `/a2a` location. Buffered responses will hold frames
-until the SSE stream closes, defeating the streaming UX.
+the `/api/v1/chat/stream` location. Buffered responses will
+hold frames until the SSE stream closes, defeating the
+streaming UX.
 
 ### CORS errors from the browser
 

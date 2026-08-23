@@ -11,7 +11,6 @@ async-trait.workspace = true
 # produce/consume the same JSON array format as `Vec<T>`.
 serde = { workspace = true, features = ["rc"] }
 serde_json.workspace = true
-thiserror.workspace = true
 futures.workspace = true
 reqwest.workspace = true
 tokio.workspace = true

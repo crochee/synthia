@@ -15,7 +15,7 @@ interface EmptyStateProps {
 /**
  * Render an empty / failed / no-results state in a consistent
  * shape. Centralises the visual treatment so every list page
- * (Tools / Skills / Agents / Tasks) gives the user the same
+ * (Tools / Skills / Agents / Sessions) gives the user the same
  * cue when there's nothing to show.
  *
  * The component is intentionally pure — no Radix dependency —
@@ -47,22 +47,20 @@ export function EmptyState({
       }}
     >
       {icon && (
-        <span
-          aria-hidden
-          style={{ fontSize: 'var(--fs-2xl)', lineHeight: 1, opacity: 0.6 }}
-        >
+        <span aria-hidden style={{ fontSize: 'var(--fs-2xl)', lineHeight: 1, opacity: 0.6 }}>
           {icon}
         </span>
       )}
-      <strong
+      <h3
         style={{
           color: 'var(--text-primary)',
           fontSize: 'var(--fs-md)',
           fontWeight: 'var(--fw-medium)',
+          margin: 0,
         }}
       >
         {title}
-      </strong>
+      </h3>
       {description && (
         <span style={{ fontSize: 'var(--fs-sm)', maxWidth: 420 }}>{description}</span>
       )}

@@ -115,8 +115,7 @@ impl ModelProvider for OpenAICompatibleProvider {
             Err(e) => {
                 #[cfg(feature = "otel")]
                 {
-                    llm_span.record("exception.type", e.kind());
-                    llm_span.record("exception.message", e.to_string());
+                    llm_span.record("exception.type", e.to_string());
                     llm_span.record("otel.status_code", "ERROR");
                 }
                 return Err(e);
@@ -180,12 +179,10 @@ impl ModelProvider for OpenAICompatibleProvider {
             req = req.bearer_auth(key);
         }
 
-        let resp = req.send().await.map_err(|e| {
-            Error::stream_error(
-                synthia_core::StreamErrorKind::HttpFailure,
-                e.to_string(),
-            )
-        })?;
+        let resp = req
+            .send()
+            .await
+            .map_err(|e| Error::stream_http_failure(e.to_string()))?;
         let status = resp.status();
         if status.as_u16() == 429 {
             let retry_after = resp
@@ -213,8 +210,7 @@ impl ModelProvider for OpenAICompatibleProvider {
             if let Some(token) = &cancel_token
                 && token.is_cancelled()
             {
-                return Err(Error::stream_error(
-                    synthia_core::StreamErrorKind::Aborted,
+                return Err(Error::stream_aborted(
                     "stream cancelled by caller",
                 ));
             }
@@ -236,22 +232,18 @@ impl ModelProvider for OpenAICompatibleProvider {
                             }
                         }
                     ).await;
-                    return Err(Error::stream_error(
-                        synthia_core::StreamErrorKind::Aborted,
-                        format!("stream aborted by caller (drained={})", drain.is_ok()),
-                    ));
+                    return Err(Error::stream_aborted(format!(
+                        "stream aborted by caller (drained={})",
+                        drain.is_ok()
+                    )));
                 }
             };
 
             let Some(chunk_result) = next else {
                 break; // upstream closed
             };
-            let bytes = chunk_result.map_err(|e| {
-                Error::stream_error(
-                    synthia_core::StreamErrorKind::HttpFailure,
-                    e.to_string(),
-                )
-            })?;
+            let bytes = chunk_result
+                .map_err(|e| Error::stream_http_failure(e.to_string()))?;
             buf.extend_from_slice(&bytes);
 
             while let Some(pos) = buf.iter().position(|b| *b == b'\n') {

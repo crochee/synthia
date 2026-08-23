@@ -1,10 +1,19 @@
+// Allow `result_large_err` for the whole file: P1b added 4 hidden
+// fields to every struct-form variant (frames, backtrace, source,
+// and the synthetic source chain), so every `Result<_, Error>` is
+// at least 128 bytes. Boxing the error would force every call site
+// to `.map_err(|e| *e)` (or accept the allocation), and the existing
+// API has no `Box<Error>` in the public surface. Accept the size
+// cost; revisit if profiling shows it matters.
+#![allow(clippy::result_large_err)]
+
 //! Opaque cursor encoding for keyset pagination.
 //!
 //! Cursor = base64 (URL-safe, no-pad) encoding of the last
 //! resource ID on the current page. Clients treat it as opaque;
 //! servers decode it to resume via `WHERE id > last_id`.
 //!
-//! These helpers return [`crate::error::Error`] (the
+//! These helpers return [`synthia_core::Error`] (the
 //! transport-agnostic core error). HTTP transports can then
 //! map specific variants (`Error::InvalidItem`,
 //! `Error::Validation`) to the appropriate wire envelope

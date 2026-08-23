@@ -3,7 +3,7 @@
 # Architecture:
 #   - server: synthia-server binary (Rust) on internal :8080
 #   - web: Nginx serving built React app on :80
-#     + reverse-proxying /api and /a2a to server
+#     + reverse-proxying /api to server
 #
 # Browser hits Nginx on :80. Only Nginx port is exposed.
 

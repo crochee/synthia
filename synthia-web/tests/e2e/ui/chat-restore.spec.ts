@@ -7,7 +7,7 @@ import { test, expect } from '@playwright/test';
  * ChatPage's "persist" effect clobbered localStorage on the first
  * commit with the initial empty messages array, wiping out any
  * prior conversation for the same sessionId. A user who returned
- * to a `/chat/<existingId>` route (e.g. via the task detail page's
+ * to a `/chat/<existingId>` route (e.g. via the session detail page's
  * "继续 chat" link) always saw the "Welcome" card and an empty
  * history.
  *

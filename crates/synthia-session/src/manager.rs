@@ -123,6 +123,14 @@ impl SessionRegistry {
     pub fn input_queue(&self) -> InputQueue {
         self.input_queue.clone()
     }
+
+    /// Snapshot the in-memory index of registered sessions.
+    /// Used by `GET /api/v1/chat/sessions` so the REST chat
+    /// surface can enumerate recent conversations without
+    /// touching the on-disk sink.
+    pub async fn list_all(&self) -> Result<Vec<Session>, SessionError> {
+        Ok(self.sessions.read().values().cloned().collect::<Vec<_>>())
+    }
 }
 
 /// Compose the internal key for the sinks registry.
@@ -131,7 +139,7 @@ fn sink_key(user_id: &str, session_id: &str) -> String {
 }
 
 /// Validate a `user_id` or `session_id` before it is joined
-/// into a filesystem path. The A2A `contextId`/`taskId` flows
+/// into a filesystem path. The `contextId`/`taskId` flows
 /// straight from the HTTP body into `create_with_user` and
 /// then into the sink path; without this check a hostile
 /// caller could craft `session_id = "../other_user/..."` to

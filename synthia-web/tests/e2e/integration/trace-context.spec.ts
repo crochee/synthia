@@ -49,9 +49,6 @@ test.describe('W3C TraceContext propagation', () => {
     expect(spanId).not.toBe('0000000000000000');
     // Flags must be valid (00 or 01 — sampled vs not-sampled).
     expect(['00', '01']).toContain(flags);
-
-    // The short-form x-trace-id must equal the trace-id segment.
-    expect(response.headers()['x-trace-id']).toBe(traceId);
   });
 
   test('upstream traceparent is preserved end-to-end', async ({ request }) => {
@@ -77,8 +74,6 @@ test.describe('W3C TraceContext propagation', () => {
     // parent.
     expect(parentSpanId).not.toBe('b7ad6b7169203331');
     expect(parentSpanId).toMatch(NON_ZERO_HEX_16);
-    // The short-form x-trace-id must match the preserved trace id.
-    expect(response.headers()['x-trace-id']).toBe(traceId);
   });
 
   test('tracestate is passed through verbatim', async ({ request }) => {
@@ -107,7 +102,10 @@ test.describe('W3C TraceContext propagation', () => {
     // Public endpoints (`/livez`, `/readyz`, `/.well-known/agent-card.json`)
     // intentionally bypass tracing — see the dedicated tests below.
     // Everything else must carry W3C TraceContext.
-    const endpoints = ['/api/v1/skills', '/api/v1/tools', '/api/v1/tasks'];
+    // `/api/v1/sessions` is the wire-format name for the
+    // sessions list — UI text uses "Sessions", but the
+    // REST endpoint keeps its historical name.
+    const endpoints = ['/api/v1/skills', '/api/v1/tools', '/api/v1/sessions'];
 
     for (const path of endpoints) {
       const response = await request.get(`${SERVER_URL}${path}`);
@@ -126,19 +124,24 @@ test.describe('W3C TraceContext propagation', () => {
     request,
   }) => {
     // Correlation is unified on W3C TraceContext: the legacy
-    // X-Request-ID header has been retired to avoid two parallel
-    // schemes competing for the same role. This test guards the
-    // retirement so the header does not silently come back.
+    // X-Request-ID and x-trace-id headers have been retired to
+    // avoid parallel schemes competing for the same role. This
+    // test guards the retirement so they do not silently come
+    // back.
     const response = await request.get(`${SERVER_URL}/api/v1/skills`);
     expect(response.ok()).toBe(true);
 
     expect(
       response.headers()['x-request-id'],
-      'x-request-id must not be emitted; use x-trace-id + traceparent instead',
+      'x-request-id must not be emitted; use traceparent instead',
     ).toBeUndefined();
     expect(
       response.headers()['X-Request-ID'],
       'X-Request-ID must not be emitted (case-insensitive check)',
+    ).toBeUndefined();
+    expect(
+      response.headers()['x-trace-id'],
+      'x-trace-id must not be emitted; use traceparent instead',
     ).toBeUndefined();
 
     // x-request-time-ms is the access-log timing surface; its
@@ -161,20 +164,7 @@ test.describe('W3C TraceContext propagation', () => {
       const response = await request.get(`${SERVER_URL}/livez`);
       expect(response.ok()).toBe(true);
       expect(response.headers()['traceparent']).toBeUndefined();
-      expect(response.headers()['x-trace-id']).toBeUndefined();
       expect(response.headers()['x-request-time-ms']).toBeUndefined();
-    });
-
-    test('/.well-known/agent-card.json does not emit trace headers', async ({ request }) => {
-      const response = await request.get(`${SERVER_URL}/.well-known/agent-card.json`);
-      expect(response.ok()).toBe(true);
-      expect(response.headers()['traceparent']).toBeUndefined();
-      expect(response.headers()['x-trace-id']).toBeUndefined();
-      expect(response.headers()['x-request-time-ms']).toBeUndefined();
-      // The card itself must still be valid A2A.
-      const body = await response.json();
-      expect(body.name).toBeTruthy();
-      expect(Array.isArray(body.supportedInterfaces)).toBe(true);
     });
 
     test('/readyz still serves CORS for cross-origin probes', async ({ request }) => {

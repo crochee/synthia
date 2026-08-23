@@ -10,7 +10,7 @@ import { ChatPage } from '../pages/chat.page';
  *      `api_key` / `models[].name` are bridged into the runtime
  *      `WorkspaceConfig` consumed by `synthia-provider`.
  *   2. The React frontend (`/chat`) connects to the backend via
- *      the Vite proxy → A2A protocol at `/a2a`.
+ *      the Vite proxy → REST + SSE protocol at `/api/v1/chat`.
  *   3. The backend actually issues a chat completion to the
  *      configured `base_url`.
  *   4. The LLM reply is rendered in the assistant bubble.
@@ -36,7 +36,7 @@ test.describe('Full-stack LLM round-trip via config.yaml', () => {
     expect(reply.toLowerCase()).toContain('pong');
   });
 
-  test('task reaches terminal completed state after LLM reply', async ({ page }) => {
+  test('session reaches terminal completed state after LLM reply', async ({ page }) => {
     const chat = new ChatPage(page);
     await chat.goto();
     await chat.sendMessage('ack');

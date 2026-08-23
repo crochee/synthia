@@ -1,13 +1,13 @@
 /**
  * Live exercise of the `isToolEchoText` debug logging in
- * `src/lib/task-to-messages.ts`. The unit tests under
- * `task-to-messages.spec.ts` cover the function's return
+ * `src/lib/session-to-messages.ts`. The unit tests under
+ * `session-to-messages.spec.ts` cover the function's return
  * value; this file covers the *log output* — every key
  * branch of the detector should emit a single `console.debug`
  * line with a recognisable payload.
  *
- * Strategy: load the real `TaskDetailPage` against a mocked
- * `/api/v1/tasks/:id` response, then capture every
+ * Strategy: load the real `SessionDetailPage` against a
+ * mocked `/api/v1/sessions/:id` response, then capture every
  * `console.debug` event with prefix `[isToolEchoText]` via
  * `page.on('console', ...)`. The mock carries one assistant
  * `Message(agent)` per branch so the renderer's loop walks
@@ -20,23 +20,23 @@
  * unit tests, which run the function in isolation.
  */
 import { expect, test, type ConsoleMessage } from '@playwright/test';
-import type { TaskDetail, TaskMessage, TaskPart } from '../../../src/api/types';
+import type { SessionDetail, SessionTurn, SessionPart } from '../../../src/api/types';
 
 /** Build a `Part::text` carrying a plain string. */
-function textPart(text: string): TaskPart {
+function textPart(text: string): SessionPart {
   return { text };
 }
 
 /** Build a `Part::data` carrying a structured JSON object. */
-function dataPart(data: Record<string, unknown>): TaskPart {
-  return { data: data as TaskPart['data'] };
+function dataPart(data: Record<string, unknown>): SessionPart {
+  return { data: data as SessionPart['data'] };
 }
 
 /**
  * Build a `ROLE_AGENT` history message with the given parts.
- * The shape mirrors what the A2A v1.0 server emits on the wire.
+ * The shape mirrors what the server emits on the wire.
  */
-function agentMessage(parts: TaskPart[]): TaskMessage {
+function agentMessage(parts: SessionPart[]): SessionTurn {
   return {
     messageId: `m-${Math.random().toString(36).slice(2, 10)}`,
     role: 'ROLE_AGENT',
@@ -45,7 +45,10 @@ function agentMessage(parts: TaskPart[]): TaskMessage {
 }
 
 /**
- * Build the mock `TaskDetail` the page reads on mount.
+ * Build the mock `SessionDetail` the page reads on mount.
+ * The wire-format type name is `SessionDetail` (kept stable
+ * for the wire contract); the page renders the same
+ * data on the `/sessions/:id` route today.
  * The `history` is intentionally crafted so the renderer
  * walks every branch of `isToolEchoText` in a single pass:
  *
@@ -61,10 +64,10 @@ function agentMessage(parts: TaskPart[]): TaskMessage {
  */
 const TASK_ID = '019fef0a-bc3a-7d72-b47a-b1a937960883';
 
-const mockTaskDetail: TaskDetail = {
+const mockTaskDetail: SessionDetail = {
   id: TASK_ID,
   contextId: '019ffadd-4621-44d0-8c15-3d72ba0b0829',
-  status: 'TASK_STATE_COMPLETED',
+  status: 'SESSION_STATE_COMPLETED',
   history: [
     agentMessage([
       dataPart({
@@ -92,11 +95,11 @@ const mockTaskDetail: TaskDetail = {
 test.describe('isToolEchoText logging — live renderer exercise', () => {
   test('every key branch emits its distinctive console.debug', async ({ page }) => {
     // Intercept the task fetch and return the mock. The
-    // Vite proxy normally routes `/api/v1/tasks/...` to
+    // Vite proxy normally routes `/api/v1/sessions/...` to
     // 8080; we short-circuit it before it leaves the page.
     await page.route(
       (url) =>
-        url.pathname === `/api/v1/tasks/${TASK_ID}` &&
+        url.pathname === `/api/v1/sessions/${TASK_ID}` &&
         url.hostname === 'localhost' &&
         url.port === '5173',
       async (route) => {
@@ -121,13 +124,13 @@ test.describe('isToolEchoText logging — live renderer exercise', () => {
       }
     });
 
-    // Load the task detail page. The page's useEffect
-    // fires `api.get('/api/v1/tasks/:id')` which our route
+    // Load the session detail page. The page's useEffect
+    // fires `api.get('/api/v1/sessions/:id')` which our route
     // intercepts, then `renderHistoryMessage` walks each
     // history entry and calls `isToolEchoText` per text
     // part. By the time the heading appears, every branch
     // has been walked.
-    await page.goto(`/tasks/${TASK_ID}`);
+    await page.goto(`/sessions/${TASK_ID}`);
 
     // Wait for the History card to render so we know the
     // render loop has finished walking history. The card

@@ -3,9 +3,9 @@
  *
  * Wraps the typical "fetch first page on mount, append more on
  * demand" pattern used by every list page (`/skills`, `/tools`,
- * `/tasks`). Pages that need extra query parameters beyond
+ * `/sessions`). Pages that need extra query parameters beyond
  * `cursor`/`limit`/`sort` build the path themselves and fetch
- * directly — the tasks page does this for `/memory/search`.
+ * directly — the sessions page does this for `/memory/search`.
  *
  * The hook resets the accumulated items whenever `path` (or any
  * of the static `opts`) changes, then fetches the first page.
@@ -90,10 +90,7 @@ export function useCursorList<T>(
       setLoading(true);
       setError(null);
       try {
-        const result = await api.get<List<T>>(
-          buildUrl(path, cursor, opts),
-          controller.signal,
-        );
+        const result = await api.get<List<T>>(buildUrl(path, cursor, opts), controller.signal);
         // Guard against a stale response landing after the caller
         // (or the effect) has already moved on to a new request.
         // Without this, an aborted-then-resumed request could

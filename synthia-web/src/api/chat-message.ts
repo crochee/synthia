@@ -9,8 +9,8 @@
  * un-importable from unit tests.
  */
 
-import type { SegmentType } from './a2a-stream';
-import type { TaskPart } from './types';
+import type { SegmentType } from './chat-stream';
+import type { SessionPart } from './types';
 
 /**
  * A single typed unit inside a chat `Message`. The chat UI
@@ -40,7 +40,7 @@ export interface MessageSegment {
   /** When type === 'tool_block': the result was tagged
    *  `is_error: true` by the tool runner (or by the
    *  reconstructed history when seeding the chat from a
-   *  task). The renderer paints the result sub-block red so
+   *  session). The renderer paints the result sub-block red so
    *  the user can tell a failing tool from a successful one
    *  at a glance. */
   toolError?: boolean;
@@ -51,20 +51,20 @@ export interface MessageSegment {
    *  `tool_result` event has been received yet, so the user
    *  can distinguish a still-running tool from a stuck one. */
   pendingSince?: number;
-  /** When type === 'artifact': the A2A `artifactId` so
+  /** When type === 'attachment': the chat-surface `attachmentId` so
    *  subsequent `append=true` events can find this segment
    *  within the same assistant message and merge into it. */
-  artifactId?: string;
-  /** When type === 'artifact': the artifact's optional name
-   *  (mirrors A2A `Artifact.name`). */
-  artifactName?: string;
-  /** When type === 'artifact': the accumulating list of
-   *  `TaskPart`s for this artifact. Each `append=true` event
+  attachmentId?: string;
+  /** When type === 'attachment': the attachment's optional name
+   *  (mirrors the chat-surface artifact name). */
+  attachmentName?: string;
+  /** When type === 'attachment': the accumulating list of
+   *  `SessionPart`s for this attachment. Each `append=true` event
    *  pushes new parts onto this array. */
-  artifactParts?: TaskPart[];
-  /** When type === 'artifact': mirrors the A2A wire's
+  attachmentParts?: SessionPart[];
+  /** When type === 'attachment': mirrors the wire's
    *  `lastChunk` flag. False while streaming; flipped to true
    *  once `lastChunk=true` arrives, after which any further
-   *  updates for this `artifactId` are dropped. */
+   *  updates for this `attachmentId` are dropped. */
   isComplete?: boolean;
 }

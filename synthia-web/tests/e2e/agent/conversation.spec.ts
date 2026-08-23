@@ -30,11 +30,19 @@ test.describe('Agent conversation', () => {
     const chat = new ChatPage(page);
     await chat.goto();
     const url1 = page.url();
+    // Extract just the session id so the assertion tolerates an
+    // optional `/agent/<name>` suffix that the page may append
+    // when resolving the default agent (see ChatPage's URL
+    // routing effect).
+    const sessionIdMatch = url1.match(/\/chat\/([0-9a-f-]+)/);
+    const sessionId = sessionIdMatch?.[1] ?? '';
+    expect(sessionId.length).toBeGreaterThan(0);
+
     await chat.sendMessage('first turn');
     await chat.waitForAssistantReply(90_000);
-    // URL should still be /chat/<uuid>
-    expect(page.url()).toMatch(/\/chat\/[0-9a-f-]+/);
-    expect(page.url()).toBe(url1);
+    // URL must still reference the same session id (with or
+    // without an appended `/agent/<name>` segment).
+    expect(page.url()).toContain(`/chat/${sessionId}`);
   });
 
   test('assistant message renders with segments structure', async ({ page }) => {

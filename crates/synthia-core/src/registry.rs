@@ -1,3 +1,12 @@
+// Allow `result_large_err` for this module: P1b added 4 hidden
+// fields to every struct-form variant (frames, backtrace, source,
+// and the synthetic source chain), so every `Result<_, Error>` is
+// at least 128 bytes. Boxing the error would force every call site
+// to `.map_err(|e| *e)` (or accept the allocation), and the existing
+// API has no `Box<Error>` in the public surface. Accept the size
+// cost; revisit if profiling shows it matters.
+#![allow(clippy::result_large_err)]
+
 //! Registry trait definition.
 //!
 //! # Design
@@ -96,6 +105,7 @@ impl<T> RegistryList<T> {
 /// (URL-safe base64, no padding, UTF-8 validated). Returns
 /// `Err(Error::invalid_item)` on a malformed cursor so callers
 /// surface the standard 400 wire code.
+#[allow(clippy::result_large_err)] // P1b: `synthia_core::Error` carries 4 hidden fields; result is intentionally large
 fn decode_registry_cursor(cursor: &str) -> Result<String, Error> {
     use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
     let bytes = URL_SAFE_NO_PAD

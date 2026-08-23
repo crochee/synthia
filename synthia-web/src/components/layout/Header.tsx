@@ -16,21 +16,21 @@ interface Crumb {
 /**
  * Resolve a path into human-readable breadcrumb segments. The
  * first segment is always the top-level page (Chat / Tools /
- * Agents / Skills / Tasks); trailing segments get shortened to
- * the first 8 characters of an id, which is enough to be
+ * Agents / Skills / Sessions); trailing segments get shortened
+ * to the first 8 characters of an id, which is enough to be
  * recognisable in a breadcrumb without flooding the header.
  *
  * The lookup table is intentionally hard-coded — the nav tree
- * is small (5 entries) and changing it should require touching
- * this file as well as `Sidebar.tsx`, which keeps the two
- * surfaces in sync as a code review signal.
+ * is small (5 entries) and changing it should require
+ * touching this file as well as `Sidebar.tsx`, which keeps the
+ * two surfaces in sync as a code review signal.
  */
 const PAGE_LABEL: Record<string, string> = {
   chat: 'Chat',
   tools: 'Tools',
   agents: 'Agents',
   skills: 'Skills',
-  tasks: 'Tasks',
+  sessions: 'Sessions',
 };
 
 function crumbsForPath(pathname: string): Crumb[] {

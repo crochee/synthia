@@ -1,13 +1,13 @@
 /**
  * Shared chat-style message renderer.
  *
- * Used by the live `/chat/:sessionId` page (where segments are
- * streamed in real time) and by `/tasks/:id` (where segments
- * are reconstructed from the persisted `task.history` A2A
- * transcript). Both surfaces share the same visual contract so
- * the user reads a tool call, a tool result, a thinking
- * segment, and a markdown text body the same way regardless of
- * which page they're looking at.
+ * Used by the live `/chat/:sessionId` page (where segments
+ * are streamed in real time) and by `/sessions/:id` (where
+ * segments are reconstructed from the persisted
+ * `session.history` transcript). Both surfaces share the
+ * same visual contract so the user reads a tool call, a
+ * tool result, a thinking segment, and a markdown text body
+ * the same way regardless of which page they're looking at.
  *
  * The component is intentionally display-only: it takes a
  * `MessageSegment[]` and renders it; all state mutation
@@ -23,7 +23,7 @@
 import { memo, useEffect, useRef, useState } from 'react';
 import { Markdown } from './Markdown';
 import type { MessageSegment } from '../../api/chat-message';
-import type { TaskPart } from '../../api/types';
+import type { SessionPart } from '../../api/types';
 
 const TOOL_TIMEOUT_MS = 180_000;
 
@@ -127,7 +127,7 @@ function CopyButton({ segments }: { segments: ReadonlyArray<MessageSegment> }) {
       // refactor. The handleClick guard already short-circuits
       // empty results, so a non-text-only message (one with
       // only `thinking` or `tool_call` segments) silently no-
-        // ops at click time. Visual feedback is left intact for
+      // ops at click time. Visual feedback is left intact for
       // the common case — the button still looks clickable for
       // any message with at least one text segment.
       className="nt-chat__copy-button"
@@ -150,7 +150,7 @@ function CopyButton({ segments }: { segments: ReadonlyArray<MessageSegment> }) {
  */
 
 /**
- * Render one `TaskPart` inside an artifact card. Spec §4.3:
+ * Render one `SessionPart` inside an artifact card. Spec §4.3:
  *   - file-shaped Part::data({ path, content, language })
  *   - structured-JSON Part::data({ ...rest })
  *   - resource Part::url (with optional caption text)
@@ -172,26 +172,22 @@ function CopyButton({ segments }: { segments: ReadonlyArray<MessageSegment> }) {
  * streaming reply that re-renders the chat on every delta,
  * that's an avoidable allocation in the hot path.
  */
-const ARTIFACT_FILE_KEYS: ReadonlySet<string> = new Set([
-  'path',
-  'content',
-  'language',
-]);
+const ARTIFACT_FILE_KEYS: ReadonlySet<string> = new Set(['path', 'content', 'language']);
 
-function ArtifactPart({ part }: { part: TaskPart }): JSX.Element {
+function ArtifactPart({ part }: { part: SessionPart }): JSX.Element {
   if (typeof part.text === 'string' && part.text.length > 0 && !part.data && !part.url) {
     return (
-      <div className="nt-task__artifact-result">
-        <div className="nt-task__artifact-section-label">内容</div>
-        <pre className="nt-task__artifact-pre">{part.text}</pre>
+      <div className="nt-session__artifact-result">
+        <div className="nt-session__artifact-section-label">内容</div>
+        <pre className="nt-session__artifact-pre">{part.text}</pre>
       </div>
     );
   }
   if (part.url) {
     return (
-      <div className="nt-task__artifact-result">
-        <div className="nt-task__artifact-section-label">资源</div>
-        <pre className="nt-task__artifact-pre">
+      <div className="nt-session__artifact-result">
+        <div className="nt-session__artifact-section-label">资源</div>
+        <pre className="nt-session__artifact-pre">
           <a href={part.url} target="_blank" rel="noopener noreferrer">
             {part.url}
           </a>
@@ -210,50 +206,50 @@ function ArtifactPart({ part }: { part: TaskPart }): JSX.Element {
       Object.keys(data).every((k) => ARTIFACT_FILE_KEYS.has(k));
     if (isFile) {
       return (
-        <div className="nt-task__artifact-call">
-          <div className="nt-task__artifact-section-label">
+        <div className="nt-session__artifact-call">
+          <div className="nt-session__artifact-section-label">
             {`\u{1F4C4} ${data.path as string}`}
           </div>
-          <pre className="nt-task__artifact-pre">{data.content as string}</pre>
+          <pre className="nt-session__artifact-pre">{data.content as string}</pre>
         </div>
       );
     }
     return (
-      <div className="nt-task__artifact-result">
-        <div className="nt-task__artifact-section-label">数据</div>
-        <pre className="nt-task__artifact-pre">{JSON.stringify(part.data, null, 2)}</pre>
+      <div className="nt-session__artifact-result">
+        <div className="nt-session__artifact-section-label">数据</div>
+        <pre className="nt-session__artifact-pre">{JSON.stringify(part.data, null, 2)}</pre>
       </div>
     );
   }
   return (
-    <div className="nt-task__artifact-result">
-      <div className="nt-task__artifact-section-label">（未知 part 形态）</div>
-      <pre className="nt-task__artifact-pre">{JSON.stringify(part, null, 2)}</pre>
+    <div className="nt-session__artifact-result">
+      <div className="nt-session__artifact-section-label">（未知 part 形态）</div>
+      <pre className="nt-session__artifact-pre">{JSON.stringify(part, null, 2)}</pre>
     </div>
   );
 }
 
 /**
  * Render an 'artifact' segment inline in the chat stream.
- * Reuses the shared `.nt-task__artifact-*` styles for parity
- * with the task-detail Artifacts card, layered with
- * `.nt-chat__segment--artifact` for chat-only visual identity
- * (accent badge + streaming chip).
+ * Reuses the shared `.nt-session__artifact-*` styles for
+ * parity with the session-detail Artifacts card, layered
+ * with `.nt-chat__segment--artifact` for chat-only visual
+ * identity (accent badge + streaming chip).
  */
 // Internal helper used only by `SegmentView` below;
 // `export` removed during the 2026-08-15 optimization pass
 // (knip flagged as unused export).
 function ArtifactSegment({ segment }: { segment: MessageSegment }): JSX.Element {
   const [expanded, setExpanded] = useState(true);
-  const parts = segment.artifactParts ?? [];
+  const parts = segment.attachmentParts ?? [];
   return (
     <div
       className={`nt-chat__segment nt-chat__segment--artifact${
         segment.isComplete === false ? ' nt-chat__artifact-streaming' : ''
       }`}
-      data-testid={`chat-artifact-${segment.artifactId}`}
+      data-testid={`chat-artifact-${segment.attachmentId}`}
     >
-      <div className="nt-task__artifact-header">
+      <div className="nt-session__artifact-header">
         <button
           type="button"
           className="nt-chat__artifact-badge"
@@ -261,14 +257,14 @@ function ArtifactSegment({ segment }: { segment: MessageSegment }): JSX.Element 
           aria-expanded={expanded}
         >
           <span aria-hidden>📎</span>
-          <span>{segment.artifactName ?? `Artifact · ${segment.artifactId}`}</span>
+          <span>{segment.attachmentName ?? `Artifact · ${segment.attachmentId}`}</span>
           {segment.isComplete === false && <span>· streaming…</span>}
         </button>
       </div>
       {expanded && (
         <div>
           {parts.length === 0 ? (
-            <pre className="nt-task__artifact-pre">(empty artifact)</pre>
+            <pre className="nt-session__artifact-pre">(empty artifact)</pre>
           ) : (
             parts.map((p, i) => <ArtifactPart key={i} part={p} />)
           )}
@@ -312,8 +308,8 @@ const SegmentView = memo(function SegmentView({
 
   // Artifact segments are rendered by ArtifactSegment; delegate
   // before any of the collapsible / plain-text branches so the
-  // shared .nt-task__artifact-* styles always win.
-  if (segment.type === 'artifact') {
+  // shared .nt-session__artifact-* styles always win.
+  if (segment.type === 'attachment') {
     return <ArtifactSegment segment={segment} />;
   }
 
@@ -443,9 +439,10 @@ const SegmentView = memo(function SegmentView({
 
 /**
  * Minimal message shape accepted by `ChatMessageList`. The
- * chat page builds it from streamed events; the task detail
- * page builds it via `reconstructMessagesFromTask`. Both
- * produce the same shape so the rendering below is identical.
+ * chat page builds it from streamed events; the session
+ * detail page builds it via `reconstructMessagesFromSession`.
+ * Both produce the same shape so the rendering below is
+ * identical.
  */
 export interface ChatMessageViewItem {
   id: string;
@@ -459,8 +456,8 @@ export interface ChatMessageViewItem {
  * Render a flat list of chat-style messages — each with a
  * `> USER` / `> ASSISTANT` header, a status pill, and one row
  * per segment. Used by both `/chat/:sessionId` (with streaming
- * state) and `/tasks/:id` (with reconstructed history) so the
- * user reads the same visual contract on both pages.
+ * state) and `/sessions/:id` (with reconstructed history) so
+ * the user reads the same visual contract on both pages.
  *
  * `now` is a tick-driven wall-clock value so per-segment
  * tool-block timeout indicators can re-evaluate without each

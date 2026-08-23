@@ -65,7 +65,7 @@ export function SkillsPage() {
           description={
             isFiltering
               ? `No skills matched "${query}". Try clearing the search.`
-              : 'Drop a SKILL.md into your workspace\'s skills/ folder to register one.'
+              : "Drop a SKILL.md into your workspace's skills/ folder to register one."
           }
           testId="skills-empty"
         />

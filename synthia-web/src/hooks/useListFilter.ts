@@ -55,7 +55,7 @@ export function useListFilter<T>(
   // `sortDir` change. The trade-off: a parent re-render with a
   // swapped-in predicate won't trigger a re-filter until one
   // of the actual dep values next changes. For the call sites
-  // here (Skills / Tools / Agents / Tasks) the predicates are
+  // sites here (Skills / Tools / Agents / Sessions) the predicates are
   // defined inline at module evaluation and never swap, so the
   // trade-off is purely theoretical — but the pattern keeps
   // the memo useful if someone later wraps the predicates in

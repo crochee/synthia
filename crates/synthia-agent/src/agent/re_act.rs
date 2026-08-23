@@ -148,7 +148,7 @@ impl ReActAgent {
             name: "agent".to_string(),
             // `display_name` is the human-readable label
             // surfaced to the model (in the `<identity>`
-            // block) and to A2A clients (on the
+            // block) and to clients (on the
             // `AgentCard`). Distinct from the programmatic
             // `name` ("agent"), which stays as the
             // registry / routing slug so existing user
@@ -1064,7 +1064,7 @@ impl ReActLoop {
         ));
         // Forward the tool-output metadata and truncated-by
         // markers onto the wire `ToolResult` so downstream
-        // consumers (A2A, frontend, persisted history) can
+        // consumers (frontend, persisted history) can
         // see the tool's telemetry. The fields are
         // `#[serde(skip_serializing_if = …)]`-guarded so an
         // empty map / None never inflates the wire payload
@@ -1965,7 +1965,7 @@ mod tests {
         // human-readable `display_name` ("Synthia"), not
         // the routing slug ("agent"), so the model
         // self-identifies with the persona the user sees
-        // on the UI / A2A card.
+        // on the UI card.
         assert!(
             sys_text.contains("You are `Synthia`"),
             "identity line must use display_name; got:\n{sys_text}"

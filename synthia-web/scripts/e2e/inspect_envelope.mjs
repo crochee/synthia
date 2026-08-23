@@ -10,7 +10,7 @@ const page = await ctx.newPage();
 
 let captured = null;
 page.on('request', (req) => {
-  if (/\/a2a(\/|\/message:send|$)/.test(req.url()) && req.method() === 'POST') {
+  if (/\/api\/v1\/chat\/message/.test(req.url()) && req.method() === 'POST') {
     if (captured) return;
     captured = { url: req.url(), body: req.postData() };
   }

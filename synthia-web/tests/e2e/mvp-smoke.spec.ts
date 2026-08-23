@@ -16,7 +16,7 @@ import { ChatPage } from './pages/chat.page';
  *
  * What this spec pins
  * -------------------
- * The end-to-end LLM round trip through the A2A protocol: user
+ * The end-to-end LLM round trip through the chat surface: user
  * message → SSE stream → assistant message reaches a terminal
  * state with non-empty reply text. The assistant uses
  * `tool_choice: Auto` (the agent never forces tool calls), so a

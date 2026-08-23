@@ -34,10 +34,7 @@ export function SkillDetailPage() {
     setDetail(null);
     setError(null);
     api
-      .get<SkillDetail>(
-        `/api/v1/skills/${encodeURIComponent(name)}`,
-        controller.signal,
-      )
+      .get<SkillDetail>(`/api/v1/skills/${encodeURIComponent(name)}`, controller.signal)
       .then((d) => {
         if (!cancelled) setDetail(d);
       })

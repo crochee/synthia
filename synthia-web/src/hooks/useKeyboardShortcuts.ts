@@ -27,7 +27,7 @@ const SHORTCUTS: ReadonlyArray<ShortcutEntry> = [
   { key: 't', path: '/tools' },
   { key: 'g', path: '/agents' },
   { key: 'k', path: '/skills' },
-  { key: 'a', path: '/tasks' },
+  { key: 's', path: '/sessions' },
 ];
 
 const PREFIX_WINDOW_MS = 1_000;

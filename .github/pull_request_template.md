@@ -5,7 +5,7 @@
 <!--
 用一句话写明变更意图。例：
 - 修复修复卡片 #004 (SSE artifact-update 缺 lastChunk)
-- 新增 contract-closure scanner 的 A2A SDK 调用覆盖
+- 新增 contract-closure scanner 的 chat-client 调用覆盖
 - 升级 CI 闸门
 -->
 
@@ -18,7 +18,7 @@
 - [ ] Rust 代码改了 → `make fmt && make lint && make test-rust -p <crate>` 全部绿
 - [ ] 前端代码改了 → `make fmt-web && make lint-web` 绿
 - [ ] 新增能力（如新增端点）→ 在 `openspec/specs/<capability>/spec.md` 中按 ADDED/MODIFIED 流程补 Requirement
-- [ ] 修复卡片的"仲裁源"已写明（在 commit message 或 PR 描述里写明 protocol-source 引用：`A2A 官方 spec §X.Y` / `@a2a-js/sdk v1.0.0` / `Synthia stable spec §X.Y`）
+- [ ] 修复卡片的"仲裁源"已写明（在 commit message 或 PR 描述里写明 protocol-source 引用：`Synthia chat wire contract` / `Synthia stable spec §X.Y`）
 
 ## 关联
 

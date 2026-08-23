@@ -3,21 +3,28 @@ name = "synthia-server"
 version.workspace = true
 edition.workspace = true
 
+[features]
+# Only `test-utils` remains. Observability is no longer feature-gated on
+# this crate: OTel OTLP tracing, Prometheus RED metrics, the
+# `/metrics` endpoint, and the `track_metrics` middleware are all
+# always-on. The fallback to console tracing when neither gRPC nor
+# HTTP OTLP is configured lives inside `synthia_telemetry::init_tracing`.
+test-utils = ["dep:test-support"]
+
 [dependencies]
 synthia-agent.workspace = true
-a2a-lf = "0.3"
-a2a-server-lf = "0.4"
 synthia-provider.workspace = true
 synthia-session.workspace = true
 synthia-skill.workspace = true
 synthia-core.workspace = true
+validator.workspace = true
 synthia-telemetry.workspace = true
 synthia-tool.workspace = true
 async-trait.workspace = true
 chrono.workspace = true
 axum.workspace = true
 opentelemetry.workspace = true
-opentelemetry_sdk = { version = "0.32", features = ["rt-tokio"] }
+opentelemetry_sdk.workspace = true
 tower.workspace = true
 tower-http = { workspace = true, features = ["cors", "fs"] }
 tokio.workspace = true
@@ -40,10 +47,8 @@ hex.workspace = true
 base64.workspace = true
 regex.workspace = true
 schemars.workspace = true
+prometheus.workspace = true
 test-support = { workspace = true, optional = true }
-
-[features]
-test-utils = ["dep:test-support"]
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["macros", "rt", "rt-multi-thread"] }

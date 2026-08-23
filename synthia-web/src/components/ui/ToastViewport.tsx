@@ -44,12 +44,13 @@ export function ToastViewport({ toasts, onDismiss }: ToastViewportProps) {
   );
 }
 
-const VARIANT_COLOR: Record<
-  Toast['variant'],
-  { bg: string; border: string; fg: string }
-> = {
+const VARIANT_COLOR: Record<Toast['variant'], { bg: string; border: string; fg: string }> = {
   info: { bg: 'var(--bg-secondary)', border: 'var(--accent-primary)', fg: 'var(--text-primary)' },
-  success: { bg: 'var(--bg-secondary)', border: 'var(--accent-success)', fg: 'var(--text-primary)' },
+  success: {
+    bg: 'var(--bg-secondary)',
+    border: 'var(--accent-success)',
+    fg: 'var(--text-primary)',
+  },
   warning: { bg: 'var(--bg-secondary)', border: 'var(--accent-yellow)', fg: 'var(--text-primary)' },
   error: { bg: 'var(--bg-secondary)', border: 'var(--accent-red)', fg: 'var(--text-primary)' },
 };

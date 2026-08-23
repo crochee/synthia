@@ -1,13 +1,10 @@
 //! Probe endpoint integration tests.
 //!
-//! Asserts the public surface of the probe endpoints and the
-//! related `/.well-known/agent-card.json` discovery route:
+//! Asserts the public surface of the probe endpoints:
 //!
 //! - `GET /livez` → 200 with `status: "ok"` (liveness).
 //! - `GET /readyz` → 200 with `status: "ok"` once the router
 //!   bootstrap completed (readiness).
-//! - `GET /.well-known/agent-card.json` → 200 with a card
-//!   declaring at least one interface binding.
 //!
 //! These tests run via `tower::ServiceExt::oneshot` against the
 //! router created by `create_router` so they cover middleware
@@ -29,39 +26,6 @@ async fn make_app() -> axum::Router {
     let state =
         AppState::for_test(session_manager, temp.path().to_path_buf()).await;
     create_router(Arc::new(state)).await
-}
-
-#[tokio::test]
-async fn test_agent_card_well_known_endpoint_is_public_and_returns_card() {
-    let app = make_app().await;
-
-    let req = Request::builder()
-        .uri("/.well-known/agent-card.json")
-        .method("GET")
-        .body(axum::body::Body::empty())
-        .unwrap();
-
-    let resp = app.oneshot(req).await.unwrap();
-    assert_eq!(
-        resp.status(),
-        StatusCode::OK,
-        "agent-card discovery must be a public, 200 endpoint"
-    );
-
-    let body_bytes = resp.into_body().collect().await.unwrap().to_bytes();
-    let card: serde_json::Value = serde_json::from_slice(&body_bytes).unwrap();
-
-    // Name + capabilities are the minimum contract a client needs
-    // to know what bindings to use.
-    assert!(
-        card["name"].is_string(),
-        "card must include a `name`, got: {card}"
-    );
-    assert!(
-        card["capabilities"]["streaming"].is_boolean()
-            || card["capabilities"]["tools"].is_boolean(),
-        "card must declare at least one capability, got: {card}"
-    );
 }
 
 #[tokio::test]
@@ -92,9 +56,9 @@ async fn test_livez_is_public_and_returns_ok() {
 
 #[tokio::test]
 async fn test_readyz_is_public_and_ready_after_router_bootstrap() {
-    // Readiness: `create_router` eagerly initializes the A2A
-    // service before the listener binds, so a router-built app
-    // must report ready on the first probe.
+    // Readiness: `create_router` finishes bootstrap before
+    // returning, so a router-built app must report ready on
+    // the first probe.
     let app = make_app().await;
 
     let req = Request::builder()

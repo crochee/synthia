@@ -22,21 +22,21 @@ use std::{
     sync::Arc,
 };
 
-use axum::{
-    Json,
-    extract::{Path, Query, State},
-};
+use axum::{Json, extract::State};
 use parking_lot::RwLock;
 use serde::{Deserialize, Serialize};
+use synthia_core::Error;
 
 use super::helpers::paginate;
 use crate::{
     api::{
-        ErrorCode,
+        AppError,
+        AppJson,
+        AppPath,
+        AppQuery,
         List,
         PageQuery,
         ResolvedPage,
-        UserError,
         resolve_page,
         validate_resource_name,
         validate_sort,
@@ -238,8 +238,8 @@ fn invalidate_list_cache() {
 /// GET /api/skills - List all skills with cursor pagination.
 pub async fn list_skills(
     State(state): State<Arc<AppState>>,
-    Query(page): Query<PageQuery>,
-) -> Result<Json<List<SkillInfo>>, UserError> {
+    AppQuery(page): AppQuery<PageQuery>,
+) -> Result<Json<List<SkillInfo>>, AppError> {
     validate_sort(
         page.sort.as_deref().unwrap_or("name"),
         SKILL_SORT_WHITELIST,
@@ -388,8 +388,8 @@ fn sort_skills(
 /// GET /api/skills/:id - Get a single skill.
 pub async fn get_skill(
     State(state): State<Arc<AppState>>,
-    Path(name): Path<String>,
-) -> Result<Json<SkillDetail>, UserError> {
+    AppPath(name): AppPath<String>,
+) -> Result<Json<SkillDetail>, AppError> {
     validate_resource_name(&name)?;
     let skill_dir = state
         .workspace_root
@@ -399,10 +399,9 @@ pub async fn get_skill(
     let skill_path = skill_dir.join("SKILL.md");
 
     if !skill_path.exists() {
-        return Err(UserError::new(
-            ErrorCode::NotFound,
-            format!("Skill '{}' not found", name),
-        ));
+        return Err(AppError::from(Error::not_found(format!(
+            "skill '{name}'"
+        ))));
     }
 
     // The detail endpoint benefits from the same mtime-based
@@ -413,9 +412,8 @@ pub async fn get_skill(
     // this cache, every detail-page mount re-reads the file and
     // re-parses the YAML frontmatter.
     let cached = cached_detail_for(&skill_path, &name).ok_or_else(|| {
-        UserError::new(ErrorCode::NotFound, format!("Skill '{name}' not found"))
+        AppError::from(Error::not_found(format!("skill '{name}'")))
     })?;
-
     Ok(Json(SkillDetail {
         name: cached.name,
         description: cached.description,
@@ -426,10 +424,12 @@ pub async fn get_skill(
 }
 
 /// Request body for `POST /api/v1/skills` (create).
-#[derive(Deserialize)]
+#[derive(Deserialize, validator::Validate)]
 pub struct CreateSkillRequest {
+    #[validate(length(min = 1, message = "must not be empty"))]
     pub name: String,
     /// SKILL.md body content (full file, with frontmatter).
+    #[validate(length(min = 1, message = "must not be empty"))]
     pub content: String,
 }
 
@@ -449,8 +449,8 @@ pub struct CreateSkillResponse {
 /// (frontmatter + markdown body), matching the on-disk format.
 pub async fn create_skill(
     State(state): State<Arc<AppState>>,
-    Json(req): Json<CreateSkillRequest>,
-) -> Result<Json<CreateSkillResponse>, UserError> {
+    AppJson(req): AppJson<CreateSkillRequest>,
+) -> Result<Json<CreateSkillResponse>, AppError> {
     validate_resource_name(&req.name)?;
     let skill_dir = state
         .workspace_root
@@ -466,10 +466,7 @@ pub async fn create_skill(
     // both the conflict path and the happy path — and is race-free
     // in a way the previous check-then-write was not.
     std::fs::create_dir_all(&skill_dir).map_err(|e| {
-        UserError::new(
-            ErrorCode::InternalServerError,
-            format!("failed to create skill directory: {e}"),
-        )
+        Error::internal(format!("failed to create skill directory: {e}"))
     })?;
     match std::fs::OpenOptions::new()
         .write(true)
@@ -478,23 +475,21 @@ pub async fn create_skill(
     {
         Ok(mut f) => {
             if let Err(e) = f.write_all(req.content.as_bytes()) {
-                return Err(UserError::new(
-                    ErrorCode::InternalServerError,
-                    format!("failed to write SKILL.md: {e}"),
-                ));
+                return Err(AppError::from(Error::internal(format!(
+                    "failed to write SKILL.md: {e}"
+                ))));
             }
         }
         Err(e) if e.kind() == ErrorKind::AlreadyExists => {
-            return Err(UserError::new(
-                ErrorCode::Conflict,
-                format!("Skill '{}' already exists", req.name),
-            ));
+            return Err(AppError::from(Error::already_exists(format!(
+                "skill '{}'",
+                req.name
+            ))));
         }
         Err(e) => {
-            return Err(UserError::new(
-                ErrorCode::InternalServerError,
-                format!("failed to write SKILL.md: {e}"),
-            ));
+            return Err(AppError::from(Error::internal(format!(
+                "failed to write SKILL.md: {e}"
+            ))));
         }
     }
     // Drop any stale cache entry for this skill — the new SKILL.md
@@ -515,8 +510,8 @@ pub async fn create_skill(
 /// Returns `404 Not Found` if the skill does not exist.
 pub async fn delete_skill(
     State(state): State<Arc<AppState>>,
-    Path(name): Path<String>,
-) -> Result<Json<SkillDeleteResponse>, UserError> {
+    AppPath(name): AppPath<String>,
+) -> Result<Json<SkillDeleteResponse>, AppError> {
     validate_resource_name(&name)?;
     let skill_dir = state
         .workspace_root
@@ -533,16 +528,14 @@ pub async fn delete_skill(
     match std::fs::remove_dir_all(&skill_dir) {
         Ok(()) => {}
         Err(e) if e.kind() == ErrorKind::NotFound => {
-            return Err(UserError::new(
-                ErrorCode::NotFound,
-                format!("Skill '{name}' not found"),
-            ));
+            return Err(AppError::from(Error::not_found(format!(
+                "skill '{name}'"
+            ))));
         }
         Err(e) => {
-            return Err(UserError::new(
-                ErrorCode::InternalServerError,
-                format!("failed to remove skill directory: {e}"),
-            ));
+            return Err(AppError::from(Error::internal(format!(
+                "failed to remove skill directory: {e}"
+            ))));
         }
     }
     // The cache is keyed by file presence + mtime; with the
@@ -571,7 +564,7 @@ pub struct ReloadSkillsResponse {
 /// the previous list response showed.
 pub async fn reload_skills(
     State(state): State<Arc<AppState>>,
-) -> Result<Json<ReloadSkillsResponse>, UserError> {
+) -> Result<Json<ReloadSkillsResponse>, AppError> {
     let skills_dir = state.workspace_root.join(".agents").join("skills");
     let count = if skills_dir.exists() {
         std::fs::read_dir(&skills_dir)

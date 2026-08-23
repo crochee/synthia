@@ -1,10 +1,10 @@
 //! RESTful v1 API shared types: `List<T>`, `PageQuery`,
-//! `TaskPageQuery`, cursor encode/decode, and request validation
+//! `SessionPageQuery`, cursor encode/decode, and request validation
 //! helpers.
 //!
 //! These types are HTTP-wire concerns and live alongside the v1
-//! error envelope (`error::ErrorCode` / `UserError`) in
-//! `synthia-server::api`. Keeping the v1 surface in one place
+//! error adapter (`error::ApiError`, wrapping `synthia_core::Error`)
+//! in `synthia-server::api`. Keeping the v1 surface in one place
 //! makes the wire contract easy to audit.
 //!
 //! # Module Layout
@@ -12,7 +12,7 @@
 //! - [`list`]: [`list::List<T>`] — generic list envelope returned
 //!   by every list endpoint.
 //! - [`page_query`]: [`page_query::PageQuery`] and the
-//!   resource-specific [`page_query::TaskPageQuery`] query
+//!   resource-specific [`page_query::SessionPageQuery`] query
 //!   parameter structs, plus the `DEFAULT_LIMIT` / `MAX_LIMIT`
 //!   constants.
 //! - [`cursor`]: opaque base64 (URL-safe, no-pad) cursor encoding
@@ -35,5 +35,5 @@ pub use cursor::{
     resolve_page,
 };
 pub use list::List;
-pub use page_query::{DEFAULT_LIMIT, MAX_LIMIT, PageQuery, TaskPageQuery};
+pub use page_query::{DEFAULT_LIMIT, MAX_LIMIT, PageQuery, SessionPageQuery};
 pub use validation::{api_key_mask, validate_resource_name, validate_sort};

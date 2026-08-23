@@ -1,5 +1,11 @@
-import { Suspense, lazy } from 'react';
-import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
+import { Suspense, lazy, type ReactElement } from 'react';
+import {
+  BrowserRouter,
+  Navigate,
+  Route,
+  Routes,
+  useParams,
+} from 'react-router-dom';
 import { Theme, Box } from '@radix-ui/themes';
 import { MainLayout } from './components/layout/MainLayout';
 import { ErrorBoundary } from './components/layout/ErrorBoundary';
@@ -26,11 +32,11 @@ const SkillsPage = lazy(() =>
 const SkillDetailPage = lazy(() =>
   import('./pages/SkillDetailPage').then((m) => ({ default: m.SkillDetailPage })),
 );
-const TasksPage = lazy(() =>
-  import('./pages/TasksPage').then((m) => ({ default: m.TasksPage })),
+const SessionsPage = lazy(() =>
+  import('./pages/SessionsPage').then((m) => ({ default: m.SessionsPage })),
 );
-const TaskDetailPage = lazy(() =>
-  import('./pages/TaskDetailPage').then((m) => ({ default: m.TaskDetailPage })),
+const SessionDetailPage = lazy(() =>
+  import('./pages/SessionDetailPage').then((m) => ({ default: m.SessionDetailPage })),
 );
 const AgentsPage = lazy(() =>
   import('./pages/AgentsPage').then((m) => ({ default: m.AgentsPage })),
@@ -68,7 +74,13 @@ export default function App() {
   // *parent* of `<BrowserRouter>`, not a descendant.
 
   return (
-    <Theme appearance={resolvedAppearance} accentColor="blue" grayColor="slate" radius="medium" scaling="100%">
+    <Theme
+      appearance={resolvedAppearance}
+      accentColor="blue"
+      grayColor="slate"
+      radius="medium"
+      scaling="100%"
+    >
       <ErrorBoundary>
         <ToastProvider>
           <BrowserRouter>
@@ -93,79 +105,98 @@ function RouterShell({ isServerAvailable }: { isServerAvailable: boolean }) {
   useKeyboardShortcuts();
   return (
     <Routes>
-              <Route element={<MainLayout isServerAvailable={isServerAvailable} />}>
-                <Route path="/" element={<Navigate to="/chat" replace />} />
-                <Route path="/chat" element={<ChatPage />} />
-                <Route path="/chat/:sessionId" element={<ChatPage />} />
-                <Route
-                  path="/tools"
-                  element={
-                    <Suspense fallback={<RouteFallback testId="page-fallback-tools" />}>
-                      <ToolsPage />
-                    </Suspense>
-                  }
-                />
-                <Route
-                  path="/tools/:name"
-                  element={
-                    <Suspense fallback={<RouteFallback testId="page-fallback-tool-detail" />}>
-                      <ToolDetailPage />
-                    </Suspense>
-                  }
-                />
-                <Route
-                  path="/agents"
-                  element={
-                    <Suspense fallback={<RouteFallback testId="page-fallback-agents" />}>
-                      <AgentsPage />
-                    </Suspense>
-                  }
-                />
-                <Route
-                  path="/agents/:name"
-                  element={
-                    <Suspense fallback={<RouteFallback testId="page-fallback-agent-detail" />}>
-                      <AgentDetailPage />
-                    </Suspense>
-                  }
-                />
-                <Route
-                  path="/skills"
-                  element={
-                    <Suspense fallback={<RouteFallback testId="page-fallback-skills" />}>
-                      <SkillsPage />
-                    </Suspense>
-                  }
-                />
-                <Route
-                  path="/skills/:name"
-                  element={
-                    <Suspense fallback={<RouteFallback testId="page-fallback-skill-detail" />}>
-                      <SkillDetailPage />
-                    </Suspense>
-                  }
-                />
-                <Route
-                  path="/tasks"
-                  element={
-                    <Suspense fallback={<RouteFallback testId="page-fallback-tasks" />}>
-                      <TasksPage />
-                    </Suspense>
-                  }
-                />
-                <Route
-                  path="/tasks/:id"
-                  element={
-                    <Suspense fallback={<RouteFallback testId="page-fallback-task-detail" />}>
-                      <TaskDetailPage />
-                    </Suspense>
-                  }
-                />
-                <Route path="/sessions" element={<Navigate to="/tasks" replace />} />
-                <Route path="*" element={<Navigate to="/chat" replace />} />
-              </Route>
-            </Routes>
+      <Route element={<MainLayout isServerAvailable={isServerAvailable} />}>
+        <Route path="/" element={<Navigate to="/chat" replace />} />
+        <Route path="/chat" element={<ChatPage />} />
+        <Route path="/chat/:sessionId" element={<ChatPage />} />
+        <Route path="/chat/:sessionId/agent/:agentName" element={<ChatPage />} />
+        <Route
+          path="/tools"
+          element={
+            <Suspense fallback={<RouteFallback testId="page-fallback-tools" />}>
+              <ToolsPage />
+            </Suspense>
+          }
+        />
+        <Route
+          path="/tools/:name"
+          element={
+            <Suspense fallback={<RouteFallback testId="page-fallback-tool-detail" />}>
+              <ToolDetailPage />
+            </Suspense>
+          }
+        />
+        <Route
+          path="/agents"
+          element={
+            <Suspense fallback={<RouteFallback testId="page-fallback-agents" />}>
+              <AgentsPage />
+            </Suspense>
+          }
+        />
+        <Route
+          path="/agents/:name"
+          element={
+            <Suspense fallback={<RouteFallback testId="page-fallback-agent-detail" />}>
+              <AgentDetailPage />
+            </Suspense>
+          }
+        />
+        <Route
+          path="/skills"
+          element={
+            <Suspense fallback={<RouteFallback testId="page-fallback-skills" />}>
+              <SkillsPage />
+            </Suspense>
+          }
+        />
+        <Route
+          path="/skills/:name"
+          element={
+            <Suspense fallback={<RouteFallback testId="page-fallback-skill-detail" />}>
+              <SkillDetailPage />
+            </Suspense>
+          }
+        />
+        <Route
+          path="/sessions"
+          element={
+            <Suspense fallback={<RouteFallback testId="page-fallback-sessions" />}>
+              <SessionsPage />
+            </Suspense>
+          }
+        />
+        <Route
+          path="/sessions/:id"
+          element={
+            <Suspense fallback={<RouteFallback testId="page-fallback-session-detail" />}>
+              <SessionDetailPage />
+            </Suspense>
+          }
+        />
+        {/* Legacy `/tasks` URL kept as a one-way redirect so
+            external links and bookmarks still work — we no
+            longer present the "task" concept in the UI. */}
+        <Route path="/tasks" element={<Navigate to="/sessions" replace />} />
+        <Route
+          path="/tasks/:id"
+          element={<LegacyTaskRedirect />}
+        />
+        <Route path="*" element={<Navigate to="/chat" replace />} />
+      </Route>
+    </Routes>
   );
+}
+
+/**
+ * One-way redirect from the legacy `/tasks/:id` URL shape to
+ * the canonical `/sessions/:id` route, preserving the session
+ * identifier so old bookmarks and external links land on the
+ * correct detail page instead of the list.
+ */
+function LegacyTaskRedirect(): ReactElement {
+  const { id } = useParams<{ id: string }>();
+  return <Navigate to={`/sessions/${id ?? ''}`} replace />;
 }
 
 /**

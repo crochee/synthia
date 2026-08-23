@@ -87,7 +87,7 @@ for (const vp of VIEWPORTS) {
       // via `display: none`, which removes it from the accessible
       // name; matching by `href` is therefore the viewport-agnostic
       // way to prove every entry is still present in the DOM.
-      const hrefs = ['/chat', '/tools', '/agents', '/skills', '/tasks'];
+      const hrefs = ['/chat', '/tools', '/agents', '/skills', '/sessions'];
       for (const href of hrefs) {
         await expect(sidebar.locator(`a[href="${href}"]`)).toBeAttached();
       }

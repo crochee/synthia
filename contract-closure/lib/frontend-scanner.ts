@@ -1,5 +1,5 @@
 /**
- * 前端 fetch / @a2a-js/sdk 调用点扫描器
+ * 前端 fetch 调用点扫描器
  * - 抽取 fetch(`<baseURL>${X}`, { method: "GET" | "POST" | ... })
  * - 占位符归一化：`${baseURL}` / template expressions → "/"
  * - 支持 const 绑定的间接 URL（HEALTH_URL = "/api/health"）解析。
@@ -109,14 +109,13 @@ function stripQuotes(s: string): string {
 
 function normalizePath(raw: string, consts: Map<string, string>): string | null {
   let s = raw.replace(/\s+/g, '');
-  // Replace `${encodeURIComponent(<expr>)}` and the bare `encodeURIComponent(<expr>)`
-  // with `{key}` — a single canonical placeholder name that matches the backend
-  // router's `{key}` style. This way `encodeURIComponent(job.key)` → `{key}`
-  // matches the corresponding backend `POST /api/jobs/{key}/pause`.
-  s = s.replace(
-    /\$\{[^}]*encodeURIComponent\([^)]*\)[^}]*\}|encodeURIComponent\([^)]*\)/g,
-    '{key}',
-  );
+  // `${encodeURIComponent(<expr>)}` / bare `encodeURIComponent(<expr>)` → `{key}`.
+  // Applied BEFORE const substitution (inline literals) AND after (const-bound
+  // templates like `const url = \`…${encodeURIComponent(id)}…\`` only see the
+  // placeholder once the const value is spliced in).
+  const placeholderRe =
+    /\$\{[^}]*encodeURIComponent\([^)]*\)[^}]*\}|encodeURIComponent\([^)]*\)/g;
+  s = s.replace(placeholderRe, '{key}');
   // Substitute ${NAME} → const value (or empty string if unknown).
   s = s.replace(/\$\{([A-Za-z_$][\w$]*)\}/g, (_full, name) => {
     const v = consts.get(name);
@@ -124,6 +123,10 @@ function normalizePath(raw: string, consts: Map<string, string>): string | null 
   });
   // Substitute bare NAME identifier → const value if known, else keep verbatim.
   s = s.replace(/[A-Za-z_$][\w$]*/g, (whole) => consts.get(whole) ?? whole);
+  s = s.replace(placeholderRe, '{key}');
+  // Any remaining `${<expr>}` interpolation is a dynamic path segment —
+  // canonicalize it to the backend's `{key}` style.
+  s = s.replace(/\$\{[^}]*\}/g, '{key}');
   // Strip wrapper quotes / template backticks.
   s = stripQuotes(s);
   // Find the last "/something" path segment.
@@ -168,7 +171,7 @@ export function scanFrontendFile(filePath: string): Endpoint[] {
   // `httpClient.delete(...)`, `client.sendMessage(...)`. We do a regex-based
   // scan that captures `<callee>.<method>` and the first string argument,
   // mapping known aliases (get → GET, post → POST, etc., but also special
-  // names like `sendMessage` → POST /a2a/message:send).
+  // names like `sendMessage` → POST to the chat surface).
   const helperCalls = findHelperCalls(src, consts, filePath);
   for (const ep of helperCalls) {
     if (!endpoints.some((e) => e.id === ep.id)) endpoints.push(ep);
@@ -185,7 +188,14 @@ function findHelperCalls(src: string, consts: Map<string, string>, filePath: str
   const out: Endpoint[] = [];
   // Match identifiers followed by `.method<T?>(` followed by an open quote/template.
   // We deliberately restrict the helper set to ones we know how to map.
-  const re = /\b([A-Za-z_$][\w$]*)\.(get|post|put|del|delete|patch|sendMessage|sendMessageStream|subscribeToTask)\s*(?:<[^>]*>)?\s*\(\s*([`'"`])/g;
+  // - `\s*` between object and method so line-broken chains like
+  //   `api\n  .get<T>(...)` are still caught.
+  // - `(?:<[^>]*>+)?` tolerates nested generic args (`get<List<ScoreHit>>`),
+  //   which a single `[^>]*` cannot cross (it stops at the first `>`).
+  // - the object prefix is optional so bare hook calls like
+  //   `useCursorList<T>('/api/v1/…')` are matched too (the method set is
+  //   small enough that a bare `get(`/`post(` mis-match is unlikely).
+  const re = /\b(?:([A-Za-z_$][\w$]*)\s*\.)?(get|post|put|del|delete|patch|sendMessage|sendMessageStream|useCursorList)\s*(?:<[^>]*>+)?\s*\(\s*([`'"`])/g;
   let m: RegExpExecArray | null;
   while ((m = re.exec(src)) !== null) {
     const methodName = m[2];
@@ -258,17 +268,18 @@ function findHelperCalls(src: string, consts: Map<string, string>, filePath: str
       patch: 'PATCH',
       sendMessage: 'POST',
       sendMessageStream: 'POST',
-      subscribeToTask: 'GET',
+      // Cursor-paginated list hook: `useCursorList<T>('/api/v1/…')`
+      // GETs the passed path via `api.get` internally.
+      useCursorList: 'GET',
     };
     const method = map[methodName];
     if (!method) continue;
 
-    // For sendMessage / sendMessageStream / subscribeToTask we replace the
-    // path with the canonical A2A JSON-RPC path (which the user wrote
-    // literally under /*/a2a/message:send or similar). The scanner can't
-    // know those; we leave the extracted `path` as-is so the contract table
-    // documents the raw path. The bridge to A2A JSON-RPC is documented in
-    // ARBITRATION.md.
+    // For sendMessage / sendMessageStream we record the literal
+    // path the caller passed (the chat surface maps these to
+    // POST /api/v1/chat/sessions/{id}/messages and the SSE stream
+    // endpoint). The scanner can't reverse-engineer the resolved
+    // URL, so we record what the source code literally wrote.
     const line = findLineNumber(src, m.index);
     out.push({
       id: `${method} ${path}`,

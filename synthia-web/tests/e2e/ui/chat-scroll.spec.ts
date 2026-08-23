@@ -128,15 +128,14 @@ test.describe('Chat scroll UX', () => {
     const scrolled = await page.evaluate(() => {
       const root = document.querySelector('.nt-chat');
       if (!root) return { ok: false, reason: 'no .nt-chat' };
-      const candidates = root.querySelectorAll('[aria-hidden="true"]');
-      let anchor: Element | null = null;
-      for (let i = 0; i < candidates.length; i++) {
-        const el = candidates[i];
-        if (!el.hasAttribute('data-testid')) {
-          anchor = el;
-          break;
-        }
-      }
+      // Search direct children only — using `querySelectorAll`
+      // would also match aria-hidden glyph spans inside the
+      // usage chip, which sit outside the messages row and
+      // have no previous sibling of their own.
+      const candidates = Array.from(root.children).filter(
+        (el) => el.getAttribute('aria-hidden') === 'true' && !el.hasAttribute('data-testid'),
+      );
+      const anchor = candidates[0] ?? null;
       if (!anchor) return { ok: false, reason: 'no anchor' };
       const list = anchor.previousElementSibling as HTMLElement | null;
       if (!list) return { ok: false, reason: 'no previous sibling' };

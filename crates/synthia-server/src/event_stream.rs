@@ -232,9 +232,9 @@ mod tests {
     }
 
     /// Direct test for the broadcast contract that the
-    /// `a2a::executor::execute` loop relies on: when the
-    /// receiver falls behind and the channel overwrites a
-    /// ring-buffer of pending messages, `recv()` returns
+    /// SSE consumer relies on: when the receiver falls behind
+    /// and the channel overwrites a ring-buffer of pending
+    /// messages, `recv()` returns
     /// `RecvError::Lagged(skipped)`. The executor's fix
     /// requires `Lagged` to be a recoverable signal (the
     /// receiver must `continue`, not break), and
@@ -291,15 +291,14 @@ mod tests {
     /// "Receivers only see messages sent after they
     /// subscribed."
     ///
-    /// This contract is what allows `wrapper::subscribe_to_task`
-    /// to safely short-circuit to the TaskStore snapshot
-    /// when a brand-new SSE client attaches after the
-    /// executor has cleared the active execution: the
-    /// client MUST NOT see half-streamed in-flight events
-    /// because the broadcast channel no longer retains
-    /// them. If you ever need replay, build it from the
-    /// durable session event store, not the broadcast
-    /// channel.
+    /// This contract is what allows a fresh SSE subscriber
+    /// to safely short-circuit to the persisted session
+    /// snapshot when a brand-new client attaches after the
+    /// active execution has cleared: the client MUST NOT
+    /// see half-streamed in-flight events because the
+    /// broadcast channel no longer retains them. If you
+    /// ever need replay, build it from the durable session
+    /// event store, not the broadcast channel.
     #[tokio::test]
     async fn test_late_subscriber_does_not_see_past_events() {
         let broadcaster = EventBroadcaster::new();

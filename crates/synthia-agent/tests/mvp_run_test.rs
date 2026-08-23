@@ -340,7 +340,7 @@ async fn sequential_tools_abort_round_on_first_error() {
 /// `ToolOutput::metadata` were dropped when converting
 /// to the wire `ToolResult`. The agent loop now forwards
 /// these fields through `commit_tool_result` so the LLM,
-/// A2A clients, and the frontend can see truncation
+/// clients, and the frontend can see truncation
 /// telemetry without parsing the content stream.
 #[tokio::test]
 async fn tool_output_metadata_and_truncated_by_reach_the_wire() {

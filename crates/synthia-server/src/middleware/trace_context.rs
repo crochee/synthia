@@ -53,12 +53,7 @@ use opentelemetry::{
 use opentelemetry_sdk::propagation::TraceContextPropagator;
 #[cfg(test)]
 use synthia_telemetry::TRACEPARENT_HEADER;
-use synthia_telemetry::{
-    TRACESTATE_HEADER,
-    X_TRACE_ID_HEADER,
-    format_span_id,
-    format_trace_id,
-};
+use synthia_telemetry::{TRACESTATE_HEADER, format_span_id, format_trace_id};
 use tracing::Span;
 use uuid::Uuid;
 
@@ -248,7 +243,10 @@ pub async fn trace_context_middleware(
     // 2. Run the inner service.
     let mut response = next.run(request).await;
 
-    // 3. Inject the response headers so callers can correlate.
+    // 3. Inject the response headers so callers can correlate. The
+    // propagator writes `traceparent` (and `tracestate` when
+    // non-empty) — the W3C headers are the single correlation
+    // surface; no parallel short-form header is emitted.
     let headers = response.headers_mut();
     inject_trace_context(
         &mut HeaderMapInjector(headers),
@@ -259,14 +257,6 @@ pub async fn trace_context_middleware(
             trace_state,
         },
     );
-
-    // The OTel propagator writes `traceparent` (and `tracestate` when
-    // non-empty). Add the short-form `x-trace-id` header separately
-    // for log aggregators (Loki / ELK) that grep the trace id
-    // without parsing the full `traceparent`.
-    if let Ok(val) = HeaderValue::from_str(&format_trace_id(trace_id)) {
-        headers.insert(X_TRACE_ID_HEADER, val);
-    }
 
     response
 }
@@ -316,15 +306,13 @@ mod tests {
                 .expect("the response traceparent must parse");
         assert_eq!(format_trace_id(parsed.trace_id), parse_tp_trace_id(&tp));
 
-        // The short-form x-trace-id must match the trace-id half.
-        let trace_id = response
-            .headers()
-            .get(X_TRACE_ID_HEADER)
-            .unwrap()
-            .to_str()
-            .unwrap();
-        assert_eq!(trace_id.len(), 32);
-        assert!(tp.contains(trace_id), "{tp} should contain {trace_id}");
+        // The legacy short-form `x-trace-id` header has been retired —
+        // `traceparent` is the single correlation surface. Guard that
+        // it does not silently come back.
+        assert!(
+            response.headers().get("x-trace-id").is_none(),
+            "x-trace-id must not be emitted; use traceparent instead"
+        );
     }
 
     #[tokio::test]

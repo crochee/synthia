@@ -44,7 +44,10 @@ const MarkdownInner = lazy(async () => {
   const remarkPlugins = [remarkGfm.default];
   const rehypePlugins = [rehypeHighlight.default];
   const components = {
-    a: ({ node: _node, ...props }: { node?: unknown } & React.AnchorHTMLAttributes<HTMLAnchorElement>) => (
+    a: ({
+      node: _node,
+      ...props
+    }: { node?: unknown } & React.AnchorHTMLAttributes<HTMLAnchorElement>) => (
       <a {...props} target="_blank" rel="noreferrer" />
     ),
   };

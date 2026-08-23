@@ -15,6 +15,16 @@ export class ChatPage extends BasePage {
     await this.waitForReady();
   }
 
+  /**
+   * Open a chat with a specific agent in the URL. Skips the
+   * default-resolution redirect so the test exercises the
+   * `agentName` path segment end-to-end.
+   */
+  async gotoWithAgent(agentName: string): Promise<void> {
+    await this.page.goto(`/chat/any-session-id/agent/${encodeURIComponent(agentName)}`);
+    await this.waitForReady();
+  }
+
   get input(): Locator {
     return this.page.getByTestId('chat-input');
   }
@@ -25,6 +35,68 @@ export class ChatPage extends BasePage {
 
   get messageList(): Locator {
     return this.page.getByTestId('chat-messages');
+  }
+
+  get agentChip(): Locator {
+    return this.page.getByTestId('agent-chip');
+  }
+
+  get agentChipName(): Locator {
+    return this.page.getByTestId('agent-chip-name');
+  }
+
+  get agentError(): Locator {
+    return this.page.getByTestId('agent-error');
+  }
+
+  get attachmentInput(): Locator {
+    return this.page.getByTestId('attachment-input');
+  }
+
+  get pendingAttachments(): Locator {
+    return this.page.getByTestId('pending-attachments');
+  }
+
+  get regenerateButton(): Locator {
+    return this.page.getByTestId('regenerate-button');
+  }
+
+  get typingDots(): Locator {
+    return this.page.getByTestId('typing-dots');
+  }
+
+  get modelSelector(): Locator {
+    return this.page.getByTestId('model-selector');
+  }
+
+  get modelSelect(): Locator {
+    return this.page.getByTestId('model-select');
+  }
+
+  get usageChip(): Locator {
+    return this.page.getByTestId('usage-chip');
+  }
+
+  get messageActions(): Locator {
+    return this.page.getByTestId('message-actions');
+  }
+
+  feedbackButton(messageId: string, thumbsUp: boolean): Locator {
+    return this.page.getByTestId(
+      thumbsUp ? `feedback-up-${messageId}` : `feedback-down-${messageId}`,
+    );
+  }
+
+  /** Read the current `sessionId` from `window.location.pathname`. */
+  getCurrentSessionId(): string | null {
+    const m = /\/chat\/([^/]+)/.exec(this.page.url());
+    return m ? (m[1] ?? null) : null;
+  }
+
+  /** Read the current `agentName` from `window.location.pathname`. */
+  getCurrentAgentName(): string | null {
+    const m = /\/agent\/([^/?]+)/.exec(this.page.url());
+    return m ? decodeURIComponent(m[1] ?? '') : null;
   }
 
   getUserMessages(): Locator {

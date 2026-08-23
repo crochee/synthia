@@ -557,7 +557,7 @@ pub enum DataStoreError {
 ## 3. Synthia 适配评分 (1-5)
 
 **评估场景**: 13 个内部 crate + 1 个 server (axum) + 1 个 web (React) + JSON-RPC wire
-protocol + A2A 协议 + 已有 `synthia_core::Error` (33 variants) + `ErrorCode` (36 variants)
+protocol + REST/SSE chat 协议 + 已有 `synthia_core::Error` (33 variants) + `ErrorCode` (36 variants)
 
 | 候选 | 评分 | 关键理由 |
 |---|---|---|

@@ -20,7 +20,6 @@
     "format:check": "prettier --check ."
   },
   "dependencies": {
-    "@a2a-js/sdk": "1.0.0",
     "@radix-ui/themes": "^3.3.0",
     "highlight.js": "^11.11.1",
     "react": "^18.3.1",

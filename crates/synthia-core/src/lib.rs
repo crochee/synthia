@@ -2,12 +2,14 @@ pub mod error;
 pub mod registry;
 pub mod sensitive;
 pub mod text;
-pub mod time;
 pub mod token;
 
-pub use error::*;
+/// Crate-wide [`Result`] alias defaulting to the single error
+/// type [`Error`]. Callers returning a different error type can
+/// still override the parameter (`synthia_core::Result<T, E>`),
+/// mirroring the `std::io::Result` convention.
+pub type Result<T, E = Error> = core::result::Result<T, E>;
 pub use registry::{
-    EmptyFilter,
     Registry,
     RegistryItem,
     RegistryList,
@@ -15,4 +17,5 @@ pub use registry::{
 };
 pub use sensitive::{Sensitive, SensitiveData};
 pub use text::cap_to_char_boundary;
-pub use time::*;
+
+pub use crate::error::Error;

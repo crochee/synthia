@@ -118,7 +118,7 @@ export interface ScoreHit {
   score?: number;
 }
 
-export interface TaskSummary {
+export interface SessionSummary {
   id: string;
   status: string;
   context_id?: string;
@@ -126,57 +126,62 @@ export interface TaskSummary {
 }
 
 /**
- * Full task detail returned by `GET /api/v1/tasks/:id`.
+ * Full session detail returned by `GET /api/v1/sessions/:id`.
  *
  * `history` and `artifacts` use minimal local interfaces rather
- * than the @a2a-js/sdk `Message`/`Artifact` classes — the REST
- * endpoint returns plain JSON, not SDK class instances, and we
- * only need a few fields for display.
+ * than a third-party SDK — the REST endpoint returns plain JSON,
+ * and we only need a few fields for display. `artifacts` is kept
+ * as an empty array in practice; tool calls / results now flow
+ * through `history` as agent frames.
  */
-export interface TaskDetail {
+export interface SessionDetail {
   id: string;
   status: string;
   context_id: string;
   created_at?: string | null;
   updated_at?: string | null;
-  history: TaskMessage[];
-  artifacts: TaskArtifact[];
+  history: SessionTurn[];
+  artifacts: SessionArtifact[];
 }
 
-/** Minimal view of an A2A `Message` as serialized by the v1 API. */
-export interface TaskMessage {
-  messageId?: string;
-  role?: string;
-  parts?: ReadonlyArray<TaskPart>;
-  contextId?: string;
-  taskId?: string;
-  /**
-   * Wire-level `Message.metadata` (synthia extension). When
-   * present, `metadata["a2a_conversion"]` carries the lossless
-   * `AgentEvent → A2A` conversion entry that the backend
-   * attached at stream time. The task-detail page threads this
-   * through to the segment renderer so the reconstructed
-   * transcript shows the same conversion panel as the live
-   * chat stream.
-   */
-  metadata?: Record<string, unknown>;
+/**
+ * One durable event in the session transcript (one JSONL line).
+ *
+ * The session sink persists exactly two event families (see the
+ * `event-durability-classification` spec — ephemeral system
+ * events like `SessionStarted` / `SessionEnded` are broadcast
+ * only and never persisted):
+ *
+ * - `{ "type": "UserInput", "data": { "text": string } }` —
+ *   the synthetic envelope the controller writes for each
+ *   user prompt.
+ * - `{ "type": "Model", "data": ContentPart }` — one durable
+ *   `AgentEvent::Model` frame; `ContentPart` is internally
+ *   tagged on `type`: `text` | `tool_use` | `tool_result` |
+ *   `resource`.
+ */
+export interface SessionTurn {
+  type?: string;
+  data?: Record<string, unknown>;
+  /** RFC 3339 timestamp of the persisted event, when present. */
+  ts?: string;
 }
 
-/** Minimal view of an A2A `Artifact` as serialized by the v1 API. */
-export interface TaskArtifact {
-  artifactId?: string;
+/** Legacy attachment slot — kept as an empty array in modern
+ *  sessions so the detail page can iterate without
+ *  special-casing undefined. */
+export interface SessionArtifact {
+  attachmentId?: string;
   name?: string;
   description?: string;
-  parts?: ReadonlyArray<TaskPart>;
+  parts?: ReadonlyArray<SessionPart>;
   /**
-   * Server-side metadata on a legacy artifact. New tasks
-   * carry tool calls / results in `Task.history` as
-   * `Message(agent) + Part::data` (A2A v1.0 §3.7 —
-   * communication turns, not artifacts), so this metadata
-   * block is only populated for tasks completed before
-   * `Task.history` was wired up. The MVP used a
-   * `kind: "tool_call" | "tool_result"` discriminator here;
-   * we keep reading it for the legacy fallback path.
+   * Server-side metadata on a legacy attachment. The modern
+   * equivalent carries tool calls / results as agent turns
+   * in `SessionDetail.history`; this metadata block is only
+   * populated for sessions completed before history
+   * persistence landed. We keep reading it for the legacy
+   * fallback path.
    */
   metadata?: {
     kind?: string;
@@ -188,14 +193,14 @@ export interface TaskArtifact {
 }
 
 /**
- * Minimal view of an A2A `Part` as serialized by the v1 API.
+ * Minimal view of one transcript segment.
  *
  * The v1 server uses field-presence serialization: exactly one of
  * `text` / `raw` / `url` / `data` is present per part. We type
  * only the `text` field because that's what the UI renders; other
  * content kinds fall through to a JSON dump.
  */
-export interface TaskPart {
+export interface SessionPart {
   text?: string;
   data?: unknown;
   raw?: string;

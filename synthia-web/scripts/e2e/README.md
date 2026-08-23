@@ -23,9 +23,8 @@ proxy, and the actual backend on the other side.
 ### `verify_e2e.mjs` ⭐ — main verification
 
 Drives the full chat flow and validates that consecutive
-user messages go to the same Synthia session despite A2A
-creating a separate task per `message:send`. This is the
-end-to-end proof of the session/task separation fix.
+user messages stay within the same Synthia session across
+multiple chat rounds.
 
 ```bash
 node scripts/e2e/verify_e2e.mjs
@@ -35,7 +34,7 @@ Expected output ends with `✅ ALL CHECKS PASSED`.
 
 ### `inspect_envelope.mjs`
 
-Captures the raw JSON-RPC envelope sent to `/a2a` so you can
+Captures the raw REST envelope sent to `/api/v1/chat/stream` so you can
 inspect the wire shape. Useful when debugging request/
 response mismatches.
 

@@ -9,6 +9,7 @@ use axum::{
 use tower_http::cors::CorsLayer;
 
 use crate::{
+    api::error::AppError,
     config::server::CorsConfig,
     middleware::{
         auth::AuthLayer,
@@ -16,6 +17,7 @@ use crate::{
         response_headers::response_headers_middleware,
         trace_context::trace_context_middleware,
         tracing::RequestTracingLayer,
+        track_metrics,
     },
     routes,
     state::AppState,
@@ -83,18 +85,66 @@ pub async fn create_server(
 ///
 /// # Route Layout
 ///
-/// Agent interaction is provided **exclusively** via the A2A protocol
-/// (JSON-RPC + REST/HTTP+JSON). All agent communication flows through `/a2a`.
+/// Agent interaction is provided via the REST + SSE chat
+/// surface at `/api/v1/chat/*`. All agent communication —
+/// session creation, message dispatch, streaming,
+/// cancel/regenerate/edit/feedback, and usage telemetry —
+/// flows through that surface.
 ///
-/// Infrastructure management endpoints are versioned under `/api/v1/`.
+/// Infrastructure management endpoints (agents / skills /
+/// tools / memory / sessions / models) are versioned under
+/// `/api/v1/`.
 pub async fn create_router(state: Arc<AppState>) -> Router {
     // --- Management routes (auth-protected) ---
     let api_routes = Router::new()
         // Models listing
         .route("/models", get(routes::health::list_models))
-        // A2A task list (management view backed by the shared task store)
-        .route("/tasks", get(routes::tasks::list_tasks))
-        .route("/tasks/{id}", get(routes::tasks::get_task))
+        // Session list (management view backed by the shared session store)
+        .route("/sessions", get(routes::sessions::list_sessions))
+        .route("/sessions/{id}", get(routes::sessions::get_session))
+        // --- Chat (REST + SSE) interface ---
+        // POST   /chat/sessions                        → create_session
+        // POST   /chat/sessions/{id}/messages          → send_message
+        // GET    /chat/sessions/{id}/messages/stream   → stream_messages (SSE)
+        // POST   /chat/sessions/{id}/cancel            → cancel_session
+        // POST   /chat/sessions/{id}/regenerate        → regenerate
+        // PATCH  /chat/sessions/{id}/messages/{mid}    → edit_message
+        // POST   /chat/messages/{mid}/feedback         → feedback
+        // GET    /chat/usage                           → usage
+        //
+        // Listing / detail live on the management surface
+        // (`/api/v1/sessions`, `/api/v1/sessions/{id}`) so there
+        // is exactly one canonical SessionSummary / SessionDetail
+        // shape on the wire.
+        .route("/chat/usage", get(routes::chat::usage))
+        .route(
+            "/chat/sessions",
+            axum::routing::post(routes::chat::create_session),
+        )
+        .route(
+            "/chat/sessions/{id}/messages",
+            axum::routing::post(routes::chat::send_message),
+        )
+        .route(
+            "/chat/sessions/{id}/messages/stream",
+            get(routes::chat::stream_messages),
+        )
+        .route(
+            "/chat/sessions/{id}/cancel",
+            axum::routing::post(routes::chat::cancel_session),
+        )
+        .route(
+            "/chat/sessions/{id}/regenerate",
+            axum::routing::post(routes::chat::regenerate),
+        )
+        .route(
+            "/chat/sessions/{id}/messages/{message_id}",
+            axum::routing::patch(routes::chat::edit_message),
+        )
+        .route(
+            "/chat/messages/{message_id}/feedback",
+            axum::routing::post(routes::chat::feedback),
+        )
         // Skill management (CRUD restored in turn 13 to address Task 3).
         // GET    /skills            → list_skills (cursor-paginated)
         // POST   /skills            → create_skill (write SKILL.md)
@@ -111,6 +161,10 @@ pub async fn create_router(state: Arc<AppState>) -> Router {
             "/agents",
             get(routes::agents::list_agents)
                 .post(routes::agents::create_agent),
+        )
+        .route(
+            "/agents/default",
+            get(routes::agents::get_default_agent),
         )
         .route(
             "/agents/{name}",
@@ -138,12 +192,6 @@ pub async fn create_router(state: Arc<AppState>) -> Router {
             get(routes::get_tool).delete(routes::unregister_tool),
         );
 
-    // A2A protocol: initialize the service eagerly so we can
-    // extract the merged JSON-RPC + REST router for nest_service.
-    // Use empty string as base URL to generate relative URLs in Agent Card.
-    // This ensures the SDK uses the same origin as the frontend (through Vite proxy).
-    let a2a_service = state.a2a_service(None).await;
-
     // Public infrastructure endpoints.
     //
     // These are intentionally mounted OUTSIDE the protected router:
@@ -153,10 +201,10 @@ pub async fn create_router(state: Arc<AppState>) -> Router {
     //   and burns trace ids. `/livez` answers liveness (process
     //   serves HTTP ⇒ 200), `/readyz` answers readiness
     //   (in-process dependencies initialized ⇒ 200, else 503).
-    // - `/.well-known/agent-card.json` is fetched *by external
-    //   agents / scanners* to discover the A2A interface; it has
-    //   no caller identity to authenticate and no per-request
-    //   work worth tracing.
+    // - `/metrics` is scraped by Prometheus every scrape interval;
+    //   tracking the scrape itself would skew the histograms with
+    //   self-referential noise (and a per-second scrape on
+    //   `/metrics` would dwarf real API traffic).
     //
     // Skipping the AuthLayer, trace-context middleware, and
     // access-log span keeps these endpoints predictable and cheap.
@@ -165,17 +213,22 @@ pub async fn create_router(state: Arc<AppState>) -> Router {
     let public = Router::new()
         .route("/livez", get(routes::health::livez))
         .route("/readyz", get(routes::health::readyz))
-        .route(
-            "/.well-known/agent-card.json",
-            get(routes::a2a::get_agent_card),
-        )
         .layer(build_cors_layer(&state.cors_config));
+
+    // Append the `/metrics` endpoint. Built unconditionally — the
+    // `metrics` feature gate was removed; the endpoint is always
+    // available so a Prometheus scrape can hit a stable URL.
+    let public = public.route("/metrics", get(routes::health::metrics));
 
     let protected = Router::new()
         // --- Infrastructure management (versioned /api/v1/) ---
         .nest("/api/v1", api_routes)
-        // --- A2A protocol: sole agent interaction interface ---
-        .nest_service("/a2a", a2a_service.a2a_app())
+        // Chat interaction surface — already nested under
+        // `/api/v1` via the chat routes declared in the
+        // `api_routes` block above. We keep a separate
+        // `chat_router()` builder for the standalone server
+        // crate (`server-bin`) which mounts it directly
+        // without the v1 prefix.
         .layer(build_cors_layer(&state.cors_config))
         .layer(AuthLayer::new(state.auth_config.clone()))
         // Inner middleware: extracts the W3C `traceparent` header
@@ -193,35 +246,45 @@ pub async fn create_router(state: Arc<AppState>) -> Router {
         // it records land on every log line emitted by handlers.
         .layer(RequestTracingLayer);
 
+    // RED metrics middleware: records per-route request count +
+    // latency on the Prometheus vectors. Placed as the OUTERMOST
+    // layer so every request that reaches a handler contributes a
+    // sample — including ones short-circuited by AuthLayer /
+    // trace-context (the wrap order means `from_fn` runs last when
+    // added last). Always-on now that the `metrics` feature gate
+    // has been removed.
+    let protected = protected.route_layer(from_fn(track_metrics));
     Router::new()
         .merge(public)
         .merge(protected)
         // Outermost layer: convert any handler panic into a
         // well-formed JSON 500 response with the standard
-        // `{ status: "error", error: { code, message } }` envelope
-        // — without this, a panic leaks an opaque "Internal Server
-        // Error" page and skips the project's normal error
-        // envelope, breaking the front-end ApiClient.toError
-        // contract (it expects the envelope to extract a
-        // human-readable message). Placed above
-        // `response_headers_middleware` so the synthesized 500
-        // response still receives `Cache-Control: no-store` on
-        // `/api/v1/*` and `Server-Timing` elsewhere.
+        // envelope — without this, a panic leaks an opaque
+        // "Internal Server Error" page and skips the project's
+        // normal error envelope, breaking the front-end
+        // ApiClient.toError contract.
         .layer(from_fn(error_handler_middleware))
         // Outermost layer: stamp `Cache-Control: no-store` on
         // `/api/v1/*` responses and `Server-Timing` on all
         // non-streaming responses. Placed *outside* the
         // `RequestTracingLayer` so the header is appended after
-        // the tracing span is finalized — the timing measurement
-        // therefore reflects end-to-end handler latency, not just
-        // the inner middleware stack.
-        //
-        // Cheap to apply broadly: the middleware only does two
-        // prefix comparisons and one `Instant::now()` roundtrip
-        // per request, so leaving it mounted on every route is
-        // cheaper than conditionally routing it.
+        // the tracing span is finalized.
         .layer(from_fn(response_headers_middleware))
+        // Catch-all: routes that fall through every registered
+        // handler return axum's default empty 404. We map that
+        // to the standard envelope so the front-end `ApiError`
+        // parser never sees an empty body.
+        .fallback(not_found_handler)
         .with_state(state)
+}
+
+/// Fallback handler for routes that don't match any registered
+/// route. Returns the same `{"code","message"}` envelope as the
+/// main adapter so the front-end `ApiClient.toError` parser
+/// can extract a uniform human-readable message regardless of
+/// which layer rejected the request.
+async fn not_found_handler() -> AppError {
+    AppError::from(synthia_core::Error::not_found("route"))
 }
 
 #[cfg(test)]

@@ -1,15 +1,16 @@
-// Comprehensive e2e: verify the session/task separation fix
-// by using the REAL frontend code paths against a REAL backend.
+// Comprehensive e2e: verify that consecutive user messages
+// share the same UI session, by using the REAL frontend code
+// paths against a REAL backend.
 //
 // What we test:
 //  1. Page load at "/" navigates to "/chat/<uuid>" (StrictMode
 //     safe — only one uuid, not two).
-//  2. First user message → POST /a2a/message:send with
+//  2. First user message → POST /api/v1/chat/message with
 //     contextId=<uuid>, messageId=<new-uuid>, taskId absent.
-//  3. Second user message → POST /a2a/message:send with the
+//  3. Second user message → POST /api/v1/chat/message with the
 //     SAME contextId but a NEW messageId, taskId still absent.
 //  4. Both requests land on the SAME Synthia session (verified
-//     by querying the backend's /a2a/tasks for that context
+//     by querying the backend's /api/v1/sessions for that context
 //     and counting tasks — should be 2, both with same
 //     contextId).
 //  5. Browser URL stays at /chat/<uuid> across both messages
@@ -27,20 +28,24 @@ const page = await ctx.newPage();
 const sendReqs = [];
 const sendResps = [];
 const navHistory = [];
-page.on('framenavigated', (f) => { if (f === page.mainFrame()) navHistory.push(f.url()); });
+page.on('framenavigated', (f) => {
+  if (f === page.mainFrame()) navHistory.push(f.url());
+});
 page.on('request', (req) => {
-  // A2A SDK uses JSON-RPC over `POST /a2a/` for streaming;
-  // REST `POST /a2a/message:send` is the alternate transport.
-  // Catch both so the test sees every client-to-server dispatch.
-  if (/\/a2a(\/|\/message:send|$)/.test(req.url()) && req.method() === 'POST') {
+  // The chat client uses REST `POST /api/v1/chat/sessions/{id}/messages`
+  // for sending and `GET /api/v1/chat/sessions/{id}/messages/stream` for
+  // streaming responses. We catch the message dispatch URL here.
+  if (/\/api\/v1\/chat\/message/.test(req.url()) && req.method() === 'POST') {
     const body = req.postData();
     sendReqs.push({ url: req.url(), method: req.method(), body });
   }
 });
 page.on('response', async (resp) => {
-  if (/\/a2a(\/|\/message:send|$)/.test(resp.url()) && resp.request().method() === 'POST') {
+  if (/\/api\/v1\/chat\/message/.test(resp.url()) && resp.request().method() === 'POST') {
     let body = '';
-    try { body = (await resp.text()).substring(0, 400); } catch {}
+    try {
+      body = (await resp.text()).substring(0, 400);
+    } catch {}
     sendResps.push({ status: resp.status(), body });
   }
 });
@@ -87,7 +92,11 @@ console.log('Session ID after msg 1:', getSessionId(url1));
 function extractMsgMeta(req) {
   if (!req?.body) return null;
   let j;
-  try { j = JSON.parse(req.body); } catch { return null; }
+  try {
+    j = JSON.parse(req.body);
+  } catch {
+    return null;
+  }
   // JSON-RPC envelope: { jsonrpc, id, method, params: { ... } }
   // REST envelope: { tenant, message: {...} }
   // The Message can be at j.message or j.params.message.
@@ -138,14 +147,18 @@ console.log();
 // Query backend for the tasks of this context
 console.log('=== STAGE 4: backend verification ===');
 const tasksResp = await page.evaluate(async (cid) => {
-  const r = await fetch(`/a2a/tasks?contextId=${encodeURIComponent(cid)}`);
+  const r = await fetch(`/api/v1/sessions/${encodeURIComponent(cid)}`);
   return { status: r.status, body: await r.text() };
 }, sessionId);
 const tasksJson = JSON.parse(tasksResp.body);
 const tasks = tasksJson.tasks || tasksJson.result?.tasks || [];
-console.log(`Backend reports ${tasks.length} task(s) for contextId=${sessionId.substring(0, 18)}...`);
+console.log(
+  `Backend reports ${tasks.length} task(s) for contextId=${sessionId.substring(0, 18)}...`,
+);
 for (const t of tasks) {
-  console.log(`  task_id=${t.id?.substring(0, 8)}... contextId=${t.contextId?.substring(0, 18)}... status=${t.status?.state ?? t.status}`);
+  console.log(
+    `  task_id=${t.id?.substring(0, 8)}... contextId=${t.contextId?.substring(0, 18)}... status=${t.status?.state ?? t.status}`,
+  );
 }
 console.log();
 
@@ -156,22 +169,31 @@ const checks = [
   ['URL stable across message 1', getSessionId(url1) === sessionId],
   ['URL stable across message 2', getSessionId(url2) === sessionId],
   ['Both message:send requests fired', sendReqs.length >= 2],
-  ['Both requests use SAME contextId', (() => {
-    if (sendReqs.length < 2) return false;
-    const c1 = extractMsgMeta(sendReqs[0])?.contextId;
-    const c2 = extractMsgMeta(sendReqs[1])?.contextId;
-    return c1 === c2 && c1 === sessionId;
-  })()],
-  ['Both requests have DIFFERENT messageId', (() => {
-    if (sendReqs.length < 2) return false;
-    const m1 = extractMsgMeta(sendReqs[0])?.messageId;
-    const m2 = extractMsgMeta(sendReqs[1])?.messageId;
-    return m1 && m2 && m1 !== m2;
-  })()],
-  ['Frontend uses JSON-RPC transport', (() => {
-    if (sendReqs.length < 1) return false;
-    return extractMsgMeta(sendReqs[0])?.transport === 'JSON-RPC';
-  })()],
+  [
+    'Both requests use SAME contextId',
+    (() => {
+      if (sendReqs.length < 2) return false;
+      const c1 = extractMsgMeta(sendReqs[0])?.contextId;
+      const c2 = extractMsgMeta(sendReqs[1])?.contextId;
+      return c1 === c2 && c1 === sessionId;
+    })(),
+  ],
+  [
+    'Both requests have DIFFERENT messageId',
+    (() => {
+      if (sendReqs.length < 2) return false;
+      const m1 = extractMsgMeta(sendReqs[0])?.messageId;
+      const m2 = extractMsgMeta(sendReqs[1])?.messageId;
+      return m1 && m2 && m1 !== m2;
+    })(),
+  ],
+  [
+    'Frontend uses JSON-RPC transport',
+    (() => {
+      if (sendReqs.length < 1) return false;
+      return extractMsgMeta(sendReqs[0])?.transport === 'JSON-RPC';
+    })(),
+  ],
   ['Backend records 2 tasks for this context', tasks.length === 2],
   ['Both tasks share the same contextId', tasks.every((t) => t.contextId === sessionId)],
   ['Both task IDs are unique', new Set(tasks.map((t) => t.id)).size === tasks.length],

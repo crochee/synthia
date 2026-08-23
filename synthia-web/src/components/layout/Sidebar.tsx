@@ -12,7 +12,7 @@ const NAV_ITEMS: NavItem[] = [
   { path: '/tools', label: 'Tools', shortcut: 'T' },
   { path: '/agents', label: 'Agents', shortcut: 'G' },
   { path: '/skills', label: 'Skills', shortcut: 'K' },
-  { path: '/tasks', label: 'Tasks', shortcut: 'A' },
+  { path: '/sessions', label: 'Sessions', shortcut: 'S' },
 ];
 
 /**

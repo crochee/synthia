@@ -1,17 +1,6 @@
-import {
-  useCallback,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-  type ReactNode,
-} from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { ToastViewport } from '../components/ui/ToastViewport';
-import {
-  ToastContext,
-  type Toast,
-  type ToastContextValue,
-} from './useToast';
+import { ToastContext, type Toast, type ToastContextValue } from './useToast';
 
 const DEFAULT_DURATION_MS = 4_000;
 

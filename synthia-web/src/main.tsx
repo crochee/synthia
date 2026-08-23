@@ -1,7 +1,7 @@
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import App from './App';
-import { initA2AClient } from './api/a2a-stream';
+import { initChatClient } from './api/chat-stream';
 import { initTheme } from './hooks/useTheme';
 import '@radix-ui/themes/styles.css';
 import './styles/fonts.css';
@@ -22,8 +22,8 @@ createRoot(root).render(
   </StrictMode>,
 );
 
-// Initialize A2A client asynchronously after render
+// Initialize chat client asynchronously after render
 // This prevents blocking the UI if the backend is slow/unavailable
-initA2AClient().catch((err: unknown) => {
-  console.warn('A2A client initialization failed:', err);
+initChatClient().catch((err: unknown) => {
+  console.warn('Chat client initialization failed:', err);
 });

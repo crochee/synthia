@@ -22,7 +22,9 @@ page.on('requestfailed', (req) => {
 try {
   await page.goto('http://127.0.0.1:5175/', { waitUntil: 'networkidle', timeout: 15000 });
   await page.waitForTimeout(2000);
-  const rootHtml = await page.evaluate(() => document.getElementById('root')?.innerHTML?.substring(0, 500) ?? 'null');
+  const rootHtml = await page.evaluate(
+    () => document.getElementById('root')?.innerHTML?.substring(0, 500) ?? 'null',
+  );
   console.log('=== ROOT INNER HTML (first 500 chars) ===');
   console.log(rootHtml);
   console.log('\n=== PAGE ERRORS ===');

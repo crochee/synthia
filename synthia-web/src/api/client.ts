@@ -12,7 +12,20 @@
  * transitional clients, but explicit versioning keeps the wire
  * intent visible at the call site.
  */
-const BASE_URL = import.meta.env.VITE_API_URL || '';
+// `import.meta.env` is a Vite-only injection — when the
+// module is loaded by Node (e.g. Playwright's collection
+// phase which pulls in `src/lib/session-to-messages.ts` for the
+// unit tests, transitively reaching this client), `import.meta`
+// is `undefined` and accessing `.env` would throw. Guard the
+// lookup so the module is safe to load under either runtime;
+// the browser still gets the Vite-injected base URL.
+const BASE_URL = (() => {
+  try {
+    return import.meta.env.VITE_API_URL ?? '';
+  } catch {
+    return '';
+  }
+})();
 const API_KEY_STORAGE = 'synthia.apiKey';
 
 /**
@@ -24,23 +37,36 @@ const BASE_HEADERS: Readonly<Record<string, string>> = {
   'Content-Type': 'application/json',
 };
 
-/** Error body returned by the v1 API on non-2xx responses. */
+/** Wire shape of every non-2xx response from the v1 API.
+ *
+ * The server emits one flat envelope on every error path:
+ * `{"code", "message"}` via `synthia_server::api::AppError`
+ * (see `crates/synthia-server/src/api/error.rs`) and the panic
+ * fallback in `middleware/error_handler.rs` reuses the same
+ * adapter. */
 interface ApiErrorBody {
-  code?: string;
-  message?: string;
-  result?: unknown;
-  /**
-   * Some v1 handlers wrap the error detail under an `error`
-   * sub-object (see `crates/synthia-server/src/error.rs::IntoResponse`
-   * and the panic fallback in `middleware/error_handler.rs`).
-   * Recognise both flat and nested shapes so the UI can show a
-   * real message regardless of which handler produced the
-   * response — otherwise we'd fall back to the generic
-   * `HTTP <status>` text for half of the failure modes.
-   */
-  error?: { type?: string; code?: string; message?: string };
-  status?: string;
+  code: string;
+  message: string;
 }
+
+/** Structured error thrown by [`ApiClient`] on non-2xx responses.
+ *
+ * Extends the native `Error` so existing call sites that read
+ * `err.message` keep working unchanged; new code can branch on
+ * `err.code` (e.g. `"not_found"`, `"validation"`) or `err.status`
+ * (HTTP status code) for structured UI handling. */
+export class ApiError extends Error {
+  readonly status: number;
+  readonly code: string;
+
+  constructor(status: number, code: string, message: string) {
+    super(message);
+    this.name = 'ApiError';
+    this.status = status;
+    this.code = code;
+  }
+}
+
 
 class ApiClient {
   private baseUrl: string;
@@ -59,6 +85,10 @@ class ApiClient {
 
   async put<T>(path: string, body?: unknown, signal?: AbortSignal): Promise<T> {
     return this.request<T>('PUT', path, body, signal);
+  }
+
+  async patch<T>(path: string, body?: unknown, signal?: AbortSignal): Promise<T> {
+    return this.request<T>('PATCH', path, body, signal);
   }
 
   /**
@@ -94,9 +124,7 @@ class ApiClient {
     // API key is set. The unauthenticated hot path shares the
     // hoisted `BASE_HEADERS` reference directly.
     const apiKey = this.getApiKey();
-    const headers = apiKey
-      ? { ...BASE_HEADERS, Authorization: `Bearer ${apiKey}` }
-      : BASE_HEADERS;
+    const headers = apiKey ? { ...BASE_HEADERS, Authorization: `Bearer ${apiKey}` } : BASE_HEADERS;
     const options: RequestInit = {
       method,
       headers,
@@ -109,33 +137,26 @@ class ApiClient {
     return fetch(url, options);
   }
 
-  /** Build an `Error` from a non-2xx `Response`, preferring the
-   *  v1 error body. The server emits two different envelopes:
-   *  - `ServerError::into_response` → `{"error": {"type", "message"}}`
-   *    (see `crates/synthia-server/src/error.rs`).
-   *  - panic fallback / auth middleware → `{"error": {"code", "message"}}`
-   *    or `{"status": "error", "error": {"code", "message"}}`.
-   *  We accept all three so the UI surfaces a real diagnostic
-   *  message instead of the generic `HTTP <status>` placeholder. */
-  private async toError(response: Response): Promise<Error> {
-    let message = `HTTP ${response.status}`;
+  /** Build an [`ApiError`] from a non-2xx `Response`. Parses the
+   *  flat envelope `{"code", "message"}` produced by
+   *  `synthia_server::api::AppError` and the panic fallback in
+   *  `middleware/error_handler.rs` (both route through the same
+   *  adapter). Falls back to the raw response status / status
+   *  text when the body is missing or unparseable (e.g. an HTML
+   *  502 from an upstream proxy). */
+  private async toError(response: Response): Promise<ApiError> {
+    const { status } = response;
+    let code = `http_${status}`;
+    let message = response.statusText || `HTTP ${status}`;
     try {
-      const err = (await response.json()) as ApiErrorBody;
-      // Nested `error.message` is the canonical v1 envelope.
-      // Try it first because it's the most specific path.
-      if (err.error?.message) {
-        message = err.error.message;
-      } else if (err.message) {
-        message = err.message;
-      } else if (err.error?.code || err.error?.type) {
-        message = err.error.code ?? err.error.type ?? message;
-      } else if (err.code) {
-        message = err.code;
-      }
+      const body = (await response.json()) as ApiErrorBody;
+      if (body.code) code = body.code;
+      if (body.message) message = body.message;
     } catch {
-      message = response.statusText || message;
+      // Non-JSON body (e.g. reverse-proxy 502) — keep the status
+      // placeholder message.
     }
-    return new Error(message);
+    return new ApiError(status, code, message);
   }
 
   private async request<T>(

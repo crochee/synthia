@@ -10,23 +10,22 @@
 
 use std::{path::PathBuf, sync::Arc};
 
-use axum::{
-    Json,
-    extract::{Query, State},
-};
+use axum::{Json, extract::State};
 use parking_lot::RwLock;
 use serde::Serialize;
+use synthia_core::Error;
 
 use super::helpers::paginate;
 use crate::{
-    api::{ErrorCode, List, PageQuery, UserError, resolve_page},
+    api::{AppError, AppQuery, List, PageQuery, resolve_page},
     state::AppState,
 };
 
 /// Query parameters for memory search.
-#[derive(serde::Deserialize)]
+#[derive(serde::Deserialize, validator::Validate)]
 pub struct MemorySearchQuery {
     /// Search query string.
+    #[validate(length(min = 1, message = "must not be empty"))]
     pub q: String,
     #[serde(flatten)]
     pub page: PageQuery,
@@ -134,13 +133,10 @@ fn cached_skill_for(
 /// `limit` are still honored.
 pub async fn search_memory(
     State(state): State<Arc<AppState>>,
-    Query(params): Query<MemorySearchQuery>,
-) -> Result<Json<List<MemoryResult>>, UserError> {
+    AppQuery(params): AppQuery<MemorySearchQuery>,
+) -> Result<Json<List<MemoryResult>>, AppError> {
     if params.q.trim().is_empty() {
-        return Err(UserError::new(
-            ErrorCode::BadRequest,
-            "query parameter 'q' must not be empty",
-        ));
+        return Err(AppError::from(Error::invalid_item("query parameter 'q'")));
     }
     let resolved = resolve_page(&params.page)?;
 

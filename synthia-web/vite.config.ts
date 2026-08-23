@@ -14,19 +14,6 @@ export default defineConfig({
     proxy: {
       // REST management API (tools/skills/providers/etc.)
       '/api': BACKEND_TARGET,
-      // A2A protocol endpoints (JSON-RPC + SSE)
-      '/a2a': {
-        target: BACKEND_TARGET,
-        changeOrigin: true,
-        // SSE streaming needs buffering disabled
-        configure: (proxy) => {
-          proxy.on('proxyReq', (proxyReq) => {
-            proxyReq.setHeader('Connection', 'keep-alive');
-          });
-        },
-      },
-      // Agent Card discovery (used by @a2a-js/sdk)
-      '/.well-known': BACKEND_TARGET,
       // Readiness probe (server-health badge polls this)
       '/readyz': BACKEND_TARGET,
       // Liveness probe (kept for orchestrator-style checks)
@@ -46,15 +33,11 @@ export default defineConfig({
     // - React itself never changes between deploys, so a
     //   long-lived `react-vendor` chunk benefits from
     //   browser-disk caching across releases.
-    // - `@a2a-js/sdk` is only needed on the chat / tasks
-    //   detail paths; pulling it out of the entry keeps it
-    //   out of every other route's download.
     rollupOptions: {
       output: {
         manualChunks: (id) => {
           if (id.includes('node_modules')) {
             if (id.includes('@radix-ui')) return 'vendor-radix';
-            if (id.includes('@a2a-js')) return 'vendor-a2a-sdk';
             if (id.includes('react-router')) return 'vendor-router';
             if (id.includes('react-dom') || id.includes('/react/')) {
               return 'vendor-react';

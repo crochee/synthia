@@ -1,4 +1,4 @@
-/// Paths that bypass authentication (probe endpoints, A2A discovery).
+/// Paths that bypass authentication (probe endpoints).
 pub(super) const PUBLIC_PATHS: &[&str] =
     &["/livez", "/readyz", "/.well-known/agent-card.json"];
 
@@ -180,7 +180,7 @@ mod tests {
     }
 
     /// `PUBLIC_PATHS` MUST
-    /// include the A2A agent
+    /// include the chat agent
     /// card discovery endpoint.
     #[test]
     fn public_paths_includes_agent_card() {
@@ -189,10 +189,10 @@ mod tests {
 
     /// `PUBLIC_PATHS` MUST
     /// NOT include a leading
-    /// `/a2a` route — that
+    /// `/sessions` route — that
     /// requires auth.
     #[test]
     fn public_paths_excludes_protected_routes() {
-        assert!(!PUBLIC_PATHS.contains(&"/a2a"));
+        assert!(!PUBLIC_PATHS.contains(&"/api/v1/agents"));
     }
 }

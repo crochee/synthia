@@ -1,7 +1,7 @@
 //! Query parameter structs for v1 list endpoints.
 //!
 //! - [`PageQuery`]: generic cursor + limit + sort.
-//! - [`TaskPageQuery`]: `PageQuery` flattened with `status` +
+//! - [`SessionPageQuery`]: `PageQuery` flattened with `status` +
 //!   `context_id` filters.
 //!
 //! `JobPageQuery` was removed in the 2026-08-15 optimization
@@ -32,10 +32,19 @@ pub const MAX_LIMIT: u64 = 100;
 /// is silently truncated to `MAX_LIMIT`. `sort` uses field name
 /// with `-` prefix for descending order (e.g. `-created_at`).
 #[derive(
-    Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, JsonSchema,
+    Debug,
+    Clone,
+    Default,
+    PartialEq,
+    Eq,
+    Serialize,
+    Deserialize,
+    JsonSchema,
+    validator::Validate,
 )]
 pub struct PageQuery {
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[validate(length(min = 1, message = "must not be empty"))]
     pub cursor: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub limit: Option<u64>,
@@ -64,16 +73,26 @@ impl PageQuery {
     }
 }
 
-/// Task list query: [`PageQuery`] + `status` + `context_id`
+/// Session list query: [`PageQuery`] + `status` + `context_id`
 /// filters.
 ///
-/// `status` is a free-form string at this layer — handlers
-/// validate it against the A2A `TaskState` enum and return
-/// HTTP 400 `bad_request` for unknown values.
+/// `status` is a free-form string at this layer — the
+/// `/api/v1/sessions` route validates it against the canonical
+/// session-state set (`working` / `completed` / `failed` /
+/// `canceled` / `input-required`) and returns HTTP 400
+/// `bad_request` for unknown values.
 #[derive(
-    Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, JsonSchema,
+    Debug,
+    Clone,
+    Default,
+    PartialEq,
+    Eq,
+    Serialize,
+    Deserialize,
+    JsonSchema,
+    validator::Validate,
 )]
-pub struct TaskPageQuery {
+pub struct SessionPageQuery {
     #[serde(flatten)]
     pub page: PageQuery,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -82,7 +101,7 @@ pub struct TaskPageQuery {
     pub context_id: Option<String>,
 }
 
-impl TaskPageQuery {
+impl SessionPageQuery {
     pub fn new() -> Self {
         Self::default()
     }
@@ -103,7 +122,7 @@ impl TaskPageQuery {
     }
 }
 
-impl From<PageQuery> for TaskPageQuery {
+impl From<PageQuery> for SessionPageQuery {
     fn from(page: PageQuery) -> Self {
         Self {
             page,
@@ -166,19 +185,19 @@ mod tests {
         assert_eq!(MAX_LIMIT, 100);
     }
 
-    // --- TaskPageQuery ---
+    // --- SessionPageQuery ---
 
     #[test]
-    fn task_page_query_default_all_none() {
-        let q = TaskPageQuery::default();
+    fn session_page_query_default_all_none() {
+        let q = SessionPageQuery::default();
         assert!(q.page.cursor.is_none());
         assert!(q.status.is_none());
         assert!(q.context_id.is_none());
     }
 
     #[test]
-    fn task_page_query_builders_set_fields() {
-        let q = TaskPageQuery::new()
+    fn session_page_query_builders_set_fields() {
+        let q = SessionPageQuery::new()
             .with_page(PageQuery::new().with_limit(5u64))
             .with_status("working")
             .with_context_id("ctx_1");
@@ -188,8 +207,8 @@ mod tests {
     }
 
     #[test]
-    fn task_page_query_flattens_page_on_serialize() {
-        let q = TaskPageQuery::new()
+    fn session_page_query_flattens_page_on_serialize() {
+        let q = SessionPageQuery::new()
             .with_page(PageQuery::new().with_cursor("c").with_limit(5u64))
             .with_status("done");
         let json = serde_json::to_string(&q).unwrap();
@@ -201,10 +220,10 @@ mod tests {
     }
 
     #[test]
-    fn task_page_query_deserializes_with_flattened_fields() {
+    fn session_page_query_deserializes_with_flattened_fields() {
         let json =
             r#"{"cursor":"c","limit":5,"status":"working","context_id":"x"}"#;
-        let q: TaskPageQuery = serde_json::from_str(json).unwrap();
+        let q: SessionPageQuery = serde_json::from_str(json).unwrap();
         assert_eq!(q.page.cursor.as_deref(), Some("c"));
         assert_eq!(q.page.limit, Some(5));
         assert_eq!(q.status.as_deref(), Some("working"));
@@ -212,9 +231,9 @@ mod tests {
     }
 
     #[test]
-    fn task_page_query_from_page_query_preserves_page() {
+    fn session_page_query_from_page_query_preserves_page() {
         let page = PageQuery::new().with_limit(15u64);
-        let q: TaskPageQuery = page.into();
+        let q: SessionPageQuery = page.into();
         assert_eq!(q.page.limit, Some(15));
         assert!(q.status.is_none());
         assert!(q.context_id.is_none());

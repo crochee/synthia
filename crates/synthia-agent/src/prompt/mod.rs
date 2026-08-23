@@ -221,7 +221,7 @@ fn render_identity(descriptor: &AgentDescriptor) -> Option<String> {
     // label — e.g. "Synthia") over the programmatic
     // `descriptor.name` slug ("agent") so the model
     // self-identifies with the persona the user sees in the
-    // UI and on the A2A card, not with the internal routing
+    // UI card, not with the internal routing
     // id. The fallback inside `display_name()` guarantees
     // legacy descriptors (no `display_name` set) still
     // render the same identity they did before the field
@@ -584,7 +584,7 @@ mod tests {
     /// and fall back to the programmatic `name` slug
     /// otherwise. Pins the contract that the model
     /// self-identifies with the persona the user sees on
-    /// the UI / A2A card, not the internal routing id.
+    /// the UI card, not the internal routing id.
     #[test]
     fn identity_line_uses_display_name_when_set() {
         let mut d = descriptor_with_instructions("BASE");

@@ -16,7 +16,7 @@ endpoints:
 
 ```yaml
 - id: "GET /api/health"         # 唯一 id: `<METHOD> <PATH>`
-  method: "GET"                  # HTTP 动词 或 A2A JSON-RPC method
+  method: "GET"                  # HTTP 动词 或 chat JSON-RPC method
   path: "/api/health"            # axum 路由语法（含 {name} 占位符）
   source: "both"                 # backend | frontend | both
   source_files:
@@ -27,7 +27,7 @@ endpoints:
   notes?: "optional human note"
   sse_events?:                   # 仅当该端点为 SSE 流时存在
     - name: "status-update"
-      fields: ["state", "taskId"]
+      fields: ["sessionId", "sessionState"]
       cadence_ms: 250
   status?: "open" | "closed"     # fix-card lifecycle marker；默认 open
 ```
@@ -35,7 +35,7 @@ endpoints:
 ## 字段语义
 
 - `id`：在本文件中必须唯一。命名约定为 `<METHOD> <PATH>`，不允许 URL-encode。
-- `method`：枚举 `GET | POST | PUT | DELETE | PATCH | message:send | tasks:get | tasks:cancel`。
+- `method`：枚举 `GET | POST | PUT | DELETE | PATCH | message:send`。
 - `path`：与 axum router 完全一致，保留 `{...}` 占位符。
 - `source`：报告该端点的来源状态。本字段由扫描器自动生成，**禁止手工编辑**。
 - `source_files.backend / frontend`：来自双侧的源代码位置指针（`file:line`），多个可列举。

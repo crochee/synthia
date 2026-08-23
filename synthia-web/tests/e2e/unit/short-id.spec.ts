@@ -1,19 +1,21 @@
 /**
  * Pure-function unit tests for `shortId`.
  *
- * `shortId` is the formatter used by `TasksPage` and
- * `TaskDetailPage` to render a UUIDv7 task id as a card title.
+ * `shortId` is the formatter used by `SessionsPage` and
+ * `SessionDetailPage` to render a UUIDv7 session id as a
+ * card title.
  *
  * Why these cases matter
  *
  * UUIDv7 ids minted close together share the same leading
  * 8 hex chars (the timestamp field), so naive
- * `task.id.slice(0, 8)` makes them visually indistinguishable
- * — that was the bug surfaced on 2026-08-16 when the Tasks
- * page showed two "Task 01a00ae2" cards that the user
- * perceived as duplicates. The fix shows head 8 + ellipsis +
- * tail 6 so two ids minted in the same millisecond window
- * still differ in their tail.
+ * `session.id.slice(0, 8)` makes them visually
+ * indistinguishable — that was the bug surfaced on
+ * 2026-08-16 when the Sessions page showed two
+ * "Session 01a00ae2…" cards that the user perceived as
+ * duplicates. The fix shows head 8 + ellipsis + tail 6 so
+ * two ids minted in the same millisecond window still
+ * differ in their tail.
  *
  * The 6 cases below pin the contract:
  *   - long UUIDs render as head+ellipsis+tail

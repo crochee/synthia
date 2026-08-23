@@ -10,7 +10,7 @@ import { useEffect, useState } from 'react';
  *   2. `navigator.onLine` — the OS network indicator flips the
  *      indicator to OFFLINE immediately on disconnect without
  *      waiting for the next probe.
- *   3. A module-level store that the A2A stream layer can poke
+ *   3. A module-level store that the chat stream layer can poke
  *      when it sees a network-level failure — this short-circuits
  *      the 30s polling window so the UI reacts to the same
  *      failure that broke the user's chat in flight.
@@ -58,7 +58,7 @@ function setValue(v: boolean): void {
 
 /**
  * Set the health flag imperatively from outside the hook. Used
- * by the A2A stream layer so a fetch failure on a chat round
+ * by the chat stream layer so a fetch failure on a chat round
  * trip flips the indicator to OFFLINE without waiting for the
  * next 30s tick.
  *

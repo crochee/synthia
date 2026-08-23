@@ -1,39 +1,32 @@
+// Allow `result_large_err` for the whole file: P1b added 4 hidden
+// fields to every struct-form variant (frames, backtrace, source,
+// and the synthetic source chain), so every `Result<_, Error>` is
+// at least 128 bytes. Boxing the error would force every call site
+// to `.map_err(|e| *e)` (or accept the allocation), and the existing
+// API has no `Box<Error>` in the public surface. Accept the size
+// cost; revisit if profiling shows it matters.
+#![allow(clippy::result_large_err)]
+
 pub mod metrics;
 pub mod propagation;
-pub mod span;
 pub mod tracer;
 
-#[cfg(feature = "otel")]
-pub use metrics::TelemetryMetrics;
+pub use metrics::{
+    HTTP_REQUESTS_DURATION_SECONDS,
+    HTTP_REQUESTS_TOTAL,
+    TEXT_EXPOSITION_CONTENT_TYPE,
+    gather_text,
+};
 pub use propagation::{
     ExtractedTraceContext,
     InjectedTraceContext,
     TRACEPARENT_HEADER,
     TRACESTATE_HEADER,
-    X_TRACE_ID_HEADER,
     extract_trace_context,
     format_span_id,
     format_trace_id,
     inject_trace_context,
-    parse_span_id,
-    parse_trace_id,
-    parse_trace_state,
     register_global_propagator,
-};
-#[cfg(feature = "otel")]
-pub use span::SpanAttributesProcessor;
-pub use span::{
-    SpanBuilder,
-    SpanContext as OtSpanContext,
-    SpanKind,
-    create_compaction_span,
-    create_context_assembly_span,
-    create_guardian_check_span,
-    create_invocation_span,
-    create_llm_call_span,
-    create_session_span,
-    create_step_span,
-    create_tool_execution_span,
 };
 use synthia_core::Error;
 pub use tracer::*;
@@ -61,11 +54,9 @@ impl Default for TelemetryConfig {
 /// Initialize tracing with automatic OTLP or console fallback.
 ///
 /// Checks `SYNTHIA_OTLP_ENDPOINT` environment variable:
-/// - If set: initializes OTLP gRPC tracing pipeline
-/// - If not set: falls back to console tracing via tracing_subscriber
-///
-/// When the `otel` cargo feature is disabled, this always initializes
-/// console-only tracing and returns `Ok(TracerInitResult::Console)`.
+/// - If set: initializes the OTLP pipeline (gRPC or HTTP transport auto-detected
+///   from the endpoint URL scheme)
+/// - If not set: falls back to console tracing via `tracing_subscriber`
 ///
 /// # File logging
 ///
@@ -73,11 +64,10 @@ impl Default for TelemetryConfig {
 /// logging layer is composed alongside the console fmt layer, writing to
 /// `{SYNTHIA_LOG_DIR}/synthia.log` in append mode with ANSI codes disabled.
 ///
-/// Phase 0 simplification: if both `SYNTHIA_LOG_DIR` and `SYNTHIA_OTLP_ENDPOINT`
-/// are set, the file layer wins and OTLP is skipped (the OTLP pipeline calls
-/// `try_init` itself and cannot be composed with an extra layer without a
-/// Phase 2 refactor). When `SYNTHIA_LOG_DIR` is unset, behavior is exactly as
-/// before — no new code path is taken.
+/// Composition limitation: if both `SYNTHIA_LOG_DIR` and `SYNTHIA_OTLP_ENDPOINT`
+/// are set, the file layer wins and OTLP is skipped — the OTLP pipeline installs
+/// its own subscriber via `try_init`, which cannot be composed with an
+/// additional layer in a single global subscriber.
 pub fn init_tracing(
     config: &TelemetryConfig,
 ) -> Result<TracerInitResult, Error> {
@@ -101,8 +91,8 @@ pub fn init_tracing(
 
     match file_layer {
         Some(fl) => {
-            // File layer present → console + file (Phase 0: skip OTLP even
-            // if configured, to avoid double try_init).
+            // File layer present → console + file. The OTLP pipeline can't
+            // share a global subscriber, so we skip it even if configured.
             if std::env::var_os(tracer::SYNTHIA_OTLP_ENDPOINT_ENV).is_some() {
                 eprintln!(
                     "Warning: SYNTHIA_LOG_DIR and SYNTHIA_OTLP_ENDPOINT both set; \
@@ -113,17 +103,8 @@ pub fn init_tracing(
             Ok(TracerInitResult::Console)
         }
         None => {
-            // No file layer → existing behavior (unchanged).
-            #[cfg(feature = "otel")]
-            {
-                init_otlp_tracing(config)
-                    .map_err(|e| Error::telemetry(e.to_string()))
-            }
-            #[cfg(not(feature = "otel"))]
-            {
-                init_console_tracing(config)?;
-                Ok(TracerInitResult::Console)
-            }
+            // No file layer → OTLP pipeline (with console fallback inside).
+            init_otlp_tracing(config)
         }
     }
 }

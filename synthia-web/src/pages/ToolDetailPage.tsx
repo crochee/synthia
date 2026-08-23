@@ -29,10 +29,7 @@ export function ToolDetailPage() {
     setTool(null);
     setError(null);
     api
-      .get<ToolDetail>(
-        `/api/v1/tools/${encodeURIComponent(name)}`,
-        controller.signal,
-      )
+      .get<ToolDetail>(`/api/v1/tools/${encodeURIComponent(name)}`, controller.signal)
       .then((t) => {
         if (!cancelled) setTool(t);
       })

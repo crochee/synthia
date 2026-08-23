@@ -3,7 +3,7 @@ import { test, expect } from '@playwright/test';
 /**
  * Layer 2 — API performance tests.
  *
- * Validates that the management + A2A discovery endpoints respond
+ * Validates that the management endpoints respond
  * within the latency target documented in the requirements:
  *
  *   - server-side processing: < 300 ms average (P95 < 500 ms cold start)
@@ -55,8 +55,11 @@ test.describe('API performance', () => {
     { label: 'livez', path: '/livez', coldStart: true },
     { label: 'skills', path: '/api/v1/skills' },
     { label: 'tools', path: '/api/v1/tools' },
-    { label: 'tasks', path: '/api/v1/tasks' },
-    { label: 'agent card', path: '/.well-known/agent-card.json' },
+    // `/api/v1/sessions` is the wire-format name for the
+    // sessions list — the UI labels this page "Sessions" but
+    // the path keeps its historical name to avoid breaking
+    // deployed clients.
+    { label: 'sessions', path: '/api/v1/sessions' },
   ];
 
   function serverDurationFrom(response: { headers(): Record<string, string> }): number | null {

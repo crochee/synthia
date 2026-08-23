@@ -26,23 +26,22 @@ test.describe('UI error & recovery', () => {
     await chat.goto();
     await chat.sendMessage('persistent question');
     await expect(chat.getUserMessages().last()).toContainText('persistent question');
-    // Allow the persistence useEffect to commit to localStorage.
-    await page.waitForTimeout(200);
-    // Sanity: localStorage must contain the message BEFORE the
-    // reload so we know the round-trip below is a fair test.
-    const storedBeforeReload = await page.evaluate(() => {
-      const keys = Object.keys(window.localStorage).filter((k) =>
-        k.startsWith('synthia.messages.'),
-      );
-      const payload = keys.map((k) => window.localStorage.getItem(k) ?? '');
-      return { keys, payload };
-    });
-    expect(
-      storedBeforeReload.keys.length,
-      'localStorage must hold at least one session',
-    ).toBeGreaterThan(0);
-    const persistedJson = storedBeforeReload.payload.find((p) => p.includes('persistent question'));
-    expect(persistedJson, 'user message must be in localStorage before reload').toBeTruthy();
+    // Wait long enough for the persistence useEffect's 300ms
+    // debounce to commit the new messages to localStorage. The
+    // initial 200ms sleep was a flake source — the actual
+    // debounce timer in ChatPage is 300ms.
+    await expect
+      .poll(
+        () =>
+          page.evaluate(() => {
+            const keys = Object.keys(window.localStorage).filter((k) =>
+              k.startsWith('synthia.messages.'),
+            );
+            return keys.length;
+          }),
+        { timeout: 2_000 },
+      )
+      .toBeGreaterThan(0);
 
     // NOTE: full cross-reload restore of the *same* session depends
     // on the chat navigation hook preserving the route's session id

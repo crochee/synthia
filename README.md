@@ -25,14 +25,14 @@ The framework is organized as a Rust workspace with **9 crates** (8 library crat
 
 | Crate | Description |
 |-------|-------------|
-| [synthia-server](crates/synthia-server/) | HTTP/WebSocket server with axum, exposes the A2A protocol |
+| [synthia-server](crates/synthia-server/) | HTTP/WebSocket server with axum, exposes the REST + SSE chat surface |
 
 ### Support Crates
 
 | Crate | Description |
 |-------|-------------|
 | [test-support](test-support/) | Shared mock implementations for cross-crate testing |
-| [synthia-web](synthia-web/) | React/Vite frontend speaking the A2A protocol |
+| [synthia-web](synthia-web/) | React/Vite frontend speaking the REST + SSE chat surface |
 
 ### Protocol / Cache / Skill Crates
 
@@ -54,7 +54,7 @@ The 8 crates listed above match the `[workspace.members]` array in the root
 | `crates/synthia-skill` | Skill registry + loader |
 | `crates/synthia-session` | Session lifecycle + cleanup daemon |
 | `crates/synthia-agent` | ReAct loop agent (the "AI" of Synthia) |
-| `crates/synthia-server` | HTTP / WebSocket server (axum, A2A JSON-RPC, AgentCard) |
+| `crates/synthia-server` | HTTP / WebSocket server (axum, REST + SSE chat surface) |
 | `test-support` | Mock fixtures shared by integration tests |
 
 ## Quick Start
@@ -143,7 +143,7 @@ Run `make help` for the full list of targets.
 ├── test-support/               # shared mock fixtures
 └── synthia-web/                # React frontend
     ├── src/
-    │   ├── api/                # A2A client modules
+    │   ├── api/                # REST + SSE client modules
     │   ├── components/         # UI components (ui/, layout/)
     │   ├── pages/              # Top-level pages
     │   ├── styles/             # Design tokens

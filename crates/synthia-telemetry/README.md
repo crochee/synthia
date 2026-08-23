@@ -1,113 +1,29 @@
 # synthia-telemetry
 
 Observability primitives for the synthia agent framework: tracing setup,
-context-trace recording, metrics, and optional OpenTelemetry (OTel) integration.
+context-trace recording, Prometheus RED metrics, and OpenTelemetry (OTel)
+integration.
 
-## OTel Integration
+This crate exposes **all** of its dependencies unconditionally — there are
+no cargo features for compile-isolation in `synthia-telemetry` itself.
+The crate is intentionally small and self-contained; every consumer pulls
+the full observability stack and decides at the call site whether to
+invoke the OTLP exporter, register the metrics middleware, etc.
 
-The `otel` cargo feature (default disabled) enables OpenTelemetry tracing with
-OTLP export. When the feature is off, the crate compiles with **zero OTel
-dependencies** and [`init_tracing`] falls back to console-only output.
+## OpenTelemetry (OTel)
 
-### Enabling OTel
-
-```toml
-[dependencies]
-synthia-telemetry = { version = "...", features = ["otel"] }
-```
-
-Downstream crates (e.g. `synthia-agent`) expose their own `otel` feature that
-forwards to this one:
-
-```toml
-[dependencies]
-synthia-agent = { version = "...", features = ["otel"] }
-```
-
-### OTLP Endpoint Configuration
-
-Set the `SYNTHIA_OTLP_ENDPOINT` environment variable to point at an OTLP
-collector. The transport protocol (gRPC via tonic, or HTTP via reqwest) is
-auto-selected from the URL scheme by [`detect_protocol`]:
-
-| Scheme              | Port         | Protocol     | Example                            |
-|---------------------|--------------|--------------|------------------------------------|
-| `grpc://`           | any          | gRPC (tonic) | `grpc://localhost:4317`            |
-| `https://`          | any          | gRPC (TLS)   | `https://collector.example.com:4317` |
-| `http://`           | `4317`       | gRPC         | `http://localhost:4317` (backward compat) |
-| `http://`           | `4318`/other | HTTP (reqwest) | `http://localhost:4318`          |
-| none / other        | any          | gRPC         | `localhost:4317`                   |
-
-If `SYNTHIA_OTLP_ENDPOINT` is unset or empty, [`init_tracing`] falls back to
-console tracing and returns [`TracerInitResult::Console`].
-
-### Sampler Configuration
-
-The tracer provider uses the OpenTelemetry SDK default sampler
-(`ParentBased(AlwaysOn)`).
-
-The `SYNTHIA_OTEL_SAMPLER` environment variable is specified by the design
-(see `openspec/changes/otel-feature-integration/design.md`, decision D8) to
-override the sampler at runtime with one of:
-
-- `always_on` (default)
-- `always_off`
-- `trace_id_ratio:0.1`
-
-> Note: the env-var override is not yet wired up in `init_otlp_tracing`; the
-> provider currently relies on the SDK default. Sampler plumbing will land in a
-> follow-up task.
-
-### Span Attributes Processor
-
-[`SpanAttributesProcessor`] is a `SpanProcessor` that auto-injects the
-following attributes on every span's `on_start` (when the `otel` feature is
-enabled). Values are read from `tokio::task_local!` scopes established by
-`synthia-agent` around `Agent::run_stream`:
-
-| Attribute              | Source task-local        | SemConv? |
-|------------------------|---------------------------|----------|
-| `session.id`           | `SESSION_ID`              | yes      |
-| `user.id`              | `USER_ID`                 | yes      |
-| `agent.id`             | `AGENT_ID`                | no (synthia-specific) |
-| `turn.id`              | `TURN_ID`                 | no (synthia-specific) |
-| `gen_ai.system`        | `GEN_AI_SYSTEM`           | yes      |
-| `gen_ai.request.model` | `GEN_AI_REQUEST_MODEL`    | yes      |
-
-When a task-local value is absent (e.g. in standalone tests), the processor
-gracefully skips that attribute - no panic, no error log.
-
-### Agent Runtime Spans
-
-Six critical-path spans are created by the agent runtime, all
-`#[cfg(feature = "otel")]`-gated:
-
-| Span name         | Crate              | Boundary                                  |
-|-------------------|--------------------|-------------------------------------------|
-| `session.start`   | `synthia-agent`    | Root span for `Agent::run_stream`         |
-| `turn.start`      | `synthia-agent`    | Per-turn iteration                        |
-| `llm.call`        | `synthia-provider` | LLM provider call (Anthropic / OpenAI)    |
-| `tool.execute`    | `synthia-tool`     | Tool execution in the registry            |
-| `compaction`      | `synthia-context`  | Context compaction                        |
-| `guardian.check`  | `synthia-agent`    | Agent-loop permission / loop-detection check |
-
-Span creation is a **bystander observation**: it never modifies the
-`CompletionRequest` payload (messages / system / tools), so the KV-cache prefix
-and `prompt_cache_key` inputs remain byte-identical with the feature on or off
-(verified by `crates/synthia-agent/tests/otel_prefix_stability.rs`).
-
-### Quick Start
+OTel core + OTLP exporter + W3C TraceContext propagator + `SpanAttributesProcessor`
+are always-on. Drop in the tracer via [`init_tracing`]; if
+`SYNTHIA_OTLP_ENDPOINT` is unset, it falls back to console output.
 
 ```rust
 use synthia_telemetry::{init_tracing, TelemetryConfig, TracerInitResult};
 
-// Enable OTLP export by setting SYNTHIA_OTLP_ENDPOINT before calling this.
-// Without the env var (or without the `otel` feature), falls back to console.
 let config = TelemetryConfig::default();
 match init_tracing(&config)? {
     TracerInitResult::Otlp(provider) => {
-        // spans are exported to the OTLP collector
-        // keep `provider` alive for the duration of the process; call
+        // spans are exported to the OTLP collector; keep `provider`
+        // alive for the duration of the process and call
         // `provider.shutdown()` on exit to flush pending spans
     }
     TracerInitResult::Console => {
@@ -115,3 +31,66 @@ match init_tracing(&config)? {
     }
 }
 ```
+
+Downstream crates do not need to opt into OTel — calling
+`init_tracing(&config)` is enough to start the OTLP pipeline. The
+W3C TraceContext propagator is registered automatically on every
+call so `traceparent` / `tracestate` headers are honored out of the box.
+
+## Prometheus metrics
+
+The static [`HTTP_REQUESTS_TOTAL`](https://docs.rs/synthia-telemetry/) and
+[`HTTP_REQUESTS_DURATION_SECONDS`](https://docs.rs/synthia-telemetry/) RED
+vectors are always-on. They are labeled by `(method, matched_path)` where
+`matched_path` is the axum route template, so a parameterized path like
+`/api/v1/chat/sessions/{id}/messages` collapses to a single time series
+regardless of how many distinct session ids are queried.
+
+`synthia-server` mounts the per-request `track_metrics` middleware
+and exposes a public `/metrics` endpoint unconditionally. The vectors
+in this crate remain compiled and reachable whether or not anything
+currently labels a child sample.
+
+[`gather_text`] returns the standard Prometheus text exposition body
+(version 0.0.4) suitable for serving from the endpoint.
+
+### OTLP Endpoint Configuration
+
+Set the `SYNTHIA_OTLP_ENDPOINT` environment variable to point at an OTLP
+collector. The transport protocol (gRPC via tonic, or HTTP via reqwest) is
+auto-selected from the URL scheme by [`detect_protocol`]:
+
+| Scheme              | Port         | Protocol       | Example                               |
+|---------------------|--------------|----------------|---------------------------------------|
+| `grpc://`           | any          | gRPC (tonic)   | `grpc://localhost:4317`               |
+| `https://`          | any          | gRPC (TLS)     | `https://collector.example.com:4317`  |
+| `http://`           | `4317`       | gRPC           | `http://localhost:4317` (backward compat) |
+| `http://`           | `4318`/other | HTTP (reqwest) | `http://localhost:4318`               |
+| none / other        | any          | gRPC           | `localhost:4317`                      |
+
+If `SYNTHIA_OTLP_ENDPOINT` is unset or empty, [`init_tracing`] falls back
+to console tracing and returns [`TracerInitResult::Console`].
+
+### Sampler Configuration
+
+The tracer provider uses the OpenTelemetry SDK default sampler
+(`ParentBased(AlwaysOn)`).
+
+The `SYNTHIA_OTEL_SAMPLER` environment variable overrides the sampler at
+runtime with one of:
+
+- `always_on` (default)
+- `always_off`
+- `trace_id_ratio:0.1`
+
+The parsed sampler is wrapped in `Sampler::ParentBased` so a parent
+trace's sampling decision is honored.
+
+## Trace Context Propagation
+
+The W3C TraceContext propagator is registered on every
+[`init_tracing`] call so `traceparent` / `tracestate` headers are
+honored out of the box by [`extract_trace_context`] /
+[`inject_trace_context`]. HTTP middleware in `synthia-server` calls
+these helpers on every inbound request and outbound response so
+upstream services see consistent trace correlation.

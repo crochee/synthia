@@ -1,3 +1,12 @@
+// Allow `result_large_err` for the whole file: P1b added 4 hidden
+// fields to every struct-form variant (frames, backtrace, source,
+// and the synthetic source chain), so every `Result<_, Error>` is
+// at least 128 bytes. Boxing the error would force every call site
+// to `.map_err(|e| *e)` (or accept the allocation), and the existing
+// API has no `Box<Error>` in the public surface. Accept the size
+// cost; revisit if profiling shows it matters.
+#![allow(clippy::result_large_err)]
+
 //! Request-parameter validation helpers for v1 endpoints.
 //!
 //! - [`validate_resource_name`]: regex `^[a-zA-Z0-9_-]{1,255}$`
@@ -8,7 +17,7 @@
 //! - [`api_key_mask`]: keep first 4 + last 3 chars, middle `***`.
 //!
 //! Validators return the cross-crate
-//! [`crate::error::Error`] (specifically [`Error::Validation`] or
+//! [`synthia_core::Error`] (specifically [`Error::Validation`] or
 //! [`Error::InvalidItem`]) so HTTP transports can layer their own
 //! error-envelope mapping on top — this crate stays free of
 //! wire-format concerns.

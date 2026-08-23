@@ -80,7 +80,7 @@ pub struct AppState {
     /// CORS configuration shared with the router.
     /// Read by `build_cors_layer` to attach a `CorsLayer` to the
     /// `Router` so browser clients (e.g. synthia-web on
-    /// http://localhost:5173) can call the API and A2A endpoints.
+    /// http://localhost:5173) can call the API endpoints.
     pub cors_config: Arc<CorsConfig>,
     /// Per-session event broadcasters live on the
     /// [`SessionController`] itself; SSE/WebSocket subscribers
@@ -88,8 +88,6 @@ pub struct AppState {
     /// [`SessionController::subscribe`].
     /// Active session controllers keyed by `(user_id, session_id)`.
     pub active_sessions: Arc<DashMap<(String, String), Arc<SessionController>>>,
-    /// A2A protocol service (lazy-initialized).
-    a2a_service: Arc<tokio::sync::OnceCell<crate::a2a::A2aService>>,
     /// Pre-rendered default system prompt. The agent loop
     /// currently builds its own prompt from the descriptor
     /// via [`synthia_agent::prompt::PromptContext::assemble`],
@@ -116,7 +114,51 @@ pub struct AppState {
     /// [`tokio::sync::RwLock`]) so the run factory can resolve
     /// the default agent name synchronously without awaiting.
     pub default_agent_name: parking_lot::RwLock<Option<String>>,
+    /// Process-wide usage counters surfaced by
+    /// `GET /api/v1/chat/usage`. Mutated by the chat REST
+    /// handlers as turns complete; read-only via
+    /// [`AppState::usage_metrics`].
+    pub usage_metrics: UsageMetrics,
 }
+
+/// Process-wide usage counters. Cheap to read (lock-free
+/// `std::sync::atomic` snapshot) so the `/api/v1/chat/usage`
+/// endpoint can poll without contention.
+#[derive(Debug, Default)]
+pub struct UsageMetrics {
+    pub tokens_in: std::sync::atomic::AtomicU64,
+    pub tokens_out: std::sync::atomic::AtomicU64,
+    pub turns: std::sync::atomic::AtomicU64,
+}
+
+impl UsageMetrics {
+    /// Atomic snapshot of the three counters. Field order in
+    /// `UsageResponse` mirrors this struct's order — `tokens_in`
+    /// before `tokens_out` before `turns`.
+    pub fn snapshot(&self) -> UsageSnapshot {
+        UsageSnapshot {
+            tokens_in: self
+                .tokens_in
+                .load(std::sync::atomic::Ordering::Relaxed),
+            tokens_out: self
+                .tokens_out
+                .load(std::sync::atomic::Ordering::Relaxed),
+            turns: self.turns.load(std::sync::atomic::Ordering::Relaxed),
+        }
+    }
+}
+
+/// Plain-data snapshot of [`UsageMetrics`] for the API
+/// response. Cheap to clone via `Copy` since the underlying
+/// counters are already integers.
+#[derive(Debug, Clone, Copy, Serialize)]
+pub struct UsageSnapshot {
+    pub tokens_in: u64,
+    pub tokens_out: u64,
+    pub turns: u64,
+}
+
+use serde::Serialize;
 
 impl AppState {
     /// Resolve an agent by name through the standard ladder:
@@ -145,6 +187,35 @@ impl AppState {
         // `names().into_iter().next()` would have caused. The
         // dispatch hot path runs this on every chat reply.
         registry.first_name()
+    }
+
+    /// Instance convenience for the static helper. Mirrors the
+    /// ladder `explicit > configured default > first registered`.
+    pub fn resolve_agent_name_for(
+        &self,
+        explicit: Option<&str>,
+    ) -> Option<String> {
+        Self::resolve_agent_name(
+            &self.agent_registry,
+            self.default_agent_name.read().as_deref(),
+            explicit,
+        )
+    }
+
+    /// Default user_id for the single-tenant deployments. A real
+    /// auth middleware would override this with the resolved
+    /// `RequestUserId` extension; until then we mirror the
+    /// [`synthia_session::manager::SERVER_DEFAULT_USER_ID`]
+    /// constant so all sink / controller / log paths agree on
+    /// one user_id without taking it as a parameter on every
+    /// route handler.
+    pub fn default_user_id(&self) -> &str {
+        synthia_session::manager::SERVER_DEFAULT_USER_ID
+    }
+
+    /// Snapshot the in-process usage counters for `/api/v1/chat/usage`.
+    pub fn usage_metrics(&self) -> &UsageMetrics {
+        &self.usage_metrics
     }
 }
 
@@ -266,10 +337,10 @@ impl AppState {
             system_prompt,
             prompt_context,
             active_sessions: Arc::new(DashMap::new()),
-            a2a_service: Arc::new(tokio::sync::OnceCell::new()),
             default_agent_name: parking_lot::RwLock::new(
                 default_agent_name_value,
             ),
+            usage_metrics: UsageMetrics::default(),
         }))
     }
 
@@ -332,36 +403,9 @@ impl AppState {
                 .to_string(),
             prompt_context,
             active_sessions: Arc::new(DashMap::new()),
-            a2a_service: Arc::new(tokio::sync::OnceCell::new()),
             default_agent_name: parking_lot::RwLock::new(None),
+            usage_metrics: UsageMetrics::default(),
         }
-    }
-
-    /// Gets or lazily initializes the A2A service.
-    ///
-    /// Uses `OnceCell` to ensure only one `A2aService` is created.
-    /// The `Arc<Self>` is passed from the caller (route handler) because
-    /// `&self` cannot produce an `Arc<Self>`.
-    pub async fn a2a_service(
-        self: &Arc<Self>,
-        // Optional explicit base URL for the A2A card. `None`
-        // means "use an empty default", which is what every
-        // current caller (router bootstrap + tasks list/get)
-        // passes today — supplying an owned `String` at every
-        // call site just to throw it away after
-        // `get_or_init` returns was allocating a fresh
-        // `String::new()` per request.
-        base_url: Option<String>,
-    ) -> &crate::a2a::A2aService {
-        self.a2a_service
-            .get_or_init(|| async move {
-                crate::a2a::A2aService::new(
-                    self.clone(),
-                    base_url.unwrap_or_default(),
-                )
-                .await
-            })
-            .await
     }
 
     /// Evaluate the readiness sub-checks backing the `/readyz` probe.
@@ -370,7 +414,7 @@ impl AppState {
     /// ready only when every check passes. Checks are cheap
     /// in-process reads — no network round-trips — so a probe
     /// firing once per second cannot pile up latency:
-    /// - `a2a_service`: the A2A interface (the sole agent
+    /// - `chat_service`: the chat surface (the sole agent
     ///   interaction surface) is initialized. `create_router`
     ///   awaits it eagerly before the listener binds, so a
     ///   failure here means the router was built through a
@@ -378,10 +422,7 @@ impl AppState {
     /// - `agent_registry`: at least one agent is registered,
     ///   so dispatch has something to resolve.
     pub fn readiness_checks(&self) -> Vec<(&'static str, bool)> {
-        vec![
-            ("a2a_service", self.a2a_service.initialized()),
-            ("agent_registry", self.agent_registry.first_name().is_some()),
-        ]
+        vec![("agent_registry", self.agent_registry.first_name().is_some())]
     }
 
     /// Gets or creates a [`SessionController`] for `(user_id, session_id)`,
@@ -391,7 +432,7 @@ impl AppState {
         &self,
         user_id: &str,
         session_id: &str,
-    ) -> Result<Arc<SessionController>, crate::error::ServerError> {
+    ) -> synthia_core::Result<Arc<SessionController>> {
         self.get_or_create_session_controller_with_parent(
             user_id, session_id, None, None,
         )
@@ -412,22 +453,26 @@ impl AppState {
         session_id: &str,
         _parent_event_sender: Option<tokio::sync::mpsc::Sender<AgentEvent>>,
         _parent_depth: Option<usize>,
-    ) -> Result<Arc<SessionController>, crate::error::ServerError> {
+    ) -> synthia_core::Result<Arc<SessionController>> {
         let key = (user_id.to_string(), session_id.to_string());
         if let Some(entry) = self.active_sessions.get(&key) {
             return Ok(entry.clone());
         }
 
         if self.session_manager.get(session_id).await.is_none() {
-            // A2A flow: client may supply a fresh task_id without a
+            // client may supply a fresh task_id without a
             // pre-existing session. Create one eagerly so we never
             // have to round-trip through the metadata restore path.
             self.session_manager
                 .create_with_user(session_id.to_string(), user_id.to_string())
                 .await
                 .map_err(|e| {
-                    crate::error::ServerError::NotFound(format!(
-                        "session '{session_id}' not found: create={e}"
+                    // 404 semantics (the requested session could
+                    // not be established). The underlying cause
+                    // rides along in the message — it never
+                    // crosses the wire as structured data.
+                    synthia_core::Error::not_found(format!(
+                        "session '{session_id}' (create failed: {e})"
                     ))
                 })?;
         }
@@ -596,7 +641,7 @@ mod tests {
     //! Unit tests for `resolve_agent_name`. The three-tier
     //! fallback ladder (`explicit > configured default >
     //! first registered`) is the single dispatch path every
-    //! request — chat, A2A, scheduler — flows through, so a
+    //! request — chat, scheduler — flows through, so a
     //! regression in the priority ordering would surface as
     //! silent "wrong agent" responses. We pin every branch
     //! here.
@@ -724,7 +769,7 @@ mod tests {
 
     /// `explicit = Some("")` (empty string) MUST be treated
     /// the same as `None` by the caller (`extract_agent_name`
-    /// in the A2A layer already converts "" to None), but
+    /// the chat layer already converts "" to None), but
     /// defensively, if it ever leaks through, the registry
     /// lookup must also produce `None` rather than silently
     /// match a (non-existent) ""-named agent.
@@ -807,8 +852,18 @@ mod tests {
     /// user-level skills; the field is read by those tests so
     /// it's not dead code.
     struct ScopedHome {
+        // Fields are dropped in declaration order — so this
+        // struct restores `$HOME` and tears down the tempdir
+        // before the mutex is released. That ordering matters:
+        // if the lock were released first, a sibling test
+        // could observe `HOME` mid-restore and read from a
+        // path that no longer exists.
         previous: Option<std::ffi::OsString>,
         home_dir: tempfile::TempDir,
+        // Hold the global mutex for the guard's lifetime so
+        // other tests cannot mutate `$HOME` while this guard
+        // is alive.
+        _guard: std::sync::MutexGuard<'static, ()>,
     }
     impl ScopedHome {
         /// Lock the global HOME mutex and pin `$HOME` to a
@@ -818,7 +873,7 @@ mod tests {
             // Ignore poisoned mutex: if a sibling test
             // panicked mid-test we still want subsequent
             // tests to run (env restoration is idempotent).
-            let _guard = HOME_LOCK
+            let guard = HOME_LOCK
                 .lock()
                 .unwrap_or_else(|poison| poison.into_inner());
             let home_dir = tempfile::tempdir().unwrap();
@@ -826,7 +881,11 @@ mod tests {
             unsafe {
                 std::env::set_var("HOME", home_dir.path());
             }
-            Self { previous, home_dir }
+            Self {
+                previous,
+                home_dir,
+                _guard: guard,
+            }
         }
     }
     impl Drop for ScopedHome {
