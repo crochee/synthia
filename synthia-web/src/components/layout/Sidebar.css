@@ -1,0 +1,115 @@
+/**
+ * Sidebar shell — width, rhythm, and the collapsed rail.
+ *
+ * Width lives here rather than in an inline style so the rail
+ * class can win: an inline `width` would outrank every rule in
+ * this file.
+ *
+ * Collapsed presentation is driven entirely by
+ * `nt-sidebar--collapsed`, which `MainLayout` sets from either the
+ * persisted preference (`useSidebarCollapse`) or the narrow
+ * viewport query (`useMediaQuery`). One class, one visual state —
+ * the breakpoint cannot drift away from the toggle.
+ */
+
+.nt-sidebar {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  height: 100%;
+  width: var(--size-sidebar-expanded);
+  flex-shrink: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  background: var(--bg-secondary);
+  border-right: 1px solid var(--border-subtle);
+  /* The panel transition: slower than a hover so the main column
+     visibly reflows instead of snapping. */
+  transition: width var(--transition-panel);
+}
+
+.nt-sidebar--collapsed {
+  width: var(--size-sidebar-collapsed);
+}
+
+.nt-sidebar__head {
+  /* Matches the nav row height so the toggle sits on the same
+     baseline rhythm as the destinations below it. */
+  min-height: var(--control-height-sm);
+  padding: 0 var(--space-1);
+  margin-bottom: var(--space-1);
+}
+
+.nt-sidebar__toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--control-height-sm);
+  height: var(--control-height-sm);
+  padding: 0;
+  border: none;
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--text-muted);
+  font-family: inherit;
+  font-size: var(--fs-md);
+  line-height: 1;
+  cursor: pointer;
+  transition:
+    background-color var(--transition-base),
+    color var(--transition-base);
+}
+
+.nt-sidebar__toggle:hover {
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+}
+
+.nt-sidebar__row {
+  width: 100%;
+}
+
+.nt-sidebar__identity {
+  min-width: 0;
+}
+
+.nt-sidebar__icon {
+  /* Fixed box keeps the rail's glyphs on one optical axis whether
+     or not the label follows them. */
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  flex-shrink: 0;
+  font-size: var(--fs-base);
+  line-height: 1;
+}
+
+.nt-sidebar--collapsed .nt-sidebar__section,
+.nt-sidebar--collapsed .nt-sidebar__hint,
+.nt-sidebar--collapsed .nt-sidebar__footer {
+  display: none;
+}
+
+.nt-sidebar--collapsed .nt-sidebar__head {
+  justify-content: center;
+  padding: 0;
+}
+
+/**
+ * Rail labels stay in the DOM rather than being `display: none`d:
+ * a screen reader must still be able to name the destination when
+ * the visible text is gone, and the glyph alone is `aria-hidden`.
+ * `title` supplies the sighted tooltip.
+ */
+.nt-sidebar--collapsed .nt-sidebar__label {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
+}

@@ -1,0 +1,39 @@
+[package]
+name = "synthia-external-consumer"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+# Keeps this crate OUT of the synthia workspace (it lives inside
+# the repo tree for durability, but builds as an independent
+# consumer — the literal "use this repo as a lib" posture).
+[workspace]
+
+# R18 external-consumer proof: this crate lives OUTSIDE the
+# synthia workspace and depends on the crates by relative path.
+# It is the literal "use this repo as a lib from zero" tutorial
+# — copy this directory anywhere and change the paths.
+#
+# The relative paths below assume this directory sits at
+# <repo>/docs/examples/external-consumer/. Adjust them (or switch
+# to version deps) when copying out of the repo.
+[dependencies]
+synthia-harness = { path = "../../../crates/synthia-harness" }
+synthia-provider = { path = "../../../crates/synthia-provider" }
+synthia-context = { path = "../../../crates/synthia-context" }
+synthia-tool = { path = "../../../crates/synthia-tool" }
+# The tool implementations are plugin crates: depend on the ones you
+# want, register them yourself. This consumer wants the four offline
+# file/process tools (the `-task` and `-web` plugins are left out).
+synthia-tool-read = { path = "../../../crates/synthia-tool-read" }
+synthia-tool-write = { path = "../../../crates/synthia-tool-write" }
+synthia-tool-shell = { path = "../../../crates/synthia-tool-shell" }
+synthia-tool-todo = { path = "../../../crates/synthia-tool-todo" }
+synthia-steering = { path = "../../../crates/synthia-steering" }
+synthia-session = { path = "../../../crates/synthia-session" }
+synthia-core = { path = "../../../crates/synthia-core" }
+synthia-attachment = { path = "../../../crates/synthia-attachment" }
+synthia-skill = { path = "../../../crates/synthia-skill" }
+serde_json = "1"
+futures = "0.3"
+tokio = { version = "1", features = ["macros", "rt-multi-thread"] }

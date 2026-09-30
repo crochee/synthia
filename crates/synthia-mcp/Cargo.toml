@@ -1,0 +1,39 @@
+[package]
+name = "synthia-mcp"
+description = "Model Context Protocol adapter for synthia: stdio / HTTP / in-memory transports, supervisor with reconnect, and the model-facing `mcp` / per-tool registration"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+documentation.workspace = true
+readme.workspace = true
+keywords.workspace = true
+categories.workspace = true
+[dependencies]
+synthia-core.workspace = true
+synthia-tool.workspace = true
+# The MCP adapter projects foreign `tools/call` content blocks onto the
+# provider wire vocabulary (`ContentPart::{Text, Image, Audio}`), so a
+# multimodal reply reaches the model with its payload intact. The
+# workspace entry is `default-features = false`: the trait and wire
+# types only, no HTTP adapter.
+synthia-provider.workspace = true
+
+async-trait.workspace = true
+chrono.workspace = true
+futures.workspace = true
+hex.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+thiserror.workspace = true
+parking_lot.workspace = true
+reqwest.workspace = true
+tokio = { workspace = true, features = ["process", "io-util", "sync", "rt"] }
+tracing.workspace = true
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
+wiremock.workspace = true

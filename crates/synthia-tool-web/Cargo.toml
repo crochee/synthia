@@ -1,0 +1,31 @@
+[package]
+name = "synthia-tool-web"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "The `web_fetch` builtin: the one builtin that talks to the network"
+repository.workspace = true
+homepage.workspace = true
+documentation.workspace = true
+readme.workspace = true
+keywords.workspace = true
+categories.workspace = true
+
+[dependencies]
+synthia-tool.workspace = true
+synthia-core.workspace = true
+async-trait.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+schemars.workspace = true
+schemars_derive.workspace = true
+# The tool's entire body is an HTTP GET; the client and its
+# transport stack (hyper / rustls / h2 / …) live here and only
+# here — this crate is what `tool-web` pulls into the facade.
+reqwest.workspace = true
+url.workspace = true
+
+[dev-dependencies]
+# `#[tokio::test]` / `#[tokio::main]` need `macros` + `rt`
+# (+ `rt-multi-thread` for the example's default runtime).
+tokio = { workspace = true, features = ["macros", "rt", "rt-multi-thread"] }

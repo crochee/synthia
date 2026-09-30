@@ -1,0 +1,12 @@
+# Gate-scoped clippy configuration, read only by
+# `scripts/check-harness-shape.sh` (it exports CLIPPY_CONF_DIR to this
+# directory). Deliberately NOT the workspace `clippy.toml`: setting
+# either threshold there *enables* the corresponding allow-by-default
+# lint for every crate in the workspace, and `make lint-rust` runs with
+# `-D warnings` — so a root-level threshold would turn the 24 sites a
+# workspace-wide run reports (14 of them production) into hard errors.
+#
+# Keep these two numbers in sync with the budget `check-harness-shape`
+# prints; the script reads them from this file, so they cannot drift.
+too-many-lines-threshold = 100
+excessive-nesting-threshold = 4

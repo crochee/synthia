@@ -1,0 +1,45 @@
+# EditorConfig — Synthia
+# https://editorconfig.org
+#
+# Synthia 已用 rustfmt.toml (Rust) / .prettierrc (TS/JSON) / shellcheck /
+# markdownlint 的等价规则锁格式化; 本文件只覆盖**那些**规则没触达的
+# 文件 (Makefile / shell / TOML / Markdown 的尾换行 / 末行), 让
+# 任意 IDE / editor 打开仓库时有一致的默认.
+#
+# 与 rustfmt.toml / .prettierrc 的关系: 这些工具**已经强制** Rust 与
+# TS/JSON 的格式; 本文件**不**与它们重复, 也不**覆盖**它们.
+# 与 Makefile 中 `make fmt-check` / `make fmt` 的关系: 那是强制 CI,
+# 本文件只影响编辑期 default.
+
+root = true
+
+[*]
+charset = utf-8
+end_of_line = lf
+indent_style = space
+insert_final_newline = true
+trim_trailing_whitespace = true
+
+[*.{rs,toml,json,yml,yaml}]
+# rustfmt / taplo / prettier 在 CI 强制; 编辑器只保 LF + final newline.
+indent_size = unset
+
+[*.md]
+# CommonMark 不要求; 但相邻多行 (表格) 末尾空白会让 github diff 出
+# 红色 "No newline at end of file" 红条; 仍然 trim_trailing_whitespace.
+indent_size = unset
+
+[*.{sh,bash}]
+# Scripts/check-*.sh 不带 shellcheck-friendly 的硬编码风格; 让
+# 编辑器用 LF + final newline + 4-space (POSIX shell 社区主流)。
+indent_size = 4
+
+[Makefile]
+# Makefile 的 recipe 必须 TAB 起首; rustfmt 等不覆盖. 本文件给编辑器
+# 留个钩子: indent_style = tab 是真实事, 不能改 space。
+indent_style = tab
+indent_size = unset
+
+[*.{png,jpg,jpeg,gif,ico,svg,woff,woff2,ttf}]
+# 二进制不动
+indent_size = unset

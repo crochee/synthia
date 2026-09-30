@@ -1,0 +1,113 @@
+/**
+ * Shared artifact / deliverable card styles.
+ *
+ * Extracted from the legacy task-detail view so the chat
+ * page can render the same shape for live `ArtifactUpdate`
+ * events. Class names are `nt-session__artifact-*` — the
+ * underlying wire type is `Session*`
+ * contract), but the UI surfaces these as "session
+ * artifacts" to align with the rest of the page (which no
+ * longer presents the `task` concept).
+ *
+ * The chat page layers `.nt-chat__segment--artifact`,
+ * `.nt-chat__artifact-badge`, and
+ * `.nt-chat__artifact-streaming` on top of these base rules.
+ * Those live in `pages/ChatPage.css`, not here, so this file
+ * remains a stable shared module.
+ */
+
+.nt-session__artifact {
+  margin: var(--spacing-sm) 0;
+  padding-left: var(--spacing-sm);
+  border-left: 2px solid var(--border-strong);
+}
+
+.nt-session__artifact-header {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  font-family: var(--font-mono);
+  font-size: var(--fs-sm);
+  color: var(--accent-cyan);
+  margin-bottom: var(--spacing-xs);
+}
+
+.nt-session__artifact-header code {
+  color: var(--accent-cyan);
+  font-weight: 500;
+}
+
+.nt-session__artifact-error {
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+  padding: 1px 6px;
+  border-radius: var(--radius-sm);
+  background: var(--color-tool-block-error-bg);
+  color: var(--accent-red);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.nt-session__artifact-call,
+.nt-session__artifact-result {
+  border-radius: var(--radius-sm);
+  padding: var(--spacing-xs) var(--spacing-sm);
+  margin: var(--spacing-xs) 0;
+}
+
+.nt-session__artifact-call {
+  background: var(--color-tool-call-bg);
+  border-left: 2px solid var(--color-tool-call-border);
+}
+
+.nt-session__artifact-result {
+  background: var(--color-tool-result-bg);
+  border-left: 2px solid var(--color-tool-result-border);
+}
+
+.nt-session__artifact-result--error {
+  background: var(--color-tool-block-error-bg);
+  border-left-color: var(--color-tool-block-error-fg);
+}
+
+.nt-session__artifact-section-label {
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+  letter-spacing: 0.04em;
+  margin-bottom: var(--spacing-xs);
+}
+
+.nt-session__artifact-call .nt-session__artifact-section-label {
+  color: var(--accent-yellow);
+}
+
+.nt-session__artifact-result .nt-session__artifact-section-label {
+  color: var(--accent-cyan);
+}
+
+.nt-session__artifact-result--error .nt-session__artifact-section-label {
+  color: var(--accent-red);
+}
+
+.nt-session__artifact-pre {
+  margin: 0;
+  font-family: var(--font-mono);
+  font-size: var(--fs-sm);
+  line-height: 1.55;
+  white-space: pre-wrap;
+  word-break: break-word;
+  color: var(--text-primary);
+  background: var(--bg-tertiary);
+  padding: var(--spacing-sm) var(--spacing-sm);
+  border-radius: var(--radius-sm);
+  max-height: 32em;
+  overflow-y: auto;
+}
+
+.nt-session__artifact-call .nt-session__artifact-pre {
+  color: var(--accent-yellow);
+}
+
+.nt-session__artifact-result .nt-session__artifact-pre {
+  color: var(--text-primary);
+}

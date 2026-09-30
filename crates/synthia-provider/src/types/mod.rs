@@ -1,0 +1,326 @@
+//! Canonical provider-agnostic LLM message / tool / streaming types.
+//!
+//! This module defines the wire-format that flows from
+//! `synthia-harness` through `synthia-context` (prompt assembly /
+//! truncation) into the LLM providers. The types are deliberately
+//! provider-agnostic — every `Provider` adapter translates them
+//! to its own wire format (`openai` / `anthropic`).
+//!
+//! # Module Layout
+//!
+//! - `role`: The [`Role`] enum (System/User/Assistant/Tool).
+//! - `message`: The [`Message`] struct + Default + 5
+//!   constructors ([`message::Message::new`],
+//!   [`message::Message::user`],
+//!   [`message::Message::assistant`],
+//!   [`message::Message::system`],
+//!   [`message::Message::tool`]).
+//! - `content`: The [`Content`] enum + the
+//!   [`content::ContentPart`] variant data + all
+//!   `From<String>` / `From<&str>` / `IntoIterator` impls +
+//!   the [`content::ContentPart::is_tool_use`] /
+//!   [`content::ContentPart::text`] accessors.
+//! - `completion`: [`CompletionRequest`] +
+//!   [`completion::CompletionResponse`] +
+//!   [`completion::ToolChoice`].
+//! - `tool`: [`ToolUse`] + [`ToolResult`] +
+//!   [`tool::ToolDefinition`] + [`tool::ResourceLink`].
+//! - `stream_chunk`: [`StreamChunk`] +
+//!   [`stream_chunk::SamplingResult`] + 2 `From` impls.
+//! - `models`: [`TokenUsage`] +
+//!   [`models::ModelInfo`] + [`models::ProviderInfo`] +
+//!   [`models::ProviderConfig`] + [`models::ModelConfig`].
+//! - `tests`: All unit tests (4 in `stream_chunk_tests` +
+//!   4 in `tool_result_cleared_at_tests`).
+
+mod completion;
+mod content;
+mod message;
+mod message_kind;
+mod models;
+mod role;
+mod stream_chunk;
+mod tool;
+
+pub use completion::{CompletionRequest, CompletionResponse, ToolChoice};
+pub use content::{
+    AudioContent,
+    AudioFormat,
+    Content,
+    ContentPart,
+    ImageContent,
+    ImageDetail,
+    ReasoningContent,
+    TextContent,
+};
+pub use message::Message;
+pub use message_kind::MessageKind;
+pub use models::{
+    BilledClass,
+    ModelConfig,
+    ModelInfo,
+    ProviderConfig,
+    ProviderInfo,
+    TokenUsage,
+};
+pub use role::Role;
+pub use stream_chunk::{SamplingResult, StreamChunk};
+/// The tool-argument object rule, shared by both adapters. Not part of the
+/// public surface — the canonical types are, this is how they reach a wire.
+#[cfg(any(feature = "anthropic", feature = "openai"))]
+pub(crate) use tool::object_or_empty;
+pub use tool::{
+    ResourceLink,
+    ToolAnnotations,
+    ToolDefinition,
+    ToolResult,
+    ToolUse,
+};
+
+#[cfg(test)]
+mod tests {
+    //! Unit tests for the `types` module family.
+    //!
+    //! Coverage map (6 tests):
+    //!
+    //! - [`stream_chunk_tests`]: 4 tests covering the 3 tool-call
+    //!   streaming variants
+    //!   ([`stream_chunk_tests::test_tool_call_start_variant`],
+    //!   [`stream_chunk_tests::test_tool_call_delta_variant`],
+    //!   [`stream_chunk_tests::test_tool_call_end_variant`])
+    //!   plus backward-compat for the `From<ContentPart>` conversion
+    //!   ([`stream_chunk_tests::test_content_backward_compat`]).
+    //! - [`tool_result_cleared_at_tests`]: 2 tests pinning the
+    //!   `tool_result_cleared_at` P8 contract — default-is-None
+    //!   ([`tool_result_cleared_at_tests::new_message_has_field_as_none_by_default`])
+    //!   and round-trip when set
+    //!   ([`tool_result_cleared_at_tests::new_json_with_field_round_trips`]).
+
+    use chrono::{DateTime, Utc};
+
+    use super::*;
+
+    #[cfg(test)]
+    mod stream_chunk_tests {
+        use super::*;
+
+        #[test]
+        fn test_tool_call_start_variant() {
+            let chunk = StreamChunk::ToolCallStart {
+                id: "call-1".to_string(),
+                name: "read_file".to_string(),
+                arguments: serde_json::json!({"path": "/tmp/test"}),
+            };
+            match &chunk {
+                StreamChunk::ToolCallStart {
+                    id,
+                    name,
+                    arguments,
+                } => {
+                    assert_eq!(id, "call-1");
+                    assert_eq!(name, "read_file");
+                    assert_eq!(arguments["path"], "/tmp/test");
+                }
+                _ => panic!("Expected ToolCallStart"),
+            }
+        }
+
+        #[test]
+        fn test_tool_call_delta_variant() {
+            let chunk = StreamChunk::ToolCallDelta {
+                id: "call-1".to_string(),
+                arguments_delta: r#"{"path": "/tm"#.to_string(),
+            };
+            match &chunk {
+                StreamChunk::ToolCallDelta {
+                    id,
+                    arguments_delta,
+                } => {
+                    assert_eq!(id, "call-1");
+                    assert_eq!(arguments_delta, r#"{"path": "/tm"#);
+                }
+                _ => panic!("Expected ToolCallDelta"),
+            }
+        }
+
+        #[test]
+        fn test_tool_call_end_variant() {
+            let chunk = StreamChunk::ToolCallEnd {
+                id: "call-1".to_string(),
+            };
+            match &chunk {
+                StreamChunk::ToolCallEnd { id } => {
+                    assert_eq!(id, "call-1");
+                }
+                _ => panic!("Expected ToolCallEnd"),
+            }
+        }
+
+        #[test]
+        fn test_content_backward_compat() {
+            let text_part = ContentPart::Text(TextContent {
+                text: "hello".to_string(),
+                cache_control: None,
+            });
+            let chunk: StreamChunk = text_part.into();
+            match &chunk {
+                StreamChunk::Content(ContentPart::Text(tc)) => {
+                    assert_eq!(tc.text, "hello");
+                }
+                _ => panic!("Expected Content variant"),
+            }
+        }
+    }
+
+    #[cfg(test)]
+    mod tool_result_cleared_at_tests {
+        use super::*;
+
+        #[test]
+        fn new_message_has_field_as_none_by_default() {
+            // The field is None on a freshly-built Message — both via the
+            // `new` constructor and via `Default::default()`.
+            let from_new = Message::user("hi");
+            assert!(from_new.tool_result_cleared_at.is_none());
+
+            let from_default = Message::default();
+            assert!(from_default.tool_result_cleared_at.is_none());
+        }
+
+        #[test]
+        fn new_json_with_field_round_trips() {
+            // Set the field, serialize, deserialize — the value survives.
+            let ts = DateTime::parse_from_rfc3339("2026-06-12T10:30:00Z")
+                .unwrap()
+                .with_timezone(&Utc);
+            let original = Message {
+                role: Role::Tool,
+                content: Content::Single(ContentPart::Text(TextContent {
+                    text: "the result".to_string(),
+                    cache_control: None,
+                })),
+                tool_call_id: Some("call-1".to_string()),
+                name: None,
+                tool_result_cleared_at: Some(ts),
+            };
+            let json = serde_json::to_string(&original)
+                .expect("serialization must succeed");
+            let restored: Message =
+                serde_json::from_str(&json).expect("round-trip must succeed");
+            assert_eq!(restored.tool_result_cleared_at, Some(ts));
+            assert_eq!(restored.tool_call_id.as_deref(), Some("call-1"));
+        }
+    }
+
+    #[cfg(test)]
+    mod message_kind_and_llm_visible_tests {
+        use super::*;
+
+        #[test]
+        fn message_kind_has_five_variants() {
+            let _ = vec![
+                MessageKind::System,
+                MessageKind::User,
+                MessageKind::Assistant,
+                MessageKind::ToolCall,
+                MessageKind::ToolResult,
+            ];
+        }
+
+        #[test]
+        fn user_message_is_llm_visible() {
+            let msg = Message::user("hi");
+            assert!(msg.llm_visible());
+            assert_eq!(msg.kind(), MessageKind::User);
+        }
+
+        #[test]
+        fn system_message_is_llm_visible() {
+            let msg = Message::system("instructions");
+            assert!(msg.llm_visible());
+            assert_eq!(msg.kind(), MessageKind::System);
+        }
+
+        #[test]
+        fn assistant_message_is_llm_visible() {
+            let msg = Message::assistant("response");
+            assert!(msg.llm_visible());
+            assert_eq!(msg.kind(), MessageKind::Assistant);
+        }
+
+        #[test]
+        fn assistant_with_tool_use_is_tool_call_kind() {
+            let msg = Message {
+                role: Role::Assistant,
+                content: Content::Multi(vec![ContentPart::ToolUse(ToolUse {
+                    id: "call-1".to_string(),
+                    name: "read".to_string(),
+                    input: serde_json::json!({}),
+                })]),
+                tool_call_id: None,
+                name: None,
+                tool_result_cleared_at: None,
+            };
+            assert_eq!(msg.kind(), MessageKind::ToolCall);
+            assert!(msg.llm_visible());
+        }
+
+        #[test]
+        fn tool_result_with_content_is_llm_visible() {
+            let msg = Message::tool(Content::text("result"), "call-1");
+            assert!(msg.llm_visible());
+            assert_eq!(msg.kind(), MessageKind::ToolResult);
+        }
+
+        #[test]
+        fn tool_result_with_empty_content_is_not_llm_visible() {
+            let msg = Message::tool(Content::text(""), "call-1");
+            assert!(!msg.llm_visible());
+            assert_eq!(msg.kind(), MessageKind::ToolResult);
+        }
+
+        #[test]
+        fn from_role_maps_correctly() {
+            assert_eq!(
+                MessageKind::from_role(Role::System, false),
+                MessageKind::System
+            );
+            assert_eq!(
+                MessageKind::from_role(Role::User, false),
+                MessageKind::User
+            );
+            assert_eq!(
+                MessageKind::from_role(Role::Assistant, false),
+                MessageKind::Assistant
+            );
+            assert_eq!(
+                MessageKind::from_role(Role::Assistant, true),
+                MessageKind::ToolCall
+            );
+            assert_eq!(
+                MessageKind::from_role(Role::Tool, false),
+                MessageKind::ToolResult
+            );
+        }
+
+        /// Performance contract: `llm_visible()` is O(1) and side-effect free.
+        /// Calling it in a tight loop over 10 000 messages MUST complete in
+        /// well under a millisecond on any reasonable machine. We assert <5ms
+        /// here to absorb debug-build variance on slow CI / WSL hosts while
+        /// still catching a 100x regression to ~500ms.
+        #[test]
+        fn llm_visible_performance_contract() {
+            let msg = Message::user("performance test payload");
+            let iterations = 10_000;
+            let start = std::time::Instant::now();
+            for _ in 0..iterations {
+                std::hint::black_box(msg.llm_visible());
+            }
+            let elapsed = start.elapsed();
+            assert!(
+                elapsed.as_millis() < 5,
+                "llm_visible() over {iterations} calls took {elapsed:?}, expected < 5ms"
+            );
+        }
+    }
+}

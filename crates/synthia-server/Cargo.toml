@@ -1,0 +1,127 @@
+[package]
+name = "synthia-server"
+description = "Reference HTTP / SSE / WebSocket server for synthia: axum router, config loader, agent / tool / skill / memory surfaces, OTel + Prometheus observability"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+documentation.workspace = true
+readme.workspace = true
+keywords.workspace = true
+categories.workspace = true
+# build.rs bakes the git SHA / build time / target triple into
+# `build_info.rs` via `cargo:rustc-env=`; see `build.rs` for the
+# source-priority chain. Cargo re-runs it whenever any of the three
+# env vars changes (`cargo:rerun-if-env-changed=...` in build.rs).
+build = "build.rs"
+[features]
+# Only `test-utils` remains. Observability is not feature-gated on
+# this crate: OTel OTLP tracing, Prometheus RED metrics, the
+# `/metrics` endpoint, and the `track_metrics` middleware are all
+# always-on *for the server*, which is why both telemetry features are
+# named here explicitly — the server must not lose OTLP if the crate's
+# default set ever changes. The fallback to console tracing when
+# neither gRPC nor HTTP OTLP is configured lives inside
+# `synthia_telemetry::init_tracing`.
+#
+# `test-utils` forwards to the facade's `test-support` feature so
+# `synthia::test_support::FakeProvider` is nameable from the
+# for-test fixture. No direct `synthia-test-support` dependency:
+# every call site goes through the facade (single-dependency rule).
+test-utils = ["synthia/test-support"]
+
+[dependencies]
+# Single-facade dependency rule (R121): the application crate talks to
+# the AI agent SDK lib through `synthia` (the facade) only. The
+# facade's feature set is the canonical "assemble the full server"
+# set — every plugin tool, every model adapter, every optional
+# integration (skill, attachment, MCP, telemetry) — and adding a new
+# crate below the facade only requires a one-line feature change here.
+# A library consumer that wants a smaller build drops the features at
+# the `synthia` line; this crate has no reason to.
+synthia = { workspace = true, features = [
+  "core",
+  "provider",
+  "provider-anthropic",
+  "provider-openai",
+  "context",
+  "tool",
+  "tool-read",
+  "tool-write",
+  "tool-shell",
+  "tool-todo",
+  "tool-web",
+  "tool-task",
+  "tool-scheduler",
+  "tool-search",
+  "session",
+  "steering",
+  "harness",
+  "skill",
+  "attachment",
+  "mcp",
+  "telemetry",
+  "search",
+  "scheduler",
+  "eval",
+  "workflow",
+  "cron",
+] }
+validator.workspace = true
+async-trait.workspace = true
+chrono.workspace = true
+axum.workspace = true
+opentelemetry.workspace = true
+opentelemetry_sdk.workspace = true
+tower.workspace = true
+tower-http = { workspace = true, features = ["cors", "fs"] }
+# The one application crate: `rt-multi-thread` (worker pool), `macros`
+# (`#[tokio::main]`, `select!`, tests), `net` (`TcpListener`),
+# `signal` (Ctrl-C), `sync` (broadcast / mpsc / RwLock), `time` (SSE
+# keepalive, deadlines), `io-util` (streamed bodies), `fs` (static
+# assets, log files).
+tokio = { workspace = true, features = [
+  "rt-multi-thread",
+  "macros",
+  "net",
+  "signal",
+  "sync",
+  "time",
+  "io-util",
+  "fs",
+] }
+serde.workspace = true
+serde_json.workspace = true
+toml.workspace = true
+anyhow.workspace = true
+tracing.workspace = true
+futures.workspace = true
+tokio-util.workspace = true
+async-stream.workspace = true
+dashmap.workspace = true
+parking_lot.workspace = true
+serde_yaml.workspace = true
+dotenvy.workspace = true
+clap.workspace = true
+uuid = { workspace = true, features = ["v4"] }
+sha2.workspace = true
+hex.workspace = true
+base64.workspace = true
+regex.workspace = true
+schemars.workspace = true
+prometheus.workspace = true
+tempfile.workspace = true
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["macros", "rt", "rt-multi-thread"] }
+http-body-util.workspace = true
+tower = { workspace = true, features = ["util"] }
+axum.workspace = true
+synthia.workspace = true
+chrono.workspace = true
+
+[dev-dependencies.synthia-server]
+path = "."
+features = ["test-utils"]

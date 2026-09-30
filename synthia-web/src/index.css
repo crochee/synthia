@@ -1,0 +1,6 @@
+/* Global app-level styles. Most layout is driven by CSS variables
+   defined in styles/tokens.css and component-local .css files. */
+
+#root {
+  height: 100%;
+}

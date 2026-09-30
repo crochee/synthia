@@ -1,0 +1,293 @@
+# release.yml — tag 推送自动出产物与校验和 (流程见 RELEASE.md).
+#
+# 出产物: Linux x86_64 ELF + Windows x86_64 PE + macOS arm64 Mach-O +
+# `sha256sums.txt`. 草稿形式发布, 人审完才 publish.
+name: release
+
+on:
+  push:
+    tags: ["v*.*.*"]
+
+# Workflow-level default: read-only. `linux-windows` / `macos-arm64` 跑产
+# 物构建, 只上传 artifact, 不需要写仓库; 仅 `release` job override 到
+# `contents: write` 给 GitHub Release API 用. `id-token: write` 故意不授予
+# —— 本 workflow 不发 OIDC token, 等支持 SLSA Build L2 时再加.
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+
+# Release runs must NOT cancel each other: 每个 tag 出全套产物, 重试
+# 出来的是新 artifacts, 按 tag 顺序不冲突.
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  # ────────────────────────────────────────────────────────────────────────
+  # Linux + Windows 一起在 ubuntu 上出. Windows 走 cargo cross, Linux 走
+  # host cargo build, 输出物全部入 dist/, 由 release job 汇总.
+  # ────────────────────────────────────────────────────────────────────────
+  linux-windows:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          # 需要 full history: tag 触发的 build 要 resolve 到该 tag 的精确
+          # commit; 默认 shallow clone 会丢掉历史, version 字符串会漂.
+          fetch-depth: 0
+
+      - name: Record commit identity
+        id: identity
+        run: |
+          echo "sha=${GITHUB_SHA}" >> "${GITHUB_OUTPUT}"
+
+      # 1) Linux binary — 本机编译 (release profile 已 opt-level=3/lto/strip).
+      - name: Install stable toolchain
+        uses: dtolnay/rust-toolchain@stable
+      - name: Cache Cargo
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: "."
+      - name: Record build wall-clock
+        id: when
+        # `github.event.repository.updated_at` reflects the repo's last
+        # edit, not the build moment — back-to-back tag rebuilds minutes
+        # apart emit the same timestamp and mask a stale binary. Use
+        # `date -u` so each build has its own wall-clock string embedded.
+        run: |
+          echo "now=$(date -u +%FT%TZ)" >> "${GITHUB_OUTPUT}"
+      - name: Build the Linux binary
+        env:
+          SYNTHIA_GIT_SHA: ${{ steps.identity.outputs.sha }}
+          SYNTHIA_BUILD_TIME: ${{ steps.when.outputs.now }}
+        run: |
+          cargo build --release --locked -p synthia-server
+          mkdir -p dist
+          cp target/release/synthia-server dist/synthia-x86_64-unknown-linux-gnu
+
+      # 2) Windows PE — cargo cross 编译 x86_64-pc-windows-gnu.
+      - name: Add windows target
+        run: rustup target add x86_64-pc-windows-gnu
+      - name: Install Windows GNU toolchain (MinGW)
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y mingw-w64
+      - name: Build the Windows binary
+        env:
+          SYNTHIA_GIT_SHA: ${{ steps.identity.outputs.sha }}
+          SYNTHIA_BUILD_TIME: ${{ steps.when.outputs.now }}
+        run: |
+          cargo build --release --locked --target x86_64-pc-windows-gnu -p synthia-server
+          cp target/x86_64-pc-windows-gnu/release/synthia-server.exe \
+             dist/synthia-x86_64-pc-windows-gnu.exe
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: linux-windows
+          if-no-files-found: error
+          path: |
+            dist/synthia-x86_64-unknown-linux-gnu
+            dist/synthia-x86_64-pc-windows-gnu.exe
+
+  # ────────────────────────────────────────────────────────────────────────
+  # macOS arm64 — GitHub-hosted macos-14 runner 本就是 arm64, 走 host
+  # cargo build 即可; 不需要 osxcross / lipo / qemu.
+  # 不出 intel 版是设计上不覆盖 Rosetta 用户.
+  # ────────────────────────────────────────────────────────────────────────
+  macos-arm64:
+    runs-on: macos-14
+    timeout-minutes: 60
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Install stable toolchain
+        uses: dtolnay/rust-toolchain@stable
+      - name: Cache Cargo
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: "."
+      - name: Record build wall-clock
+        id: when
+        run: |
+          echo "now=$(date -u +%FT%TZ)" >> "${GITHUB_OUTPUT}"
+      - name: Build the macOS binary
+        env:
+          SYNTHIA_GIT_SHA: ${{ github.sha }}
+          SYNTHIA_BUILD_TIME: ${{ steps.when.outputs.now }}
+        run: |
+          cargo build --release --locked --target aarch64-apple-darwin -p synthia-server
+          mkdir -p dist
+          cp target/aarch64-apple-darwin/release/synthia-server \
+             dist/synthia-aarch64-apple-darwin
+          # Mach-O 没 linker-strip, strip 一次把符号表清掉.
+          strip dist/synthia-aarch64-apple-darwin
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos-arm64
+          if-no-files-found: error
+          path: dist/synthia-aarch64-apple-darwin
+
+  # ────────────────────────────────────────────────────────────────────────
+  # 等所有产物 job 跑完, 汇总算校验和 + 推 release. Draft = 人审完才 publish,
+  # draft 链接在 CI 日志和 step summary 都有; RELEASE.md §"发布步骤" 第 5 步
+  # 是 publish.
+  # ────────────────────────────────────────────────────────────────────────
+  release:
+    needs: [linux-windows, macos-arm64]
+    runs-on: ubuntu-latest
+    # gh CLI 调用 REST API 通过 workflow 的 GITHUB_TOKEN; `contents: write`
+    # 是 release + asset upload 唯一需要的权限. `id-token: write` 给
+    # sigstore cosign keyless signing 与 SLSA provenance attestation 用
+    # — 它们都要 OIDC token 证明 workflow 身份.
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Record commit identity
+        id: identity
+        run: |
+          echo "sha=${GITHUB_SHA}" >> "${GITHUB_OUTPUT}"
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: dist
+
+      - name: Flatten + checksums
+        run: |
+          cd dist
+          # upload-artifact 解出来是 linux-windows/synthia-..., macos-arm64/synthia-...
+          # 这种嵌套, 平铺到 dist/ 顶层再算校验和.
+          find . -mindepth 2 -type f -exec mv -t . {} +
+          # mv 只搬文件不搬目录, 顶层空目录留着会让 `sha256sum *` 撞上 "Is a directory".
+          # 先 `-empty` 删空的, 再 `-mindepth 1` 兜底删.
+          find . -mindepth 1 -depth -type d -empty -delete
+          sha256sum * > sha256sums.txt
+          ls -l
+          cat sha256sums.txt
+
+      - name: Verify baked identity
+        # 每个产物必须带上相同的 `--version` 行 + tag commit 等于
+        # $GITHUB_SHA; Cargo.toml 与 tag 之间的漂移 (或一个忽略
+        # SYNTHIA_GIT_SHA 的 builder) 会在这里失败, 而不是叠到 sha 一致
+        # 但内容错的 release 上.
+        #
+        # 用 `strings | grep` 而非执行二进制: 本 job 跑在 ubuntu-latest,
+        # 在这里执行 macOS arm64 / Windows PE 会 "exec format error",
+        # 掩盖我们要检测的版本漂. `--version` 输出作为 `&'static str`
+        # 常量存在于只读数据段, `strings` 在任何平台都能稳定找到.
+        run: |
+          expected_sha="${GITHUB_SHA}"
+          expected_version="$(awk -F'\"' '/^version =/ {print $2; exit}' Cargo.toml)"
+          for bin in \
+              synthia-x86_64-pc-windows-gnu.exe \
+              synthia-x86_64-unknown-linux-gnu \
+              synthia-aarch64-apple-darwin; do
+            if ! strings "dist/$bin" | grep -qF "$expected_sha"; then
+              echo "::error::$bin does not embed SHA ${expected_sha}"
+              exit 1
+            fi
+            if ! strings "dist/$bin" | grep -qF "$expected_version"; then
+              echo "::error::$bin does not embed version ${expected_version}"
+              exit 1
+            fi
+            echo "$bin → baked identity OK (sha=${expected_sha:0:7}, version=${expected_version})"
+          done
+
+      # ──────────────────────────────────────────────────────────────────
+      # SBOM (CycloneDX JSON). cargo-cyclonedx 由 crates.io 装, 不引入
+      # 任何 git 依赖; JSON 不是 SPDX 是因为 cyclonedx-bom 直接出这个
+      # 格式, 无需额外 grep / 转换. 给企业审计、SBOM 监管场景 (美国
+      # EO 14028 / EU CRA) 用.
+      # ──────────────────────────────────────────────────────────────────
+      - name: Install cargo-cyclonedx
+        run: cargo install --locked cargo-cyclonedx
+      - name: Generate CycloneDX SBOM
+        run: |
+          cargo cyclonedx --format json --override-filename cyclonedx \
+            --output-file dist/sbom.json \
+            -p synthia-server
+          ls -l dist/sbom.json
+
+      # ──────────────────────────────────────────────────────────────────
+      # SLSA Build L3 provenance attestation. actions/attest-build-provenance
+      # 用 GitHub OIDC token 给每个产物生成 in-toto intoto.jsonl,
+      # GitHub 会自动持久化到 GHSA / API; 与 cosign keyless 签名一同
+      # 构成 CNCF TAG-Supply-Chain 的 SLSA L3 三件套 (隔离构建 + 来源
+      # 证明 + 防伪造签名).
+      # ──────────────────────────────────────────────────────────────────
+      - name: Attest build provenance (SLSA L3)
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-name: synthia-server
+          subject-digest: ${{ steps.identity.outputs.sha }}
+          # 真正要签的二进制列表: 3 个平台 + sha256sums + SBOM
+          subject-path: |
+            dist/synthia-x86_64-unknown-linux-gnu
+            dist/synthia-x86_64-pc-windows-gnu.exe
+            dist/synthia-aarch64-apple-darwin
+            dist/sha256sums.txt
+            dist/sbom.json
+
+      # ──────────────────────────────────────────────────────────────────
+      # cosign keyless 签名每个产物. 把签名作为 GitHub Release 的
+      # 单独 asset 上传, 消费者用 `cosign verify-blob` 校验. keyless
+      # 模式用 GitHub OIDC token, 不需要 KMS / 私钥管理.
+      # ──────────────────────────────────────────────────────────────────
+      - name: Install cosign
+        uses: sigstore/cosign-installer@v3
+      - name: Sign all artifacts (cosign keyless)
+        run: |
+          for f in \
+              synthia-x86_64-unknown-linux-gnu \
+              synthia-x86_64-pc-windows-gnu.exe \
+              synthia-aarch64-apple-darwin \
+              sha256sums.txt \
+              sbom.json; do
+            cosign sign-blob --yes \
+              --output-signature "dist/${f}.sig" \
+              --bundle "dist/${f}.bundle" \
+              "dist/${f}"
+          done
+          ls -l dist/
+
+      - name: Release (draft)
+        # 用 `gh` CLI 直接调, 不用 softprops / 任何第三方 action. CLI 在
+        # GitHub-hosted ubuntu runner 预装, 通过 GH_TOKEN 鉴权. 每个 API
+        # 调用都是 CLI 命令日志 —— 失败时表现为非零退出码, 不是黑盒
+        # action 的静默 0.
+        #
+        # "删现有 draft for this tag 后重建" 组合让重跑幂等: 重试这个
+        # workflow (例如改了 workflow 文件) 会丢之前的 draft, 拿最新
+        # binary 重新上传, 而不是 `gh release create ... already exists`.
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          tag="${GITHUB_REF_NAME}"
+          echo "deleting any pre-existing draft for ${tag}"
+          gh release delete "${tag}" --cleanup-tags --yes || true
+          echo "creating draft release for ${tag}"
+          gh release create "${tag}" \
+              --draft \
+              --generate-notes \
+              --title "${tag}" \
+              dist/synthia-x86_64-pc-windows-gnu.exe \
+              dist/synthia-x86_64-unknown-linux-gnu \
+              dist/synthia-aarch64-apple-darwin \
+              dist/sha256sums.txt \
+              dist/sbom.json \
+              dist/*.sig \
+              dist/*.bundle
+          echo "release draft created at https://github.com/${GITHUB_REPOSITORY}/releases/tag/${tag} (draft — publish manually)"

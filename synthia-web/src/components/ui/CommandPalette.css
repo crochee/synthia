@@ -1,0 +1,132 @@
+/**
+ * Command palette (`Ctrl/Cmd+K`).
+ *
+ * Builds on `.nt-modal__*` — backdrop, Escape, focus capture and
+ * focus restore all come from `<Modal>`. This file only changes the
+ * things a palette does differently from a centred form: it anchors
+ * near the top of the viewport (the user's eye is already up there
+ * after the chord), and it is wider than the 560px form default.
+ *
+ * Sizing comes from the layout tokens so the palette moves with the
+ * rest of the density scale instead of carrying its own numbers.
+ */
+
+/* Doubled class rather than a single one: `.nt-modal__panel` sets
+   its own `max-width`, and the two rules have equal specificity, so
+   which one won would depend on stylesheet ordering between
+   `page.css` and this file. Naming the panel class twice makes the
+   palette's width deterministic. */
+.nt-palette.nt-modal__panel {
+  /* Overrides `.nt-modal__backdrop`'s `align-items: center` for this
+     panel only — no `:has()` and no second element prop needed. */
+  align-self: flex-start;
+  margin-top: 10vh;
+  width: 100%;
+  max-width: var(--size-command-palette);
+  /* The backdrop keeps its own padding; the panel has to fit the
+     remaining viewport with the top offset already spent. */
+  max-height: calc(80vh - var(--space-4));
+}
+
+.nt-palette .nt-modal__body {
+  /* Radix's 24px form padding is too airy around a search field and
+     a dense list; the palette uses the 12px step. */
+  padding: var(--space-3);
+}
+
+.nt-palette__body {
+  display: flex;
+  flex-direction: column;
+}
+
+.nt-palette__search {
+  width: 100%;
+}
+
+.nt-palette__list {
+  margin-top: var(--space-2);
+  overflow-y: auto;
+  /* Roughly half the viewport: enough for ~9 rows before the list
+     scrolls, which keeps the dialog feeling like an overlay rather
+     than a page. */
+  max-height: 46vh;
+}
+
+.nt-palette__group-label {
+  padding: var(--space-2) var(--space-3) var(--space-1);
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.nt-palette__option {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  min-height: var(--control-height-sm);
+  padding: var(--space-1) var(--space-3);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  transition: background-color var(--transition-base);
+}
+
+/* Selection is expressed with `aria-selected` rather than a React
+   class so the highlight and the accessibility tree are the same
+   fact — there is no way for the keyboard's idea of "active" to
+   drift from what is painted. */
+.nt-palette__option[aria-selected='true'] {
+  background: var(--accent-primary-subtle);
+}
+
+.nt-palette__option-label {
+  flex-shrink: 0;
+  color: var(--text-primary);
+  font-size: var(--fs-base);
+  font-weight: var(--fw-medium);
+  white-space: nowrap;
+}
+
+.nt-palette__option-detail {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text-secondary);
+  font-size: var(--fs-sm);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.nt-palette__option-shortcut {
+  flex-shrink: 0;
+  margin-left: auto;
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+}
+
+.nt-palette__empty {
+  margin: 0;
+  padding: var(--space-4) var(--space-3);
+  color: var(--text-muted);
+  font-size: var(--fs-sm);
+  text-align: center;
+}
+
+.nt-palette__hint {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  margin: var(--space-2) 0 0;
+  color: var(--text-muted);
+  font-size: var(--fs-xs);
+}
+
+.nt-palette__hint kbd {
+  padding: 0 var(--space-1);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  background: var(--bg-tertiary);
+  font-size: var(--fs-xs);
+}

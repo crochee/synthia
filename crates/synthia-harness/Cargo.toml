@@ -1,0 +1,67 @@
+[package]
+name = "synthia-harness"
+description = "ReAct loop and reasoning strategies for synthia: ReActAgent, ReAct / chain-of-thought / best-of-N strategies, ToolInterceptor seam, event sinks"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+documentation.workspace = true
+readme.workspace = true
+keywords.workspace = true
+categories.workspace = true
+[dependencies]
+async-trait.workspace = true
+# `tokio-util` (not `metrics`/`otlp`): the feature is what makes a
+# tokio caller's `CancellationToken` coerce to `Arc<dyn CancelToken>`,
+# which is the documented runtime-choice story for every consumer of
+# the loop, not just for this crate's tests.
+synthia-core = { workspace = true, features = ["tokio-util"] }
+synthia-provider.workspace = true
+synthia-context.workspace = true
+synthia-steering.workspace = true
+synthia-session.workspace = true
+synthia-tool.workspace = true
+
+chrono.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+# `rt` (the default spawner's detach + spawn_blocking), `sync`
+# (the parallel-dispatch semaphore). Everything else lived
+# with the delegation / builtin plugins that moved out, and the
+# event channel is `futures::channel::mpsc` precisely so no runtime
+# type reaches the public API.
+tokio = { workspace = true, features = ["rt", "sync"] }
+tracing.workspace = true
+futures.workspace = true
+parking_lot.workspace = true
+[dev-dependencies]
+# Examples use `#[tokio::main]` (multi-thread flavor by default).
+tokio = { workspace = true, features = ["macros", "rt-multi-thread", "time"] }
+# The benchmarks drive a turn on a pooled non-tokio executor, so the
+# end-to-end number does not pay for a thread spawn per run.
+futures = { workspace = true, features = ["thread-pool"] }
+# Tests drive `CancellationToken` through the `CancelToken` trait.
+tokio-util.workspace = true
+synthia-test-support.workspace = true
+tracing-subscriber.workspace = true
+# The assembly examples compose the plugin crates exactly as a
+# downstream consumer would.
+synthia-tool-task.workspace = true
+synthia-tool-read.workspace = true
+synthia-tool-write.workspace = true
+synthia-tool-shell.workspace = true
+synthia-tool-todo.workspace = true
+# `examples/assemble_with_skills.rs` demonstrates a `SkillRegistry`,
+# not the harness — the library itself names no skill type.
+synthia-skill.workspace = true
+
+# The hot-path benchmarks: one binary that prints a table (`make
+# bench`). `harness = false` keeps criterion (and its dependency tree)
+# out of the workspace — the number that matters is the shape of the
+# curve, and the fixtures are the only setup.
+[[bench]]
+name = "hot_paths"
+harness = false

@@ -1,0 +1,62 @@
+# stale.yml — Synthia
+#
+# Invokes `.github/stale.yml` (the GitHub-native stale config, format
+# `version: "2"`) on a daily 02:00 UTC schedule. The config sets the
+# CNCF / Kubernetes / Rust-Bridge cadence — bug/question 60/7, enhancement
+# 90/14, default 45/7 — exempt `keep-open` / `pinned` / `security` /
+# `roadmap` / `needs-design` / `blocking-release` / `discussion` labels.
+#
+# Without this workflow the config is dead weight: the v0.1.0 release
+# gate requires the stale-bot actually running so abandoned issues do
+# not pile up between releases (CNCF Sandbox guideline).
+#
+# Action SHA pinned (audit finding P0: the earlier draft of this file
+# floated on a tag, which is exactly the supply-chain posture this
+# repo's other workflows reject).
+
+name: stale
+
+on:
+  schedule:
+    # Daily 02:00 UTC — earlier than `security-audit` (03:00 Mon),
+    # `markdown-lint` (04:00), `shellcheck` (05:00) so an issue closed
+    # overnight does not race a re-opened PR in the same window.
+    - cron: "0 2 * * *"
+  workflow_dispatch:
+
+permissions:
+  issues: write
+  pull-requests: write
+
+concurrency:
+  group: stale-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  stale:
+    name: stale bot
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Run stale (GitHub-native config)
+        # actions/stale@v9 reads the GitHub-native YAML format that the
+        # config file uses (`version: "2"`, label-keyed rules).
+        # SHA pinned per AGENTS.md §3.6 / release.yml supply-chain rules.
+        uses: actions/stale@5bef64f19d7facfb25b37b414482c7164d639639 # v9.1.0
+        with:
+          config-path: .github/stale.yml
+          # The native config already restricts to issues via `only:
+          # issues`; passing the same flag here is a belt-and-braces
+          # guard in case the config file is hand-edited.
+          only-issue-types: >-
+            opened
+            reopened
+          # Render stale/close messages as plain text — the native
+          # config already provides the prose via `close_comment`.
+          dry-run: false
+          # Operations per run: 30 (matches `limit_per_run: 30` in the
+          # config). Larger queues are split across consecutive days.
+          operations-per-run: 30

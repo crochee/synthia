@@ -1,0 +1,104 @@
+# syntax=docker/dockerfile:1.7
+#
+# Multi-stage Dockerfile for synthia-mcp-server (stdio MCP binary).
+#
+# The binary speaks MCP over stdin / stdout; container usage is
+# typically `docker run --rm -i synthia/synthia-mcp-server
+# --workspace /workspace` from an MCP client that spawns it as a
+# subprocess. The image is intentionally minimal — Alpine + the
+# statically-linked release binary + ca-certificates (the tool's
+# `web_fetch` needs them for outbound HTTPS).
+#
+# Build identity baked at compile time via `build.rs` of the
+# workspace members (the same SYNTHIA_* triplet
+# `release.yml` / `Dockerfile.server` use):
+#   - SYNTHIA_GIT_SHA      — full 40-char commit SHA
+#   - SYNTHIA_BUILD_TIME   — ISO-8601 UTC wall-clock
+#   - SYNTHIA_TARGET       — full target triple
+#   - SYNTHIA_VERSION      — workspace version (0.1.0)
+#
+# Stage layout (cargo-chef pattern, mirror of Dockerfile.server):
+#   0. chef     — install cargo-chef once
+#   1. planner  — emit a recipe.json from Cargo.lock
+#   2. cacher   — compile only third-party deps (slowest layer)
+#   3. builder  — compile synthia-mcp-server's own crates (fast)
+#   4. runtime  — minimal Alpine with tini + the binary
+#
+# First build: ~5 min (cacher). Subsequent builds with no
+# Cargo.lock / dep change: <30 s. Source-only changes: ~1 min.
+
+ARG RUST_VERSION=1.98
+
+########## Stage 0: chef installer (toolchain only, reused) ##########
+FROM rust:${RUST_VERSION}-alpine AS chef
+RUN apk add --no-cache musl-dev pkgconfig openssl-dev
+RUN cargo install cargo-chef --locked
+WORKDIR /app
+
+########## Stage 1: dependency recipe (~10 KB JSON) ##########
+FROM chef AS planner
+COPY Cargo.toml Cargo.lock ./
+COPY crates ./crates
+RUN cargo chef prepare --recipe-path recipe.json
+
+########## Stage 2: third-party dependency layer ##########
+FROM chef AS cacher
+COPY --from=planner /app/recipe.json recipe.json
+ENV CARGO_PROFILE_RELEASE_LTO=thin \
+    CARGO_PROFILE_RELEASE_STRIP=symbols
+RUN cargo chef cook --release -p synthia-mcp-server \
+    --bin synthia-mcp-server --recipe-path recipe.json
+
+########## Stage 3: build synthia-mcp-server with identity baked in ##########
+FROM cacher AS builder
+ARG SYNTHIA_GIT_SHA=""
+ARG SYNTHIA_BUILD_TIME=""
+ARG SYNTHIA_TARGET="x86_64-unknown-linux-musl"
+ARG SYNTHIA_VERSION="0.1.0"
+COPY Cargo.toml Cargo.lock ./
+COPY crates ./crates
+ENV SYNTHIA_GIT_SHA=${SYNTHIA_GIT_SHA} \
+    SYNTHIA_BUILD_TIME=${SYNTHIA_BUILD_TIME} \
+    SYNTHIA_PROFILE=release \
+    SYNTHIA_TARGET=${SYNTHIA_TARGET} \
+    SYNTHIA_VERSION=${SYNTHIA_VERSION}
+RUN cargo build --release --locked -p synthia-mcp-server \
+    && cp target/release/synthia-mcp-server /app/synthia-mcp-server
+
+########## Stage 4: minimal Alpine runtime with tini ##########
+FROM alpine:3.19 AS runtime
+RUN apk add --no-cache ca-certificates tini
+WORKDIR /app
+
+ARG SYNTHIA_GIT_SHA=""
+ARG SYNTHIA_BUILD_TIME=""
+ARG SYNTHIA_TARGET="x86_64-unknown-linux-musl"
+ARG SYNTHIA_VERSION="0.1.0"
+
+COPY --from=builder /app/synthia-mcp-server /usr/local/bin/synthia-mcp-server
+
+ENV SYNTHIA_VERSION=${SYNTHIA_VERSION} \
+    SYNTHIA_GIT_SHA=${SYNTHIA_GIT_SHA} \
+    SYNTHIA_BUILD_TIME=${SYNTHIA_BUILD_TIME} \
+    SYNTHIA_TARGET=${SYNTHIA_TARGET} \
+    RUST_LOG=info
+
+# Default workspace root; MCP clients typically override via
+# `docker run --workspace <host-path>` mapped into the container.
+ENV SYNTHIA_WORKSPACE=/workspace
+VOLUME ["/workspace"]
+
+# OCI image labels — surface under `docker inspect` so a support
+# engineer can confirm the right image without running it.
+LABEL org.opencontainers.image.title="synthia-mcp-server" \
+      org.opencontainers.image.description="Synthia stdio MCP server — plugin-brick tools shipped to any MCP client" \
+      org.opencontainers.image.source="https://github.com/crochee/synthia" \
+      org.opencontainers.image.licenses="MIT" \
+      org.opencontainers.image.version=${SYNTHIA_VERSION} \
+      org.opencontainers.image.revision=${SYNTHIA_GIT_SHA} \
+      org.opencontainers.image.created=${SYNTHIA_BUILD_TIME}
+
+# `tini` reaps zombies and forwards signals; SIGTERM -> graceful
+# shutdown (the binary exits on EOF / parent disconnect).
+ENTRYPOINT ["/sbin/tini", "--"]
+CMD ["synthia-mcp-server", "--help"]

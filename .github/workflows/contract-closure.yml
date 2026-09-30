@@ -1,0 +1,105 @@
+name: contract-closure
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+    branches: [master]
+  workflow_dispatch:
+
+concurrency:
+  group: contract-closure-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  contract-scan:
+    name: Scan backend router + frontend fetch calls
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    # Advisory until §6 of `docs/interface-contract/` (contract-closure
+    # spec) is closed: the three jobs all `continue-on-error: true`.
+    # Tracking: `synthia-interface-contract-closure` spec; the
+    # gate-flip is in CHANGELOG.md `[Unreleased]` under "Contract
+    # closure: promotion to gating".
+    continue-on-error: true
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install contract-closure tool deps
+        working-directory: contract-closure
+        run: npm install --no-audit --no-fund
+
+      - name: Run contract-scan
+        working-directory: contract-closure
+        run: npm run scan
+
+      - name: Run contract-report
+        working-directory: contract-closure
+        run: npm run report
+
+      - name: Upload contract artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: interface-contract-artifacts
+          path: |
+            docs/interface-contract/contract.yaml
+            docs/interface-contract/contract.json
+            docs/interface-contract/contract.md
+          retention-days: 7
+
+  contract-check:
+    name: Static dual-side contract check
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    needs: contract-scan
+    continue-on-error: true
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install contract-closure tool deps
+        working-directory: contract-closure
+        run: npm install --no-audit --no-fund
+
+      - name: Run contract-check
+        working-directory: contract-closure
+        run: npm run check
+
+  contract-unit-tests:
+    name: contract-closure unit tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    continue-on-error: true
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install contract-closure tool deps
+        working-directory: contract-closure
+        run: npm install --no-audit --no-fund
+
+      - name: Run unit tests
+        working-directory: contract-closure
+        run: npm test -- --reporter=basic
+
+  # The Playwright sub-suite that used to live here drove the removed
+  # `synthia-web/tests/` tree. Frontend verification is now
+  # Playwright-MCP against the running app (AGENTS.md §4.2); this
+  # workflow keeps the three browser-free contract jobs above.

@@ -1,0 +1,37 @@
+# .cargo/config.toml — 全局 cargo 配置.
+#
+# 落在 repo 内, 让所有 cargo 子命令在仓库根目录执行时取这里的设置,
+# 包括 CI. 主要目的:
+#   1) 给 cargo 加 `git-fetch-with-cli` —— 部分沙箱环境里 cargo 自己
+#      的 git fetch 会因 CA bundle 问题失败, 让它走系统 git;
+#   2) 给 cargo 加 `[net]` 默认 retry —— 不稳定的网络抖动 (尤其 CI)
+#      偶发会让 `cargo fetch` 失败;
+#   3) 锁定 registry 为默认 crates.io, 防止某次 .cargo/config 漏配导致
+#      拉私有 registry.
+#
+# 故意**不**在这里配:
+#   - sccache / mold / target-cpu (各 OS / toolchain 下表现不一致, 让
+#     CI runner 自己决定);
+#   - `[source.crates-io]` 替换 (本仓遵守默认 crates.io, 见 deny.toml).
+#
+# 此文件不覆盖用户家目录 (~/.cargo/config.toml).
+
+[net]
+git-fetch-with-cli = true   # 让 cargo 用系统 git 抓 git 依赖
+retry = 3                    # crates.io 偶发 5xx 时重试
+
+[registries.crates-io]
+protocol = "git"             # crates.io v2 索引是 sparse + git; git 是
+                             # 兼容老 cargo 的保险.
+
+# ────────────────────────────────────────────────────────────────────────
+# Build: 默认 profile 与 release profile 已在根 Cargo.toml 收口, 这里
+# 不写 `[build].jobs` 让 cargo 自己探测核心数 (CI runner 经常禁超
+# 线程, 写死反而慢; cargo 不接受 `jobs = 0`, 必须省略).
+# ────────────────────────────────────────────────────────────────────────
+
+# ────────────────────────────────────────────────────────────────────────
+# Alias — 给常用的 `cargo xtask` 留个空位 (R 后续可加 xtask crate).
+# ────────────────────────────────────────────────────────────────────────
+[alias]
+xtask = "run --release -p xtask --"

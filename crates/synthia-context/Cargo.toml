@@ -1,0 +1,53 @@
+[package]
+name = "synthia-context"
+description = "Context window management for synthia: truncating / noop / summarizing / DAG context managers and the memory tier (in-memory / file / SQLite)"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+documentation.workspace = true
+readme.workspace = true
+keywords.workspace = true
+categories.workspace = true
+[dependencies]
+synthia-core.workspace = true
+# Context managers consume the provider wire types (`Message`,
+# `ContentPart`, `ModelConfig`) and the cheap token estimator, so
+# the dependency direction is context → provider (one-way).
+synthia-provider.workspace = true
+async-trait.workspace = true
+# The memory tier's conversation backend is the inert session
+# sink; the dependency stays one-way (context → session; session
+# is a leaf crate).
+synthia-session.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+futures.workspace = true
+parking_lot.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+ulid.workspace = true
+# Wall-clock timestamps use chrono (workspace-wide time library);
+# monotonic durations stay on `std::time::Instant`.
+chrono.workspace = true
+# Optional: the SQLite-backed memory tier (`memory::sqlite`, FTS5
+# recall). Off by default so the default build stays C-dependency
+# free.
+rusqlite = { workspace = true, optional = true }
+
+[features]
+# Enable `memory::sqlite` (`SqliteMemory`). Pulls in bundled SQLite.
+sqlite = ["dep:rusqlite"]
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["macros", "rt"] }
+# The file-backed memory tier's tests need hermetic temp roots.
+tempfile.workspace = true
+
+# The `sqlite` example only builds when the backend it documents is
+# compiled in; `cargo test` (default features) skips it cleanly.
+[[example]]
+name = "sqlite_memory"
+required-features = ["sqlite"]

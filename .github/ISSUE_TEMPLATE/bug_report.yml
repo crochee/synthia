@@ -1,0 +1,104 @@
+name: Bug report
+description: 报告一个明确的、可复现的 bug。设计讨论 / 用例请走 Discussions。
+labels: ["bug", "needs-triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        提 issue 前先看 [CONTRIBUTING.md](../../blob/master/CONTRIBUTING.md) 与
+        现有 issue / Discussions。安全漏洞请走
+        [SECURITY.md](../../blob/master/SECURITY.md)，**不要**在本模板里贴 PoC。
+
+  - type: textarea
+    id: summary
+    attributes:
+      label: 一句话描述
+      description: 出了什么问题；预期是什么；实际是什么。
+      placeholder: |
+        `synthia::harness::ReActAgent::run` 在 provider 返回空 content
+        时死循环，预期应该走 `StopReason::NoOp`。
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: 版本
+      description: |
+        受影响版本 / commit（`Cargo.toml` 顶层 `[workspace.package] version` +
+        `git rev-parse HEAD`）。
+      placeholder: "0.1.0 @ 5f6cabc"
+    validations:
+      required: true
+
+  - type: textarea
+    id: repro
+    attributes:
+      label: 复现步骤
+      description: |
+        最小化复现命令 / 代码片段。代码块请用 ```rust / ```toml / ```bash
+        三反引号围栏；不要截图。
+      placeholder: |
+        ```rust
+        let provider = Arc::new(ModelProviderStub::returning(""));
+        let agent = ReActAgent::new(provider, registry);
+        let stream = agent.run("hi").await?;
+        while let Some(event) = stream.next().await { /* ... */ }
+        ```
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: 预期行为
+      placeholder: |
+        第一次 `AgentEvent::Done(StopReason::NoOp)` 后流应结束。
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: 实际行为
+      placeholder: |
+        流永远不结束；debug 打印显示 loop 计数 ≥ 50。
+    validations:
+      required: true
+
+  - type: textarea
+    id: environment
+    attributes:
+      label: 环境
+      description: |
+        OS / 架构 / Rust 工具链 / 关键依赖版本（`cargo tree -p synthia` 输出）。
+      placeholder: |
+        ```
+        Ubuntu 24.04 x86_64, rustc 1.95.0 stable,
+        synthia = 0.1.0, axum = 0.8, tokio = 1.40
+        ```
+    validations:
+      required: false
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: 关键日志 / 栈
+      description: |
+        `RUST_BACKTRACE=1` 的栈；如有 `SYNTHIA_OTLP_ENDPOINT` 设置的 OTLP
+        span 也可一并附上。
+      placeholder: |
+        ```
+        thread 'main' panicked at 'loop budget exceeded', crates/synthia-harness/src/agent/re_act.rs:42:5
+        ```
+    validations:
+      required: false
+
+  - type: textarea
+    id: extra
+    attributes:
+      label: 其它
+      description: |
+        复现外的相关观察、相关 issue / spec 引用、是否愿意提 PR 等。
+    validations:
+      required: false

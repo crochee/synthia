@@ -1,0 +1,16 @@
+# Synthia web app gitignore
+
+# Frontend build output
+dist/
+node_modules/
+
+# Vite
+.vite/
+
+# Playwright artifacts (UI traces, screenshots, videos)
+
+# Editor / OS
+.vscode/
+.idea/
+*.swp
+.DS_Store

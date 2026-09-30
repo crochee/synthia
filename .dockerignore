@@ -1,0 +1,103 @@
+# Synthia .dockerignore — exhaustive list, mirrors the build
+# context's actual needs (Cargo + Cargo.lock + crates/ +
+# config.yaml + nginx.conf + synthia-web/) and nothing else.
+#
+# Anything not listed here gets shipped to the daemon when a
+# `docker build` starts, which inflates the build context to many
+# hundreds of MB and slows every push / local rebuild. This file
+# keeps the context at the few hundred KB it actually needs.
+#
+# Rule of thumb: only paths Cargo / npm / nginx read at runtime
+# belong in the build context. `target/`, `.git/`, `.env`, IDE
+# scratch, editor caches, agent drafts, dev-only fixtures — all
+# excluded.
+
+# ---- VCS ----
+.git/
+.gitignore
+.gitattributes
+
+# ---- Rust build artefacts (built inside the image, never shipped in) ----
+target/
+**/target/
+
+# ---- Node / web build artefacts ----
+**/node_modules
+synthia-web/node_modules
+synthia-web/dist
+synthia-web/tsconfig.tsbuildinfo
+synthia-web/.vite
+contract-closure/node_modules
+contract-closure/dist
+
+# ---- Local secrets & config (must NEVER enter the build context) ----
+.env
+.env.*
+config.yaml
+config.local.*
+config.toml
+server.toml
+server.local.*
+**/*.key
+**/*.pem
+**/.ssh/
+
+# ---- Local dev / runtime artefacts ----
+.dev/
+.omc/
+.omp/
+.synthia/
+.trae/
+.worktrees/
+.attachments/
+.agents/
+.superpowers/
+.sdd/
+
+# ---- Logs / caches ----
+*.log
+**/*.log
+**/*.log.*
+**/cache/
+.cache/
+
+# ---- IDE / editor / OS noise ----
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+
+# ---- Test / bench scratch (only useful in CI, not in image) ----
+**/*.test
+**/*.profraw
+**/lcov.info
+coverage/
+htmlcov/
+
+# ---- Documentation source (rustdoc is built inside the image if needed) ----
+docs/
+target/doc/
+
+# ---- Repository meta that's redundant with the image labels ----
+README.md
+RELEASE.md
+DEPLOYMENT.md
+MINIMAL.md
+SEAMS.md
+COMMERCIAL.md
+GOVERNANCE.md
+SECURITY.md
+CONTRIBUTING.md
+CODE_OF_CONDUCT.md
+MAINTAINERS.md
+CONTRIBUTORS.md
+CHANGELOG.md
+LICENSE
+CLAUDE.md
+AGENTS.md
+.editorconfig
+.markdownlint.json
+deny.toml
+
+# ---- Old / historical / round artifacts (not needed at image build) ----
+docs/

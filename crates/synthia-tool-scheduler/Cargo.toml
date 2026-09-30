@@ -1,0 +1,38 @@
+[package]
+name = "synthia-tool-scheduler"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "The `schedule` builtin: let the model create and manage scheduled jobs"
+repository.workspace = true
+homepage.workspace = true
+documentation.workspace = true
+readme.workspace = true
+keywords.workspace = true
+categories.workspace = true
+
+[features]
+# Forward to the scheduler's real recurrence: with it on, `create`
+# accepts `kind: "cron"` and computes the first fire with
+# `CronTrigger::first_after`. Off by default — a build that never
+# schedules cron refuses `kind: "cron"` instead of creating a job that
+# fires every minute.
+cron = ["synthia-scheduler/cron"]
+
+[dependencies]
+synthia-tool.workspace = true
+synthia-scheduler.workspace = true
+synthia-core.workspace = true
+async-trait.workspace = true
+chrono.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tracing.workspace = true
+
+[dev-dependencies]
+# `#[tokio::test]`/`#[tokio::main]` need `macros` + `rt`;
+# `#[tokio::main]` defaults to the multi-thread runtime.
+tokio = { workspace = true, features = ["macros", "rt", "rt-multi-thread"] }
+# Every test drives the tool over a real on-disk store.
+tempfile.workspace = true

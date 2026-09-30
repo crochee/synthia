@@ -1,0 +1,30 @@
+name: Question
+description: 短问——读 docs 后还答不上的事。设计讨论请走 Discussions。
+labels: ["question"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        短问题（"读 docs 后还答不上"）用本模板。**设计讨论 / 选型 /
+        用例分析**请走 [Discussions](../../discussions)。
+
+  - type: textarea
+    id: question
+    attributes:
+      label: 问题
+      placeholder: |
+        `synthia-tool-shell` 的 `BwrapBackend` 在 macOS 下是 no-op 吗？
+        我看 `with_sandbox` 在 OS != "linux" 分支返回 None，但 README 没
+        写。
+    validations:
+      required: true
+
+  - type: textarea
+    id: tried
+    attributes:
+      label: 已查过
+      description: |
+        已查 `README.md` / `MINIMAL.md` / `SEAMS.md` / `AGENTS.md` /
+        `crates/<x>/README.md` / 已搜过 issues。
+    validations:
+      required: false

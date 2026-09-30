@@ -1,0 +1,126 @@
+# k8s deployment manifest — synthia-web
+#
+# The React/Vite frontend serves the static SPA bundle via nginx.
+# The nginx config (`nginx/default.conf.template`) reverse-proxies
+# `/api/*` to the synthia-server Service so the SPA and the API
+# share one origin in production (avoids CORS, keeps cookies
+# first-party).
+#
+# Design points:
+#   1. Deployment, 1 replica minimum; HPA is downstream.
+#   2. SecurityContext: non-root, read-only root filesystem, only
+#      port 80 open.
+#   3. Service: ClusterIP; an Ingress (out of scope for this
+#      reference manifest) terminates TLS in front of it.
+#   4. Probes: HTTP `/` against the served index.html — the
+#      nginx config returns 200 on every request, so the probe is a
+#      pure liveness signal.
+#   5. PDB: at least one replica remains during voluntary
+#      disruptions.
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: synthia-web
+  labels:
+    app.kubernetes.io/name: synthia-web
+    app.kubernetes.io/component: frontend
+    app.kubernetes.io/part-of: synthia
+spec:
+  replicas: 1
+  revisionHistoryLimit: 3
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0
+      maxSurge: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: synthia-web
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: synthia-web
+        app.kubernetes.io/component: frontend
+        app.kubernetes.io/part-of: synthia
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        fsGroup: 65532
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: web
+          image: synthia/synthia-web:0.1.0
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 80
+              protocol: TCP
+          livenessProbe:
+            httpGet:
+              path: /
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 2
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /
+              port: http
+            initialDelaySeconds: 2
+            periodSeconds: 5
+            timeoutSeconds: 2
+            failureThreshold: 3
+          env:
+            # `VITE_*` env are baked at build time, but the runtime
+            # here is plain nginx so this is informational. The web
+            # image's nginx.conf can read these to drive proxy_pass
+            # upstream selection in dev vs prod.
+            - name: SYNTHIA_HOST
+              value: "0.0.0.0"
+            - name: SYNTHIA_PORT
+              value: "80"
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 500m
+              memory: 256Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: synthia-web
+  labels:
+    app.kubernetes.io/name: synthia-web
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: synthia-web
+  ports:
+    - name: http
+      port: 80
+      targetPort: http
+      protocol: TCP
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: synthia-web
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: synthia-web

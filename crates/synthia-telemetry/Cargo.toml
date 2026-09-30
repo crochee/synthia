@@ -1,0 +1,43 @@
+[package]
+name = "synthia-telemetry"
+description = "Telemetry facade for synthia: tracing + OTLP exporter + Prometheus text exposition, feature-gated"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+documentation.workspace = true
+readme.workspace = true
+keywords.workspace = true
+categories.workspace = true
+[dependencies]
+synthia-core.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+
+# Optional halves. `metrics` is the Prometheus text-exposition surface
+# (`/metrics`, tool counters); `otlp` is the trace exporter. Both are
+# on by default so a deployment gets the full stack; a library
+# consumer turns off what it does not want and stops compiling it.
+prometheus = { workspace = true, optional = true }
+lazy_static = { workspace = true, optional = true }
+opentelemetry = { workspace = true, optional = true }
+opentelemetry_sdk = { workspace = true, optional = true }
+opentelemetry-semantic-conventions = { workspace = true, optional = true }
+opentelemetry-otlp = { workspace = true, optional = true }
+tracing-opentelemetry = { workspace = true, optional = true }
+
+[features]
+default = ["metrics", "otlp"]
+metrics = ["dep:prometheus", "dep:lazy_static"]
+otlp = [
+    "dep:opentelemetry",
+    "dep:opentelemetry_sdk",
+    "dep:opentelemetry-semantic-conventions",
+    "dep:opentelemetry-otlp",
+    "dep:tracing-opentelemetry",
+]
+
+[dev-dependencies]
+tempfile.workspace = true

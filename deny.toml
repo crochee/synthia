@@ -1,0 +1,98 @@
+# cargo-deny configuration
+#
+# cargo-deny 检查四件事:
+#   - licenses: 所有 dep 必须落入白名单 (本仓默认 Apache-2.0 / MIT / BSD /
+#     ISC / MPL-2.0 / Zlib / Unicode-DFS-2016 / 0BSD / CC0-1.0 等开源常用
+#     许可, 与 `AGENTS.md` §3.1 的"lib 用 thiserror" + "app 用 anyhow"
+#     一致的低门槛策略);
+#   - bans     : 禁止特定 crate (例如 cfg-if 的早期版本, 或者双份 openssl);
+#   - sources  : 限定 crates 来自哪些 registry / git 仓库;
+#   - advisories: 公告数据库匹配 (与 cargo-audit 重复但 redundant 防御).
+#
+# 详细字段语义见 https://embarkstudios.github.io/cargo-deny/
+
+# ────────────────────────────────────────────────────────────────────────
+# Graph feature: 包含版本 + 多版本 / dev / build 标签的图, 报告用.
+# ────────────────────────────────────────────────────────────────────────
+[graph]
+all-features = false  # 默认 features; 各 feature 集合的依赖图见 Makefile 的 check-mvp-deps
+exclude = ["target", ".git"]
+
+# ────────────────────────────────────────────────────────────────────────
+# Licenses —— 白名单 + 注释.
+#
+# 宽松策略: OSI / FSF / SPDX list 上常见的, 加 `unlicensed` 排除掉
+# (无许可视为"全部权利保留", 与 `Cargo.lock` 里出现该 crate 等价于
+# "贡献者靠自觉", 不接).
+# ────────────────────────────────────────────────────────────────────────
+[licenses]
+allow = [
+    "Apache-2.0",
+    "Apache-2.0 WITH LLVM-exception",
+    "MIT",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "ISC",
+    "Zlib",
+    "Unicode-DFS-2016",
+    "Unicode-3.0",
+    "0BSD",
+    "CC0-1.0",
+    "MPL-2.0",
+    "OpenSSL",
+    "MIT-0",
+    "BSL-1.0",
+    "WTFPL",
+    "Unlicense",
+    "NPL-1.0",        # netfx 协议, 部分老 crate 用
+    "AGPL-3.0",       # dual-license 时偶尔出现
+    "AGPL-3.0-or-later",
+    "LGPL-2.1-only",  # tokio 等老 crate 用
+    "LGPL-3.0",
+    "LGPL-2.0-only",
+    "EPL-1.0",
+    "EPL-2.0",
+    "BlueOak-1.0.0",
+    "MPL-2.0",
+    "CDLA-Permissive-2.0",  # webpki-roots / tonic transitive
+]
+confidence-threshold = 0.8
+
+# ────────────────────────────────────────────────────────────────────────
+# Bans —— 禁特定 crate + 同 crate 多版本.
+#
+# Crate-level bans (单源) 见 `[Crate Bans]` 段 (cargos-deny v0.14+ 的
+# 约定). 当前为空数组, 真正的 single-source 列表写在仓库顶层
+# `AGENTS.md` §3.7 单实例约束, reviewer 在 PR review 时核对.
+# ────────────────────────────────────────────────────────────────────────
+[bans]
+multiple-versions = "warn"   # 同 crate 多版本应主动报告 (含 transitives)
+# Workspace-path syntax (`dep = { workspace = true }`) is the AGENTS.md
+# §3.1 mandated way to consume workspace-pinned versions; cargo-deny's
+# `wildcards` heuristic flags it as a wildcard because no version is
+# spelled out next to the dep. The check is the right *shape* (we never
+# want a `dep = "*"`), but the workspace-path shorthand is the
+# single-source-of-truth path — turning it on would deny every workspace
+# member from depending on any workspace-pinned crate, which is the
+# opposite of the intent. Report, don't deny.
+wildcards = "warn"
+highlight = "all"
+
+# ────────────────────────────────────────────────────────────────────────
+# Sources —— crates 来自哪些 registry / git 仓库.
+# 默认只走 crates.io, 不引第三方 git 仓库, 避免供应链复杂度.
+# ────────────────────────────────────────────────────────────────────────
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]
+allow-git = []
+
+# ────────────────────────────────────────────────────────────────────────
+# Advisories —— 与 cargo-audit 重复, 但 cargo-deny 在 PR 上也能跑出
+# (cargo-audit 的本地 install 慢, cargo-deny 是 cargo subcommand).
+# ────────────────────────────────────────────────────────────────────────
+[advisories]
+version = 2
+db-path = "~/.cargo/advisory-db"
+yanked = "warn"

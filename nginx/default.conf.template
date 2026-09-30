@@ -1,0 +1,65 @@
+server {
+    listen       80;
+    listen       [::]:80;
+    server_name  _;
+
+    # The web container image is nginx:alpine; the upstream
+    # `user nginx;` directive in /etc/nginx/nginx.conf already drops
+    # worker privileges to uid 101 (nginx), so the pod's
+    # runAsNonRoot: true + readOnlyRootFilesystem: true
+    # SecurityContext lines up without any extra config here.
+
+    root   /usr/share/nginx/html;
+    index  index.html;
+
+    # SPA entry must be no-cache so a new release's index.html is
+    # always picked up; without this, a CDN / browser cache pinned
+    # to the old HTML would route every request to stale assets.
+    location = /index.html {
+        add_header Cache-Control "no-cache, no-store, must-revalidate";
+        add_header Pragma "no-cache";
+        expires -1;
+    }
+
+    # Hashed static assets: long cache, immutable. Vite emits
+    # `/assets/<name>-<hash>.js` so this matches every bundled asset.
+    location ~* \.(?:js|css|png|jpg|jpeg|gif|svg|ico|woff2?)$ {
+        expires 7d;
+        add_header Cache-Control "public, immutable";
+        try_files $uri =404;
+    }
+
+    # synthia-server endpoints reverse-proxied through nginx so the
+    # SPA and the API share one origin (avoids CORS, keeps cookies
+    # first-party). Probes (`/livez`, `/readyz`, `/version`) are
+    # included so k8s can hit them through the ingress layer too.
+    #
+    # `SYNTHIA_API_UPSTREAM` is substituted at container start via
+    # `envsubst`; default in compose / k8s points at the server
+    # service. The chat surface's SSE endpoint
+    # (`/api/v1/chat/sessions/{id}/stream`) MUST be in this list
+    # — streaming responses are not buffered by nginx (the
+    # `proxy_buffering off` below covers that).
+    location ~ ^/(api|livez|readyz|version)(/|$) {
+        proxy_pass ${SYNTHIA_API_UPSTREAM};
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        # SSE / streaming: disable response buffering so events
+        # reach the client as they happen. Default buffering would
+        # chunk 4 KB at a time and break the live feed.
+        proxy_buffering off;
+        proxy_cache off;
+        proxy_connect_timeout 2s;
+        proxy_send_timeout    3s;
+        proxy_read_timeout    3s;
+    }
+
+    # SPA fallback — every other route serves index.html so the
+    # client-side router can take over.
+    location / {
+        try_files $uri $uri/ /index.html;
+    }
+}

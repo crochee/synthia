@@ -1,0 +1,19 @@
+{
+  "_comment": "markdownlint — Synthia",
+  "_note": "Lock Markdown formatting to the AGENTS.md / CONTRIBUTING.md prose conventions. Scoped to **explicit** include lists (not exclude patterns) so the gate is deterministic and a new directory tree cannot accidentally enter the lint scope.",
+  "default": true,
+  "MD003": { "style": "atx" },
+  "MD004": { "style": "consistent" },
+  "MD007": { "indent": 2 },
+  "MD013": false,
+  "MD024": { "siblings_only": true },
+  "MD033": false,
+  "MD034": false,
+  "MD036": false,
+  "MD041": false,
+  "MD046": { "style": "fenced" },
+  "MD049": { "style": "consistent" },
+  "MD050": { "style": "consistent" },
+  "MD059": false,
+  "MD060": false
+}

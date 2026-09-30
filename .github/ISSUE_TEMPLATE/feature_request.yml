@@ -1,0 +1,71 @@
+name: Feature request
+description: 提议一个具体能力 / API / 行为。范围评估前先在 Discussions 收敛。
+labels: ["enhancement", "needs-triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        提议**具体能力**前，先看 [`SEAMS.md`](../../blob/master/SEAMS.md) —— 那
+        里是 7 大组件的可替换点清单。**设计讨论 / 用例选择**请走
+        Discussions；本模板只接受能收敛到 "改这个 trait / 加这个 crate /
+        加这个 feature flag" 的提议。
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: 当前痛点
+      description: 现在做不到什么 / 做到一半 / 做到很难。
+      placeholder: |
+        `ReActAgent` 只支持单 model provider；想 hot-swap provider
+        （A/B、降级）必须重建整个 agent，丢失 session / registry。
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: 提议 API
+      description: |
+        一段伪代码 / trait 改动 / feature flag 说明。避免只写"能不能加
+        一下 X"；写到能进 PR review 的细致度。
+      placeholder: |
+        ```rust
+        // 新增 `swap_provider` 到 `ReActAgent`:
+        impl ReActAgent {
+            pub fn swap_provider(
+                &self,
+                new: Arc<dyn ModelProvider>,
+            ) -> impl Future<Output = ()>;
+        }
+        ```
+    validations:
+      required: true
+
+  - type: textarea
+    id: tradeoff
+    attributes:
+      label: 权衡 / 替代方案
+      description: |
+        至少有 1 个替代方案（"为什么不做 X 而是做 Y"）。这一段是为了让
+        reviewer 一眼看到你考虑过其它的路。
+    validations:
+      required: true
+
+  - type: textarea
+    id: impact
+    attributes:
+      label: 影响面
+      description: |
+        受影响 crate（facade feature flag 变化？新 crate？破坏性 API？）；
+        是否触碰 `crates/synthia-core` 的 trait；是否需要新依赖。
+    validations:
+      required: false
+
+  - type: textarea
+    id: spec
+    attributes:
+      label: 关联 spec / issue
+      description: |
+        `docs/superpowers/specs/` 的相关 spec、相关 issue、Discussions 链接。
+    validations:
+      required: false

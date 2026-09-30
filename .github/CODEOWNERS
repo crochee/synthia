@@ -1,0 +1,59 @@
+# CODEOWNERS — Synthia
+#
+# 与 MAINTAINERS.md 同步。GitHub 在 PR 上自动 @ 用户 / 团队请求 review。
+# 行格式: <pattern> <owner>; 末匹配兜底 (`*`)。
+# 详细语法见 https://docs.github.com/en/repositories/creating-and-managing-repositories/about-code-owners
+
+# 默认: 仓库维护者（见 MAINTAINERS.md）。
+*                                    @crochee
+
+# 核心 trait + proc-macro —— 接口变更需快速 review。
+/crates/synthia-core/                @crochee
+/crates/synthia-macros/              @crochee
+
+# Provider wire type 影响下游兼容，破坏性变更成本贵。
+/crates/synthia-provider/            @crochee
+
+# Harness / Tool 范式 —— 循环 / 注册表 / 暴露投影；改一处走全仓 review。
+/crates/synthia-harness/             @crochee
+/crates/synthia-tool/                @crochee
+/crates/synthia-tool-*/              @crochee
+
+# HTTP / SSE / config.yaml —— 公开面 / 安全敏感。
+/crates/synthia-server/              @crochee
+/synthia-web/                        @crochee
+/config.yaml                         @crochee
+
+# CI / 自动化 / 棘轮 —— 一处错就全 CI 红灯。
+/.github/workflows/                  @crochee
+/.github/dependabot.yml              @crochee
+/.github/stale.yml                   @crochee
+/.github/CODEOWNERS                  @crochee
+/.github/ISSUE_TEMPLATE/             @crochee
+/.github/PULL_REQUEST_TEMPLATE.md    @crochee
+/Makefile                            @crochee
+/scripts/                            @crochee
+/clippy.toml                         @crochee
+/.markdownlint.json                  @crochee
+/.editorconfig                       @crochee
+/.gitattributes                      @crochee
+/rustfmt.toml                        @crochee
+/deny.toml                           @crochee
+/Cargo.toml                          @crochee
+/rust-toolchain.toml                 @crochee
+/CONTRIBUTORS.md                     @crochee
+/CODE_OF_CONDUCT.md                   @crochee
+/LICENSE                              @crochee
+/CLAUDE.md                            @crochee
+
+# 文档体系。
+/README.md                           @crochee
+/MINIMAL.md                          @crochee
+/SEAMS.md                            @crochee
+/AGENTS.md                           @crochee
+/CHANGELOG.md                        @crochee
+/CONTRIBUTING.md                     @crochee
+/RELEASE.md                          @crochee
+/SECURITY.md                         @crochee
+/MAINTAINERS.md                      @crochee
+/docs/                               @crochee

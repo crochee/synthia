@@ -1,0 +1,45 @@
+[package]
+name = "synthia-core"
+description = "Runtime-neutral foundation for synthia: Clock / IdGen / CancelToken / Spawner / Registry traits, error taxonomy, wire types"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+documentation.workspace = true
+readme.workspace = true
+keywords.workspace = true
+categories.workspace = true
+[dependencies]
+thiserror.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+serde_yaml.workspace = true
+schemars.workspace = true
+async-trait.workspace = true
+parking_lot.workspace = true
+chrono.workspace = true
+base64.workspace = true
+ulid.workspace = true
+
+# Both optional: this crate is the runtime-neutral foundation, so it
+# must not force an HTTP client or an async runtime on a consumer.
+#
+# - `reqwest` exists for exactly one impl (`From<reqwest::Error> for
+#   Error`, in `error.rs`) — the seam that lets an HTTP-speaking crate
+#   `?` a transport error. Only `synthia-provider` turns it on.
+# - `tokio-util` is the `CancellationToken` bridge in `cancel.rs`,
+#   used by tokio-based callers that already hold one.
+reqwest = { workspace = true, optional = true }
+tokio-util = { workspace = true, optional = true }
+
+[features]
+tokio-util = ["dep:tokio-util"]
+reqwest = ["dep:reqwest"]
+
+[dev-dependencies]
+# Tests need *an* executor; `cargo test -p synthia-core` is the only
+# place the crate's own tree sees tokio. `macros` = `#[tokio::test]`,
+# `rt` = `tokio::spawn`, `time` = the cancellation test's sleep.
+tokio = { workspace = true, features = ["macros", "rt", "time"] }

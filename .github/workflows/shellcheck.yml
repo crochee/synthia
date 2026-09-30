@@ -1,0 +1,57 @@
+# shellcheck.yml — Synthia
+#
+# Lock the two bash gate scripts (`scripts/check-harness-shape.sh`,
+# `scripts/check-public-api-runtime.sh`) to a clean `shellcheck`
+# baseline. These scripts are invoked from `Makefile` and
+# `.github/workflows/rust-quality.yml`, so a drift in them breaks the
+# gate chain.
+#
+# `ludeeus/action-shellcheck@master` is the de-facto community action
+# (used by dockcross / cross-rs / cargo-deny CI among others); it
+# downloads the official `koalaman/shellcheck` Linux binary so no apt
+# or sudo is needed.
+#
+# 触发: push / PR / 每天 UTC 05:00（与 stale / markdown-lint 错开 1 小时）。
+name: shellcheck
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+    branches: [master]
+  schedule:
+    - cron: "0 5 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: shellcheck-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  lint:
+    name: shellcheck scripts/*.sh
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: shellcheck
+        uses: ludeeus/action-shellcheck@00cae500b08a931fb5698e11e79bfbd38e612a38 # v2.0.0
+        with:
+          # Two gate scripts only; future scripts/*.sh additions must
+          # update this list and the matching local `make shellcheck`
+          # target (no glob — keeps the scope deterministic).
+          scandir: |
+            ./scripts/check-harness-shape.sh
+            ./scripts/check-public-api-runtime.sh
+          # SC1091 (sourced file not found) is irrelevant: the gate
+          # scripts do not source anything. SC2086 (unquoted globbing)
+          # is intentional in the awk pipeline; see the comment in
+          # `scripts/check-public-api-runtime.sh`. SC2016 (single
+          # quote not expanding) is info-level and we run in `-S
+          # warning` mode so it stays out of the gate.
+          additional_files: ""
+          strict: "false"

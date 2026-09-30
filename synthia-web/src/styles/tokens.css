@@ -1,0 +1,640 @@
+/**
+ * Design tokens — "Linear Restrained" light theme.
+ *
+ * Bright micro-cool gray surface (#fafafa), pure-white cards,
+ * modern blue primary (#2563eb), near-black body text. Crisp
+ * Inter Variable typography. The terminal flavor survives in
+ * monospace code blocks, metadata strips, and inline status
+ * pills — page-level headings are now Inter 600.
+ *
+ * Imported once in `main.tsx` after `fonts.css`.
+ *
+ *   - Background:    #fafafa (micro-cool gray) for the app shell
+ *   - Surface:       #ffffff for cards; #f4f4f5 for sunken surfaces
+ *   - Primary:       #2563eb — used for headings, links, active nav,
+ *                    primary actions
+ *   - Secondary:     cyan/violet/rose/amber/red — state semantics only
+ *   - Text:          #18181b (near-black), #52525b (secondary),
+ *                    #a1a1aa (muted)
+ *   - Borders:       1px hairlines in rgba(0,0,0,0.06/0.12)
+ */
+
+:root {
+  /* ---- Backgrounds ---- */
+  --bg-primary: #fafafa;
+  --bg-secondary: #ffffff;
+  --bg-tertiary: #f4f4f5;
+  --bg-elevated: #ffffff;
+
+  /* ---- Brand ---- */
+  --brand-primary: #2563eb; /* logo mark fill + stroke */
+  --brand-accent: #0891b2; /* logo cyan arc */
+  --brand-wordmark: #18181b; /* wordmark ink (light theme) */
+
+  /* ---- Accents ---- */
+  --accent-primary: #2563eb; /* modern blue — primary */
+  --accent-primary-hover: #1d4ed8;
+  --accent-primary-active: #1e40af;
+  --accent-primary-subtle: #eff6ff;
+
+  --accent-cyan: #0891b2; /* code, secondary actions */
+  --accent-purple: #7c3aed; /* badges, tags */
+  --accent-magenta: #e11d48; /* destructive */
+  --accent-yellow: #b45309; /* warnings, built-in badges */
+  --accent-red: #dc2626; /* errors */
+  --accent-success: #16a34a; /* success */
+
+  /* Legacy aliases — preserved so components that still reference
+   * the pre-rename names continue to render the new blue. Remove
+   * in a follow-up sweep. */
+  --accent-green: var(--accent-primary);
+  --accent-green-hover: var(--accent-primary-hover);
+  --accent-green-active: var(--accent-primary-active);
+  --accent-green-subtle: var(--accent-primary-subtle);
+
+  /* ---- Text ---- */
+  --text-primary: #18181b; /* near-black */
+  --text-secondary: #52525b;
+  --text-muted: #a1a1aa;
+  --text-inverse: #fafafa;
+
+  /* ---- Borders ---- */
+  --border-primary: rgba(37, 99, 235, 0.32);
+  --border-secondary: rgba(8, 145, 178, 0.32);
+  --border-subtle: rgba(0, 0, 0, 0.06);
+  --border-strong: rgba(0, 0, 0, 0.12);
+
+  /* ---- Subtle shadow scale (no glow) ---- */
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.04);
+  --shadow-md: 0 1px 3px rgba(0, 0, 0, 0.06), 0 1px 2px rgba(0, 0, 0, 0.04);
+  --shadow-lg: 0 4px 12px rgba(0, 0, 0, 0.06);
+
+  --scrollbar-thumb: rgba(0, 0, 0, 0.16);
+  --scrollbar-thumb-hover: rgba(0, 0, 0, 0.32);
+
+  /* Backwards-compat: any rule that still references a glow var
+   * must not paint a dark halo on the light surface. */
+  --glow-green: 0 0 0 transparent;
+  --glow-green-strong: 0 0 0 transparent;
+  --glow-cyan: 0 0 0 transparent;
+  --glow-cyan-strong: 0 0 0 transparent;
+  --glow-red: 0 0 0 transparent;
+
+  /* ---- Typography ---- */
+  /*
+   * Self-hosted variable fonts. Leading entries resolve once the
+   * woff2 from /public/fonts/ loads; system fallbacks keep text
+   * visible during the swap window.
+   */
+  --font-sans:
+    'Inter var', 'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto,
+    'Helvetica Neue', Arial, sans-serif;
+  --font-mono:
+    'JetBrains Mono', ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, 'Liberation Mono',
+    monospace;
+
+  --fs-xs: 11px;
+  --fs-sm: 12px;
+  --fs-base: 14px;
+  --fs-md: 16px;
+  --fs-lg: 18px;
+  --fs-xl: 24px;
+  --fs-2xl: 32px;
+  --fs-3xl: 48px;
+
+  --fw-normal: 400;
+  --fw-medium: 500;
+  --fw-semibold: 600;
+  --fw-bold: 700;
+
+  --lh-tight: 1.25;
+  --lh-normal: 1.55;
+  --lh-loose: 1.75;
+
+  /* ---- Spacing ---- */
+  --spacing-xs: 4px;
+  --spacing-sm: 8px;
+  --spacing-md: 16px;
+  --spacing-lg: 24px;
+  --spacing-xl: 32px;
+  --spacing-2xl: 48px;
+  --spacing-3xl: 64px;
+
+  /* ---- Border radius (tighter) ---- */
+  --radius-sm: 4px;
+  --radius-md: 6px;
+  --radius-lg: 10px;
+  --radius-pill: 999px;
+
+  /* ---- Transitions ---- */
+  --transition-fast: 100ms ease;
+  --transition-base: 200ms ease;
+  --transition-slow: 400ms ease;
+  /* Panels that change the layout (the sidebar rail) move at 300ms
+   * rather than the 200ms hover step, so a collapse reads as a
+   * deliberate structural change instead of a twitchy hover. */
+  --transition-panel: 300ms ease;
+
+  /* ---- Layout rhythm (dimension only — no colour here) ----
+   *
+   * The colour + typography tokens above are frozen. These are
+   * the numbers the layout actually needs. The scale is the
+   * 4/8/12/16 rhythm the shell is built on — the reason it is
+   * numeric is that the named scale below has no 12px step, and
+   * 12px is exactly what control padding, toolbar gaps and list
+   * rows need. `--spacing-*` stays as the legacy alias set (same
+   * numbers, different names) until those call sites are swept,
+   * the same way `--accent-green` is kept as an alias of
+   * `--accent-primary`.
+   *
+   * Only the steps with consumers are declared: a token nobody
+   * references is a value whose purpose cannot be read off the
+   * code. */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+
+  /* The desktop client's input scale is 32/40/48 (small/medium/
+   * large). Every control in this shell — sidebar rows, list
+   * toolbars, composer selects, palette rows — is the 32px step,
+   * so only that one is declared; add a step when a surface
+   * actually needs it. */
+  --control-height-sm: 32px;
+
+  --size-header: 56px;
+  --size-sidebar-expanded: 220px;
+  --size-sidebar-collapsed: 56px;
+  --size-command-palette: 640px;
+
+  /* ---- Z-index scale ---- */
+  --z-base: 1;
+  --z-dropdown: 100;
+  --z-modal: 1000;
+  --z-toast: 10000;
+
+  /* ---- Chat surface tokens (concentrate hardcoded hex values
+   * from ChatPage.css here so dark-mode and theme-swap passes
+   * only need to touch this block). ---- */
+  --color-chat-message-user-border: var(--accent-green);
+  --color-chat-message-user-bg: rgba(15, 118, 110, 0.04);
+  --color-chat-message-assistant-border: var(--accent-cyan);
+  --color-chat-message-assistant-bg: rgba(14, 116, 144, 0.04);
+  /* Delegated sub-agent bubbles — distinct from the parent
+   * assistant turn so nested work reads as a separate layer. */
+  --color-chat-message-subagent-border: var(--accent-magenta);
+  --color-chat-message-subagent-bg: rgba(225, 29, 72, 0.04);
+
+  --color-thinking-fg: var(--accent-yellow);
+  /* Warm amber-500 backdrop (hue ~20° from the amber-700 used by
+   * --color-tool-call-bg) so a thinking block sitting next to a
+   * tool-call block reads as two visually distinct elements
+   * instead of two copies of the same brown shade. The previous
+   * `transparent` collapsed onto the bubble and left only the fg
+   * as a differentiator — identical to plain prose on the light
+   * theme. */
+  --color-thinking-bg: rgba(245, 158, 11, 0.07);
+
+  --color-tool-call-border: var(--accent-yellow);
+  --color-tool-call-bg: rgba(180, 83, 9, 0.05);
+  --color-tool-call-fg: var(--accent-yellow);
+
+  --color-tool-result-border: var(--accent-green);
+  --color-tool-result-bg: rgba(15, 118, 110, 0.05);
+  --color-tool-result-fg: #115e58; /* dark teal — kept as literal for AA contrast on light */
+
+  --color-tool-block-error-bg: rgba(220, 38, 38, 0.06);
+  --color-tool-block-error-fg: var(--accent-red);
+  --color-tool-block-timeout-bg: rgba(180, 83, 9, 0.08);
+  --color-tool-block-timeout-fg: var(--accent-yellow);
+
+  --color-md-fg: var(--text-primary);
+  --color-md-strong: var(--accent-green);
+  --color-md-em: var(--accent-yellow);
+  --color-md-link: var(--accent-cyan);
+  --color-md-blockquote-border: var(--accent-purple);
+  --color-md-blockquote-bg: rgba(109, 40, 217, 0.05);
+  --color-md-code-bg: rgba(14, 116, 144, 0.12);
+  --color-md-th-bg: rgba(14, 116, 144, 0.08);
+
+  --color-artifact-border: var(--accent-primary);
+  --color-artifact-bg: var(--bg-secondary);
+
+  --color-input-bg: var(--bg-secondary);
+  --color-input-border: var(--border-strong);
+  --color-input-focus-border: var(--accent-green);
+  --color-input-focus-ring: rgba(15, 118, 110, 0.12);
+}
+
+/* ---- Global resets that lean on the tokens ---- */
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  font-family: var(--font-sans);
+  font-size: var(--fs-base);
+  line-height: var(--lh-normal);
+  color: var(--text-primary);
+  background: var(--bg-primary);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  font-feature-settings: 'cv11', 'ss01', 'ss03';
+  font-variant-numeric: tabular-nums;
+}
+
+code,
+pre,
+kbd,
+samp,
+.mono {
+  text-rendering: optimizeLegibility;
+  font-feature-settings:
+    'liga' 0,
+    'calt' 1;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+a {
+  color: var(--accent-primary);
+  text-decoration: none;
+}
+
+a:hover {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+code,
+pre,
+kbd {
+  font-family: var(--font-mono);
+}
+
+/* ---- Scrollbar (subtle on light surfaces) ---- */
+
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--scrollbar-thumb);
+  border-radius: var(--radius-sm);
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--scrollbar-thumb-hover);
+}
+
+/* ---- Selection ---- */
+
+::selection {
+  background: var(--accent-primary-subtle);
+  color: var(--text-primary);
+}
+
+/* ---- Keyboard focus ring (Hi-DPI crispness) ---- */
+
+button:focus-visible,
+a:focus-visible,
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible {
+  outline: 2px solid var(--accent-primary);
+  outline-offset: 2px;
+  border-radius: var(--radius-sm);
+}
+
+/* ---- Skeleton shimmer (used by <SkeletonList />) ----
+ *
+ * Pure-CSS placeholder driven by a single keyframe so the
+ * animation runs entirely off the React tree. Respects
+ * `prefers-reduced-motion` by shortening the duration to 0
+ * so the bars remain visible but stop shimmering for users
+ * who opt out of motion.
+ */
+
+@keyframes nt-skeleton-shimmer {
+  0% {
+    background-position: -200% 0;
+  }
+  100% {
+    background-position: 200% 0;
+  }
+}
+
+.nt-skeleton-row {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-xs);
+  padding: var(--spacing-md);
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  min-height: 92px;
+}
+
+.nt-skeleton-bar {
+  display: block;
+  height: 12px;
+  border-radius: var(--radius-sm);
+  background: linear-gradient(
+    90deg,
+    var(--bg-tertiary) 0%,
+    var(--border-subtle) 50%,
+    var(--bg-tertiary) 100%
+  );
+  background-size: 200% 100%;
+  animation: nt-skeleton-shimmer 1.4s ease-in-out infinite;
+}
+
+.nt-skeleton-bar--title {
+  height: 16px;
+  width: var(--skeleton-width, 60%);
+}
+
+.nt-skeleton-bar--line {
+  width: var(--skeleton-width, 80%);
+}
+
+.nt-skeleton-bar--short {
+  width: 40%;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .nt-skeleton-bar {
+    animation-duration: 0s;
+  }
+  /* Honour the OS-level request for no animation: collapse
+   * every transition (hover fades, stop-button lift, etc.) to
+   * a 0-duration change. The cursor still updates, the colors
+   * still swap, but the user gets no animation between them. */
+  *,
+  *::before,
+  *::after {
+    transition-duration: 0.001ms !important;
+    animation-duration: 0.001ms !important;
+  }
+}
+
+/* ---- Dark theme override ----
+ *
+ * Apply by setting `<html data-theme="dark">` (or `system` via
+ * `useTheme.ts`). The override below re-uses the existing token
+ * surface; any new surface token added to `:root` should also
+ * be re-stated here so dark-mode callers don't fall back to
+ * the light defaults. The override is intentionally small —
+ * every visual change comes from flipping these 8 base
+ * variables, the rest of the cascade follows.
+ *
+ * v1 stays light-only by default; this block is the seam for
+ * Stage 5 theme toggle work.
+ *
+ * The `system` choice from the theme toggle relies on
+ * `useTheme` removing the `data-theme` attribute so the cascade
+ * falls through to the OS `prefers-color-scheme` media query.
+ * We register the same set of overrides inside that media
+ * block so the dark cascade activates automatically — without
+ * this block, picking `system` while the OS reports dark
+ * would still leave the page in the light defaults.
+ */
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']) {
+    --bg-primary: #0b0d12;
+    --bg-secondary: #11141a;
+    --bg-tertiary: #1a1e26;
+    --bg-elevated: #161a22;
+
+    --text-primary: #e6e8ee;
+    --text-secondary: #aab0bd;
+    --text-muted: #6c7382;
+    --text-inverse: #0b0d12;
+
+    --border-subtle: rgba(255, 255, 255, 0.08);
+    --border-strong: rgba(255, 255, 255, 0.16);
+
+    --brand-wordmark: #e6e8ee; /* logo wordmark ink (dark theme) */
+
+    /* Chat surfaces — same logic, inverted backgrounds. */
+    --color-chat-message-user-bg: rgba(37, 99, 235, 0.08);
+    --color-chat-message-assistant-bg: rgba(8, 145, 178, 0.06);
+    --color-chat-message-subagent-bg: rgba(251, 113, 133, 0.08);
+    --color-thinking-fg: #f0c674;
+    --color-thinking-bg: rgba(240, 198, 116, 0.06);
+    --color-tool-call-fg: #f0c674;
+    --color-tool-call-bg: rgba(240, 198, 116, 0.06);
+    --color-tool-result-fg: #6dd6c1;
+    --color-tool-result-bg: rgba(109, 214, 193, 0.06);
+    --color-tool-block-error-bg: rgba(248, 113, 113, 0.08);
+    --color-tool-block-error-fg: #fca5a5;
+    --color-tool-block-timeout-fg: #f0c674;
+    --color-tool-block-timeout-bg: rgba(240, 198, 116, 0.06);
+    --color-md-code-bg: rgba(255, 255, 255, 0.08);
+    --color-md-th-bg: rgba(255, 255, 255, 0.06);
+
+    --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
+    --shadow-md: 0 1px 3px rgba(0, 0, 0, 0.5), 0 1px 2px rgba(0, 0, 0, 0.3);
+    --shadow-lg: 0 4px 12px rgba(0, 0, 0, 0.5);
+
+    --color-input-bg: var(--bg-secondary);
+    --color-input-border: var(--border-strong);
+    --color-input-focus-border: #60a5fa;
+    --color-input-focus-ring: rgba(96, 165, 240, 0.25);
+
+    --scrollbar-thumb: rgba(255, 255, 255, 0.16);
+    --scrollbar-thumb-hover: rgba(255, 255, 255, 0.32);
+  }
+}
+
+/* Explicit dark theme override — activates when the user picks
+ * `dark` in the theme toggle (which sets `<html data-theme="dark">`).
+ * Because of CSS cascade order, this rule wins over the
+ * `prefers-color-scheme` block above as long as both selectors
+ * would match — i.e. on systems where the OS also reports dark,
+ * the explicit choice takes precedence (the user's "dark"
+ * preference overrides the OS). On light-mode systems where the
+ * user has explicitly picked dark, this rule alone provides the
+ * dark cascade without any media-query gymnastics. */
+:root[data-theme='dark'] {
+  --bg-primary: #0b0d12;
+  --bg-secondary: #11141a;
+  --bg-tertiary: #1a1e26;
+  --bg-elevated: #161a22;
+
+  --text-primary: #e6e8ee;
+  --text-secondary: #aab0bd;
+  --text-muted: #6c7382;
+  --text-inverse: #0b0d12;
+
+  --border-subtle: rgba(255, 255, 255, 0.08);
+  --border-strong: rgba(255, 255, 255, 0.16);
+
+  --brand-wordmark: #e6e8ee; /* logo wordmark ink (dark theme) */
+
+  --color-chat-message-user-bg: rgba(37, 99, 235, 0.08);
+  --color-chat-message-assistant-bg: rgba(8, 145, 178, 0.06);
+  --color-chat-message-subagent-bg: rgba(251, 113, 133, 0.08);
+  --color-thinking-fg: #f0c674;
+  --color-thinking-bg: rgba(240, 198, 116, 0.06);
+  --color-tool-call-fg: #f0c674;
+  --color-tool-call-bg: rgba(240, 198, 116, 0.06);
+  --color-tool-result-fg: #6dd6c1;
+  --color-tool-result-bg: rgba(109, 214, 193, 0.06);
+  --color-tool-block-error-bg: rgba(248, 113, 113, 0.08);
+  --color-tool-block-timeout-bg: rgba(240, 198, 116, 0.08);
+
+  --accent-primary: #60a5fa;
+  --accent-primary-hover: #3b82f6;
+  --accent-primary-active: #2563eb;
+  --accent-primary-subtle: rgba(96, 165, 250, 0.12);
+  --accent-cyan: #22d3ee;
+  --accent-purple: #a78bfa;
+  --accent-magenta: #fb7185;
+  --accent-yellow: #f0c674;
+  --accent-red: #f87171;
+  --accent-success: #4ade80;
+  --accent-green: #34d399;
+
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
+  --shadow-md: 0 1px 3px rgba(0, 0, 0, 0.5), 0 1px 2px rgba(0, 0, 0, 0.3);
+  --shadow-lg: 0 4px 12px rgba(0, 0, 0, 0.5);
+
+  --color-input-bg: var(--bg-secondary);
+  --color-input-border: var(--border-strong);
+  --color-input-focus-border: #60a5fa;
+  --color-input-focus-ring: rgba(96, 165, 250, 0.25);
+
+  --scrollbar-thumb: rgba(255, 255, 255, 0.16);
+  --scrollbar-thumb-hover: rgba(255, 255, 255, 0.32);
+}
+
+/* ---- Responsive layout seams ----
+ *
+ * The default layout assumes a desktop viewport: a 220px sidebar
+ * pinned to the left and a flexible main column. On viewports
+ * narrower than 768px the sidebar's hard width combined with
+ * flexbox's `min-width: auto` default on flex items made the
+ * main column overflow horizontally, forcing the page to scroll
+ * sideways. Three changes fix it:
+ *
+ *   1. `.nt-app-shell-row` — the row Flex that holds the sidebar
+ *      and `<main>`. `min-width: 0` lets the row be narrower than
+ *      the sum of its children so the main column can shrink
+ *      instead of pushing the page wider.
+ *   2. `.nt-app-main` — the `<main>` wrapper. Same fix; without
+ *      it the main column refuses to shrink below its intrinsic
+ *      content width.
+ *   3. `.nt-sidebar` — collapses to an icon-rail below 768px
+ *      (label + shortcut hidden, footer hidden, only the icon
+ *      and padding remain). Above 768px everything renders as
+ *      before.
+ *
+ * The rail presentation itself lives in `Sidebar.css`, keyed on
+ * the `nt-sidebar--collapsed` class, which `MainLayout` sets from
+ * either the persisted user preference or `useMediaQuery`. Keeping
+ * one class as the single source of truth means the narrow-viewport
+ * rail and the user-collapsed rail cannot drift apart, so nothing
+ * here repeats the label/hint hiding rules.
+ *
+ * The Header's inner breadcrumb row already opts into
+ * `min-width: 0` on its `<nav>` wrapper, but the parent Flex in
+ * `Header.tsx` still needed `min-width: 0` on the left cluster
+ * (logo + tagline + breadcrumb) so a long breadcrumb id
+ * ellipsizes instead of pushing the status badge off-screen.
+ */
+.nt-app-shell-row {
+  min-width: 0;
+}
+
+.nt-app-main {
+  min-width: 0;
+}
+
+.nt-header-left {
+  min-width: 0;
+}
+
+/**
+ * Streaming cursor affordance.
+ *
+ * `ChatMessageList` sets `data-streaming="true"` on the assistant
+ * message container while a run is still generating. The user
+ * previously reported "no streaming feel" — text was appearing
+ * incrementally via `appendText`, but without a visual indicator
+ * it just looked like a quick full-text reveal. Two CSS hooks
+ * fix it:
+ *
+ *   1. Blinking caret — a 1ch-wide block pseudo-element pinned
+ *      to the end of the last text segment, blinking at 1s
+ *      interval. Pure CSS, no React state needed; the
+ *      `data-streaming` attribute is already toggled correctly
+ *      in `ChatMessageView.tsx`.
+ *   2. Left-border pulse — a subtle `box-shadow` on the message
+ *      itself so the whole message visually pulses while the
+ *      model is thinking. Uses the accent color so it reads as
+ *      "alive" rather than "error".
+ *
+ * The `last-of-type` selector targets the last text segment so
+ * tool/thinking segments that follow don't get a stray caret.
+ */
+@keyframes nt-streaming-blink {
+  0%,
+  49% {
+    opacity: 1;
+  }
+  50%,
+  100% {
+    opacity: 0;
+  }
+}
+
+@keyframes nt-streaming-pulse {
+  0%,
+  100% {
+    box-shadow: inset 3px 0 0 var(--accent-primary);
+  }
+  50% {
+    box-shadow: inset 3px 0 0 transparent;
+  }
+}
+
+.nt-chat__message[data-streaming='true'] {
+  animation: nt-streaming-pulse 1.6s ease-in-out infinite;
+}
+
+.nt-chat__message[data-streaming='true'] .nt-chat__segment--text:last-of-type::after {
+  content: '▌';
+  display: inline-block;
+  margin-left: 2px;
+  color: var(--accent-primary);
+  font-weight: 700;
+  animation: nt-streaming-blink 1s steps(2, end) infinite;
+}
+
+@media (max-width: 767px) {
+  /* The rail itself is class-driven (see `Sidebar.css`); the only
+     thing the breakpoint has to guarantee is that a persisted
+     "expanded" preference cannot paint a 220px column over the
+     thread on a phone-sized viewport. `MainLayout` passes
+     `collapsed` down for the accessible/tooltip behaviour, and
+     `Sidebar.css` sets the width from that class. */
+  .nt-sidebar {
+    max-width: var(--size-sidebar-collapsed);
+  }
+}

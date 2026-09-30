@@ -1,0 +1,173 @@
+# ci.yml — 主 CI 入口。
+#
+# 与 `.github/workflows/rust-quality.yml` 的关系:
+#   - rust-quality 跑完整 "make ci + tests + examples + web + bench" 五段,
+#     跑得慢但覆盖所有项目内不变量。
+#   - 本 workflow 是 CNCF 范式的"快环" — fmt + clippy(-D warnings) +
+#     MSRV + 跨平台 build smoke, 单 PR 必须 3 分钟内拿到红绿。
+#   - 两者并联, 红灯任意一条都不可合。
+name: ci
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+    branches: [master]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+
+# Cancel in-progress runs on the same ref when a new commit lands
+# (PRs only — master pushes run once, so cancel is a no-op). Saves CI minutes
+# on rapid-fix PRs and keeps the action log focused on the latest push.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  # ────────────────────────────────────────────────────────────────────────
+  # fmt + lint (平行, 各自一份 toolchain cache)
+  # ────────────────────────────────────────────────────────────────────────
+  fmt:
+    name: rustfmt --check (nightly)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Install nightly toolchain
+        uses: dtolnay/rust-toolchain@nightly
+        with:
+          components: rustfmt
+      - name: Cache Cargo
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: "."
+      # rustfmt.toml 强制 nightly, 见 AGENTS.md §3.4
+      - run: cargo +nightly fmt --all -- --check
+
+  lint:
+    name: clippy -D warnings (all targets / features / tests)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Install stable toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      - name: Cache Cargo
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: "."
+      # 关键 lint 集合 —— clippy.toml + scripts/harness-shape/clippy.toml 都生效
+      - run: make lint-rust
+
+  # ────────────────────────────────────────────────────────────────────────
+  # 编译 + 单元测试 —— 跑全部 cargo test --lib, 跨 crate
+  # ────────────────────────────────────────────────────────────────────────
+  test:
+    name: unit tests (per crate)
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Install stable toolchain
+        uses: dtolnay/rust-toolchain@stable
+      - name: Cache Cargo
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: "."
+      # 单元测试里 capture / action / 协议栈 用例跑真实子进程与本地 stub,
+      # ubuntu-latest 自带 bash / python3, 不需要 docker.
+      # 不允许 `cargo test --workspace` (AGENTS.md §3.3) —— make test-crates
+      # 逐 crate 跑, 失败时只丢一段, 不会让全 workspace 报告变成 wall of red.
+      - run: make test-crates
+
+  # ────────────────────────────────────────────────────────────────────────
+  # examples + 两个独立 consumer crate 的 proof line
+  # ────────────────────────────────────────────────────────────────────────
+  examples:
+    name: examples + consumer proofs
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Install stable toolchain
+        uses: dtolnay/rust-toolchain@stable
+      - name: Cache Cargo
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: "."
+      - run: make examples
+
+  # ────────────────────────────────────────────────────────────────────────
+  # MSRV —— Cargo.toml 的 rust-version = "1.98" 是契约; 依赖更新把它顶过线
+  # 时在这里被拦下, 而不是用户的旧工具链上炸开。
+  # ────────────────────────────────────────────────────────────────────────
+  msrv:
+    name: MSRV build (rust 1.98)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Install pinned stable (MSRV)
+        uses: dtolnay/rust-toolchain@1.98
+      - name: Cache Cargo
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: "."
+      # `--locked` 防止 lockfile 漂; `--no-default-features` 暴露那些
+      # 只在 default features 走漏的隐式依赖 (见 `check-mvp-deps`).
+      - run: cargo +1.98 check --workspace --locked --no-default-features
+
+  # ────────────────────────────────────────────────────────────────────────
+  # 跨平台 smoke —— Linux ELF + Windows PE + macOS Mach-O 三处都能编译,
+  # 提前抓 "我以为 cfg(unix) 兜住了" 这种事.
+  # ────────────────────────────────────────────────────────────────────────
+  cross-linux-musl:
+    name: cross build (linux musl)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Install stable toolchain + target
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-unknown-linux-musl
+      - name: Cache Cargo
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: "."
+      - name: Build synthia-server (musl target)
+        run: cargo build --release --locked --target x86_64-unknown-linux-musl -p synthia-server
+      - name: Smoke (binary answers version flag)
+        run: ./target/x86_64-unknown-linux-musl/release/synthia-server --version
+
+  cross-windows:
+    name: cross build (windows gnu)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Install stable toolchain + target
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-gnu
+      - name: Cache Cargo
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: "."
+      - name: Build synthia-server (windows target)
+        run: cargo build --release --locked --target x86_64-pc-windows-gnu -p synthia-server

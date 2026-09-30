@@ -1,0 +1,146 @@
+# Labeler 配置 —— 与 .github/workflows/labeler.yml 一对.
+#
+# 使用 actions/labeler v5 的 schema: 每个 label 是一个顶级 key, 下面是
+# `all: []` (AND) / `any: []` (OR) / `none: []` (NOT) 的复合条件, 每条
+# 条件是 `files: glob` / `head: regex` / `base: regex` / `body: regex`
+# 等. 我们只用 `files` + `head`.
+#
+# 命中规则从上到下; 先命中先生效.
+
+# ── 路径驱动 ────────────────────────────────────────────────────────────
+"area: crates/synthia-core":
+  - files:
+      - "crates/synthia-core/**"
+
+"area: crates/synthia-harness":
+  - files:
+      - "crates/synthia-harness/**"
+
+"area: crates/synthia-tool":
+  - files:
+      - "crates/synthia-tool/**"
+
+"area: crates/synthia-server":
+  - files:
+      - "crates/synthia-server/**"
+
+"area: synthia-web":
+  - files:
+      - "synthia-web/**"
+
+"area: docs":
+  - files:
+      - "docs/**"
+      - "README.md"
+      - "MINIMAL.md"
+      - "SEAMS.md"
+      - "AGENTS.md"
+      - "CHANGELOG.md"
+      - "CONTRIBUTING.md"
+      - "RELEASE.md"
+      - "SECURITY.md"
+      - "MAINTAINERS.md"
+
+"area: ci":
+  - files:
+      - ".github/workflows/**"
+      - ".github/dependabot.yml"
+      - ".github/CODEOWNERS"
+      - ".github/ISSUE_TEMPLATE/**"
+      - ".github/PULL_REQUEST_TEMPLATE.md"
+      - ".github/SUPPORT.md"
+      - "Makefile"
+      - "scripts/**"
+      - ".cargo/**"
+
+# ── 路径驱动 (按主题) ─────────────────────────────────────────────────
+provider:
+  - files:
+      - "crates/synthia-provider/**"
+
+tool:
+  - files:
+      - "crates/synthia-tool-*/**"
+
+search:
+  - files:
+      - "crates/synthia-search/**"
+      - "crates/synthia-tool-search/**"
+
+scheduler:
+  - files:
+      - "crates/synthia-scheduler/**"
+      - "crates/synthia-tool-scheduler/**"
+
+workflow:
+  - files:
+      - "crates/synthia-workflow/**"
+
+mcp:
+  - files:
+      - "crates/synthia-mcp/**"
+
+telemetry:
+  - files:
+      - "crates/synthia-telemetry/**"
+
+session:
+  - files:
+      - "crates/synthia-session/**"
+
+context:
+  - files:
+      - "crates/synthia-context/**"
+
+steering:
+  - files:
+      - "crates/synthia-steering/**"
+
+attachment:
+  - files:
+      - "crates/synthia-attachment/**"
+
+eval:
+  - files:
+      - "crates/synthia-eval/**"
+
+macros:
+  - files:
+      - "crates/synthia-macros/**"
+
+skill:
+  - files:
+      - "crates/synthia-skill/**"
+
+# ── 标题驱动 (Conventional Commits) ─────────────────────────────────
+"type: feature":
+  - head: "^feat(\\(.+\\))?[:(]"
+
+"type: fix":
+  - head: "^fix(\\(.+\\))?:"
+
+"type: docs":
+  - head: "^docs(\\(.+\\))?:"
+
+"type: refactor":
+  - head: "^refactor(\\(.+\\))?:"
+
+"type: test":
+  - head: "^test(\\(.+\\))?:"
+
+"type: chore":
+  - head: "^chore(\\(.+\\))?:"
+
+"type: perf":
+  - head: "^perf(\\(.+\\))?:"
+
+"type: ci":
+  - head: "^ci(\\(.+\\))?:"
+
+deps:
+  - head: "^deps(\\(.+\\))?:"
+
+breaking:
+  - any:
+      - head: "!"
+      - head: "BREAKING CHANGE"
