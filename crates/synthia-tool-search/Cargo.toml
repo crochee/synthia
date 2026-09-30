@@ -1,0 +1,28 @@
+[package]
+name = "synthia-tool-search"
+description = "The `search` tool plugin: cross-domain search over a synthia-search Registry (skills / memory / tools catalogs) with deferred exposure"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+documentation.workspace = true
+readme.workspace = true
+keywords.workspace = true
+categories.workspace = true
+
+[dependencies]
+synthia-core.workspace = true
+synthia-tool.workspace = true
+synthia-search.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+async-trait.workspace = true
+
+[dev-dependencies]
+# `#[tokio::test]`/`#[tokio::main]` need `macros` + `rt`. Search is
+# CPU-only and synchronous behind the tool's `call`, so the
+# current-thread flavor is enough — no `rt-multi-thread`, no `time`,
+# no `fs`.
+tokio = { workspace = true, features = ["macros", "rt"] }

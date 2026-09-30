@@ -1,0 +1,42 @@
+[package]
+name = "synthia-tool-task"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "The `task` tool plugin: multi-agent delegation by running registered peers as sub-agents (gates, worktree isolation, `@agent:` routing, subagent admission, batched completion notification)"
+repository.workspace = true
+homepage.workspace = true
+documentation.workspace = true
+readme.workspace = true
+keywords.workspace = true
+categories.workspace = true
+
+[dependencies]
+synthia-core.workspace = true
+synthia-provider.workspace = true
+synthia-tool.workspace = true
+synthia-harness.workspace = true
+futures.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+chrono.workspace = true
+tracing.workspace = true
+ulid.workspace = true
+parking_lot.workspace = true
+regex.workspace = true
+
+[dev-dependencies]
+# The tests script `ModelProvider` impls and cancel through the same
+# primitives the agent tests use; the lib itself names no runtime.
+async-trait.workspace = true
+tokio-util.workspace = true
+
+# `#[tokio::test]` / `#[tokio::main]` (multi-thread flavor) — the only
+# place this crate needs an executor. The gate and worktree code run
+# `std::process::Command` on dedicated threads, and every other seam
+# is `futures` + the caller's token (AGENTS.md §3.7).
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
+synthia-test-support.workspace = true
+tracing-subscriber.workspace = true
+tempfile.workspace = true

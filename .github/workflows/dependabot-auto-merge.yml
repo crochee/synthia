@@ -1,0 +1,55 @@
+# Dependabot auto-merge — patch / minor only.
+#
+# `dependabot.yml` opens PRs weekly. Major bumps are kept out (already
+# filtered by `ignore.update-types: ["version-update:semver-major"]`).
+# This workflow auto-merges the remaining PRs **after**:
+#   1) `make ci` is green;
+#   2) the PR is labeled `dependencies` AND the semver type is patch or
+#      minor (a server-side guard, so a future dependabot.yml change that
+#      loses the major filter still does not bypass review here).
+#
+# Auto-merge requires the Actions bot to be a repo collaborator with
+# write access — GitHub's default for `dependabot.yml`. If you fork
+# this config into a repo where dependabot is not granted write,
+# the workflow logs `Error: GitHub Actions is not permitted` and
+# you keep the PRs in review queue; no data is lost.
+
+name: dependabot-auto-merge
+
+on:
+  pull_request:
+    types: [opened, reopened, synchronize]
+    branches: [master]
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  auto-merge:
+    name: auto-merge patch / minor
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    # Don't touch non-dependabot PRs.
+    if: github.event.pull_request.user.login == 'dependabot[bot]' || github.event.pull_request.user.login == 'dependabot'
+    steps:
+      - name: Fetch metadata
+        id: meta
+        uses: dependabot/fetch-metadata@v2
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Enable auto-merge (patch / minor only, `dependencies` label)
+        # The header comment also required the `dependencies` label, so
+        # the gate is: dependabot author + `dependencies` label + patch or
+        # minor semver. The label guard means a future dependabot.yml
+        # change that loses its own filter still cannot bypass review.
+        if: |
+          (steps.meta.outputs.update-type == 'version-update:semver-patch' ||
+           steps.meta.outputs.update-type == 'version-update:semver-minor') &&
+          (contains(github.event.pull_request.labels.*.name, 'dependencies'))
+        run: |
+          gh pr merge --auto --squash --delete-branch \
+            "$PR_URL"
+        env:
+          PR_URL: ${{ github.event.pull_request.html_url }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

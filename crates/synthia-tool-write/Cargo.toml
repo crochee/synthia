@@ -1,0 +1,29 @@
+[package]
+name = "synthia-tool-write"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "The `write` builtin: workspace file writer (overwrite / append)"
+repository.workspace = true
+homepage.workspace = true
+documentation.workspace = true
+readme.workspace = true
+keywords.workspace = true
+categories.workspace = true
+
+[dependencies]
+synthia-tool.workspace = true
+async-trait.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+schemars = { workspace = true, features = ["preserve_order"] }
+schemars_derive.workspace = true
+# `fs` — the tool writes files through `tokio::fs` so dispatch can
+# detach it on the runtime.
+tokio = { workspace = true, features = ["fs"] }
+
+[dev-dependencies]
+# `#[tokio::test]` needs `macros` + `rt`.
+# `#[tokio::main]` (example) defaults to the multi-thread runtime.
+ tokio = { workspace = true, features = ["macros", "rt", "rt-multi-thread"] }
+tempfile.workspace = true

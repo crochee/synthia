@@ -1,0 +1,114 @@
+# docs.yml — rustdoc 部署.
+#
+# 触发: push 到 master (master 是 release 真源, gh-pages 从这里出).
+# 输出: 全 workspace 的 rustdoc, 部署到 gh-pages 分支的 `doc/<crate>/...`
+# 子路径, 这样多个 crate 不会互相覆盖 (本仓有 25 个 crate).
+#
+# 重要约束:
+#   - `make doc-check` 已经在 rust-quality.yml 的 `gates` job 跑过;
+#     本 workflow 只负责**部署**, 不再 lint (lint 失败会 lint 红灯, 不会
+#     到这里).
+#   - 启用 --all-features 让所有 opt-in feature (synthia-search 的 provider,
+#     synthia-tool-scheduler 的 cron 等) 都生成文档 —— 用户读 docs 才是
+#     完整视角.
+name: docs
+
+on:
+  push:
+    branches: [master]
+  workflow_dispatch:
+
+permissions:
+  # peaceiris/actions-gh-pages 用 GITHUB_TOKEN 推到 gh-pages 分支,
+  # 必须有 contents: write —— 默认 read-only 会让
+  # `github-actions[bot]` 拿到 403 ("Permission to <repo> denied").
+  # workflow_dispatch 也写, 否则手动触发同样失败.
+  contents: write
+
+concurrency:
+  group: docs-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  rustdoc:
+    name: build + deploy rustdoc
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install stable toolchain (rustdoc ships in the default profile)
+        # `cargo doc` doesn't need nightly; the project pins rustfmt
+        # to nightly in `rustfmt.toml` / the `fmt` job, but this job
+        # only generates + deploys docs. Using stable keeps the
+        # install off the (currently-flaky) nightly rustdoc pipeline.
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Cargo
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: "."
+
+      - name: cargo fetch
+        run: cargo fetch
+
+      # RUSTDOCFLAGS=-D warnings 让 rustdoc 警告也算错 —— 与 `make
+      # doc-check` 同一条线. doc 失败时 `make ci` 已经红灯, 不会进到
+      # 部署; 这里只是把同样的失败条件复述一遍, 不让"门禁与部署漂".
+      - name: Build rustdoc for every crate
+        env:
+          RUSTDOCFLAGS: -D warnings
+        run: |
+          set -euo pipefail
+          for crate in $(cargo metadata --no-deps --format-version 1 \
+                         | jq -r '.packages[].name' \
+                         | grep -E '^synthia'); do
+            echo "── rustdoc $crate ──"
+            cargo doc --no-deps --all-features -p "$crate"
+          done
+
+      - name: Flatten into doc/<crate>/
+        # 默认 cargo doc 输出在 target/doc/, 所有 crate 平铺, 多个
+        # crate 会撞名 (synthia / synthia-core / ...). 重新组织成
+        # doc/synthia/, doc/synthia-core/...
+        run: |
+          set -euo pipefail
+          rm -rf doc
+          mkdir -p doc
+          for crate in $(cargo metadata --no-deps --format-version 1 \
+                         | jq -r '.packages[].name' \
+                         | grep -E '^synthia'); do
+            if [ -d "target/doc/$crate" ]; then
+              mv "target/doc/$crate" "doc/$crate"
+            fi
+          done
+          # landing page: 重定向到 facade crate 的 docs.
+          # 用 printf 不用 heredoc —— heredoc 在 YAML run-block 里的
+          # 缩进敏感性是公认坑; 同样的内容用单引号串即可.
+          printf '%s\n' \
+            '<!doctype html>' \
+            '<html><head>' \
+            '<meta charset="utf-8">' \
+            '<meta http-equiv="refresh" content="0; url=synthia/index.html">' \
+            '<title>Synthia — rustdoc</title>' \
+            '</head><body>' \
+            '<p>Redirecting to <a href="synthia/index.html">synthia</a>…</p>' \
+            '</body></html>' \
+            > doc/index.html
+
+      - name: Deploy to gh-pages (action)
+        # peaceiris/actions-gh-pages 是社区事实标准: 把 doc/ 推到
+        # gh-pages 分支, 单 commit, 不留历史 (gh-pages 本来就是
+        # 只读 view).
+        uses: peaceiris/actions-gh-pages@v4
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./doc
+          # 推 force, 不留历史 (gh-pages 是只读 mirror).
+          force_orphan: true
+          # 仓库子路径, 避免和用户主页冲突.
+          destination_dir: docs

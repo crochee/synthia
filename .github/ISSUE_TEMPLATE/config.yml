@@ -1,0 +1,9 @@
+# Issue 模板配置。
+blank_issues_enabled: false
+contact_links:
+  - name: Discussions
+    url: https://github.com/crochee/synthia/discussions
+    about: 用例 / 设计 / 选型讨论。
+  - name: Security advisories
+    url: https://github.com/crochee/synthia/security/advisories/new
+    about: 私下报告安全问题（详见 SECURITY.md）。

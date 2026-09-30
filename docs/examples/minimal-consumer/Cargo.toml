@@ -1,0 +1,33 @@
+[package]
+name = "synthia-minimal-consumer"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+# Same posture as `../external-consumer`: the empty `[workspace]` table
+# keeps this crate OUT of the synthia workspace, so it compiles as an
+# independent consumer would.
+[workspace]
+
+# R37 MVP proof: ONE dependency, and the exact feature subset
+# `MINIMAL.md` tells a consumer to start from — no `macros`, no
+# `sqlite`, no `mcp`, no `server`, no `telemetry`.
+#
+# The point of this crate is that the claim is *executable*: if the
+# minimal subset ever stops assembling a working agent, this build
+# fails.
+[dependencies]
+synthia = { path = "../../../crates/synthia", default-features = false, features = [
+    "core",
+    "provider",
+    "context",
+    "tool",
+    "session",
+    "steering",
+    "harness",
+] }
+futures = "0.3"
+serde_json = "1"
+# The consumer picks its own runtime for `main`; nothing in the
+# framework's public API names one.
+tokio = { version = "1", features = ["macros", "rt-multi-thread"] }

@@ -1,0 +1,58 @@
+[package]
+name = "synthia-mcp-server"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license = "MIT"
+description = "stdio MCP server exposing synthia's plugin-brick tools; spawnable by any MCP client (e.g. pi)"
+
+# This is an executable binary, not a library. The crate holds a
+# single binary target that speaks MCP over stdio, so a foreign MCP
+# client (the pi coding agent, a Claude Code plugin, …) can launch
+# `synthia-mcp-server` as a subprocess and immediately have the full
+# `read` / `write` / `shell` / `todo` / `web_fetch` / `schedule` /
+# `search` / `synthia` tool surface under its existing JSON-RPC
+# stack — no Rust in the caller's process.
+#
+# The wire side is delegated to `synthia-mcp` (the loopback transport
+# + the in-process server core), so a successful call here is also
+# a successful end-to-end proof of those seams.
+
+[[bin]]
+name = "synthia-mcp-server"
+path = "src/main.rs"
+
+[dependencies]
+# Stdio transport + the protocol types (`McpClient`, naming policy,
+# loopback / in-process server) all live in synthia-mcp. Default
+# features: HTTP transport is gated behind a flag, so a default
+# build here still ships no `reqwest` dependency.
+synthia-mcp.workspace = true
+# The plugin-brick tool crates this binary registers into the
+# in-process registry. `tool-web` is the only one that needs an HTTP
+# client — it carries `reqwest` (its own dep, not this crate's).
+synthia-core.workspace = true
+synthia-provider.workspace = true
+synthia-tool.workspace = true
+synthia-tool-read.workspace = true
+synthia-tool-write.workspace = true
+synthia-tool-shell.workspace = true
+synthia-tool-todo.workspace = true
+synthia-tool-web.workspace = true
+synthia-tool-scheduler.workspace = true
+synthia-tool-search.workspace = true
+synthia-scheduler.workspace = true
+synthia-search.workspace = true
+
+serde_json.workspace = true
+tokio = { workspace = true, features = ["macros", "rt-multi-thread", "io-util", "io-std", "sync", "process"] }
+tracing.workspace = true
+tracing-subscriber = { workspace = true, features = ["fmt", "env-filter"] }
+anyhow.workspace = true
+futures.workspace = true
+
+[dev-dependencies]
+# Integration tests need the stdio transport factory to spawn the
+# binary under test; tokio lives only on the test side.
+tokio = { workspace = true, features = ["macros", "rt", "rt-multi-thread", "io-util", "io-std", "sync", "process", "time"] }
+tempfile.workspace = true

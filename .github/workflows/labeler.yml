@@ -1,0 +1,37 @@
+# labeler.yml — PR 自动按改动路径 / 标题加标签.
+#
+# `actions/labeler` 是事实标准: 按 glob 匹配 + Conventional Commits 标题
+# 前缀, 给 PR 加标签. 维护者拿到 PR 时按标签路由: dependencies → 看
+# dependabot 周一开 PR; feat(synthia-tool-*) → 路由给 tool 维护者 (见
+# CODEOWNERS); docs → 任何 reviewer 都可合.
+name: labeler
+
+on:
+  pull_request_target:
+    # 任何 PR; 修改文件 + 标题都会触发.
+  push:
+    branches: [master]
+
+permissions:
+  contents: read
+  pull-requests: write
+
+concurrency:
+  group: labeler-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  labeler:
+    name: label by path / title
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Run labeler
+        uses: actions/labeler@v5
+        with:
+          configuration-path: .github/labeler.yml
+          # 不让 labeler 自己用 GITHUB_TOKEN 给同 PR 加同 label 递归触发.
+          sync-labels: false

@@ -1,0 +1,129 @@
+# dependabot.yml — Synthia
+#
+# 跟踪三类生态系统的依赖更新：cargo (workspace.lock) / GitHub Actions /
+# npm (`synthia-web/package-lock.json`)。每个 ecosystem 单独 schedule + 单独
+# reviewer 噪音低。
+
+version: 2
+updates:
+  # 1) Cargo — workspace.lock。沿用主分支。
+    - package-ecosystem: "cargo"
+      directory: "/"
+      schedule:
+        interval: "weekly"
+        # 周一早 9 点(UTC)拉; 周一周二 merge window 之前提, review 跟得上。
+        day: "monday"
+        time: "09:00"
+      # Major 不上 while PR 上 —— semver-major 在 0.x 阶段会 bump MINOR,
+      # 破坏性变更要人审。Minor / patch 自动开 PR。
+      ignore:
+        - dependency-name: "*"
+          update-types: ["version-update:semver-major"]
+      # PR 上限 = 10 是为了不让 review 队列过载; 真实更新量低于上限。
+      open-pull-requests-limit: 10
+      # Group 把同源依赖聚合到一个 PR, 减少 review 噪音:
+      # "rustls" / "openssl" / "tokio" 各自一组.
+      groups:
+        rust-crypto:
+          patterns:
+            - "rustls*"
+            - "openssl*"
+            - "ring"
+            - "aws-lc*"
+        tokio:
+          patterns:
+            - "tokio*"
+            - "tokio-*"
+            - "tokio-util"
+            - "tokio-stream"
+        async:
+          patterns:
+            - "futures*"
+            - "async-*"
+            - "async-trait"
+        reqwest:
+          patterns:
+            - "reqwest*"
+        axum:
+          patterns:
+            - "axum*"
+            - "tower*"
+            - "hyper*"
+        opentelemetry:
+          patterns:
+            - "opentelemetry*"
+            - "tracing*"
+            - "tracing-subscriber*"
+        serde:
+          patterns:
+            - "serde*"
+        chrono:
+          patterns:
+            - "chrono*"
+      # 不动 workspace 的版本字符串(主 branch 的人审); dependabot 只升 lock.
+      # (本仓依赖用 workspace 收口, 见 AGENTS.md §3.1; 这里不写
+      # `versioning-strategy: increase` 是为了让 dependabot 只升 Cargo.lock)
+      labels:
+        - "dependencies"
+        - "cargo"
+      commit-message:
+        prefix: "deps"
+        include: "scope"
+
+  # 2) GitHub Actions — actions/checkout / dtolnay/rust-toolchain /
+  #    Swatinem/rust-cache 等。 patch 自动, minor/major 走人审。
+    - package-ecosystem: "github-actions"
+      directory: "/"
+      schedule:
+        interval: "weekly"
+        day: "monday"
+        time: "09:00"
+      ignore:
+        - dependency-name: "*"
+          update-types: ["version-update:semver-major"]
+      open-pull-requests-limit: 5
+      groups:
+        actions:
+          patterns:
+            - "actions/*"
+            - "dtolnay/*"
+            - "Swatinem/*"
+            - "docker/*"
+            - "taiki-e/*"
+            - "github/*"
+            # v0.1.0 hardening: ludeeus/* and sigstore/* were missing
+            # from this group, so dependabot opened individual PRs
+            # for them. Now they fold into the single weekly PR.
+            - "ludeeus/*"
+            - "sigstore/*"
+            - "dependabot/*"
+      labels:
+        - "dependencies"
+        - "ci"
+
+  # 3) npm — synthia-web 单一 lock (R72 收口为一份, 见 AGENTS.md §4.2)。
+    - package-ecosystem: "npm"
+      directory: "/synthia-web"
+      schedule:
+        interval: "weekly"
+        day: "monday"
+        time: "09:00"
+      open-pull-requests-limit: 10
+      groups:
+        react:
+          patterns:
+            - "react*"
+            - "@types/react*"
+        build:
+          patterns:
+            - "vite*"
+            - "@vitejs/*"
+            - "typescript"
+            - "eslint*"
+            - "prettier"
+        msw:
+          patterns:
+            - "msw"
+      labels:
+        - "dependencies"
+        - "web"

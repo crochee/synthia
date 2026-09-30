@@ -1,0 +1,154 @@
+# security-audit.yml — 公告 + 许可证 + 源码 = 三层防御.
+#
+# 1. cargo-audit (rustsec) — 公告数据库匹配;
+# 2. cargo-deny    — 许可证白名单 + 来源仓库 + 重复 crate 检测;
+# 3. gitleaks      — 历史 / 提交里的密钥模式 (R 后续可拆出独立 workflow).
+#
+# 每周一 03:00 UTC 跑 (master 周一合 PR 之前), + 每次 push / PR 触发.
+# 不在 master 上的"全量公告"失败不阻断 PR 合并: 公告数据库有滞后, 跑在
+# master 后才稳定; 但 deny 必须在 PR 上红灯.
+name: security-audit
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+    branches: [master]
+  schedule:
+    # 周一 03:00 UTC — 比 dependabot 早 6 小时, 周一合 PR 前先看公告.
+    - cron: "0 3 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: security-audit-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  # ────────────────────────────────────────────────────────────────────────
+  # cargo-audit —— rustsec/advisory-db
+  # ────────────────────────────────────────────────────────────────────────
+  audit:
+    name: rustsec advisory check
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Install stable toolchain
+        uses: dtolnay/rust-toolchain@stable
+      - name: Cache Cargo
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: "."
+      # 安装 cargo-audit; `--locked` 让 lockfile 漂的情况炸出来而不是
+      # 自动升级 (自动升级应该走 dependabot, 不是这里).
+      - name: Install cargo-audit
+        run: cargo install --locked cargo-audit
+      - name: Audit
+        # 在 PR 上不要求绿: 公告数据库滞后, 不在 master 的代码会让人
+        # 误以为 PR 引入公告; master 跑 + 周一 cron 跑是稳定信号.
+        continue-on-error: ${{ github.event_name == 'pull_request' }}
+        run: cargo audit
+
+  # ────────────────────────────────────────────────────────────────────────
+  # cargo-deny —— 许可证 / 来源 / 重复 / 公告
+  # ────────────────────────────────────────────────────────────────────────
+  deny:
+    name: cargo-deny (license / source / bans / advisories)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Install stable toolchain
+        uses: dtolnay/rust-toolchain@stable
+      - name: Cache Cargo
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: "."
+      - name: Install cargo-deny
+        run: cargo install --locked cargo-deny
+      # `check` = license + bans + advisories + sources 一次跑完
+      - name: deny check
+        run: cargo deny check
+
+  # ────────────────────────────────────────────────────────────────────────
+  # 源码 / 提交里的密钥模式扫描 —— gitleaks 是社区事实标准 (rules 比
+  # 手写 grep 准; 维护者写的 detect-secrets / trufflehog 同一档). 这一
+  # 步之前是手写 grep (R 后续可换成 gitleaks-action), R124 升级.
+  # ────────────────────────────────────────────────────────────────────────
+  secret-scan:
+    name: secret patterns in source / commits
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      # gitleaks-action 默认配置检测 ~/.gitleaks.toml, 但本仓约定
+      # "假密钥前缀 test- / 后缀 -dummy" (SECURITY.md §凭据与密钥),
+      # 所以带 allowlist 让假夹具不被误报.
+      #
+      # Schema 约束: 本 action 固定 gitleaks 8.12.0, 而 global
+      # `[allowlist].regexTarget` 字段是 v8.20+ 才加的; 因此必须用
+      # 8.12.0 支持的扁平表(`[allowlist]` 直接放 `paths` / `regexes`),
+      # 不能写 `[allowlist.regexes]` (嵌套表 — gitleaks 把它当成
+      # `[rules.allowlists]` 的子表, 报
+      # `'Allowlist.Regexes[0]' expected type 'string', got map`,
+      # 整份配置加载失败, 然后 action exit 1).
+      #
+      # 副作用: 扁平 allowlist 的 regex 默认按"整行"匹配,
+      # 而非仅匹配 secret 本身. sentinel 正则
+      # `(?i)(^|[^a-z0-9])(test-...|dummy-...|fake-...)`
+      # 用 `^|[^a-z0-9]` 锚定开头, 一段真密钥即便碰巧包含
+      # "test" 子串也不会被误放行 (前一个字符通常是字母/数字,
+      # `[^a-z0-9]` 不匹配, 整行匹配直接失败).
+      - name: Write gitleaks allowlist for test fixtures
+        run: |
+          mkdir -p .gitleaks
+          cat > .gitleaks/allowlist.toml <<'EOF'
+          # Per-path allowlist (NOT a global regex) — the previous broad
+          # regex whitelisted any secret containing the words "test" /
+          # "dummy" / "example", which is a real false-negative risk.
+          # This allowlist only exempts:
+          #   - files under test/ and fixture/ trees that match the
+          #     repo's documented convention (test-* / *-dummy / *-fake
+          #     prefix/suffix as a HIGH-ENTROPY sentinel), and
+          #   - the public docs/QUICKSTART.md example key block.
+          # Everything else reports and fails the build.
+          [allowlist]
+          description = "Synthia v0.1.0 — per-path allowlist for non-production fixtures"
+          paths = [
+            # Test fixtures: only files inside a `test` or `fixture`
+            # directory tree; the rule still flags any high-entropy
+            # secret anywhere else.
+            '''(?i)(^|/)tests?/.*\.(rs|ts|tsx|js|py|toml|yaml|yml|json)$''',
+            '''(?i)(^|/)fixtures?/.*\.(rs|ts|tsx|js|py|toml|yaml|yml|json)$''',
+          ]
+          # Allow the documented "test-" / "-dummy" / "-fake" suffix only
+          # within the paths above. The leading `(^|[^a-z0-9])` anchor
+          # means a real-looking key that happens to contain "test" as
+          # an interior substring is NOT exempt — the previous char must
+          # be non-alphanumeric (or line start). Combined with the
+          # `[A-Za-z0-9_-]{8,}` body requirement, this still rejects any
+          # accidental real secret.
+          regexes = [
+            "(?i)(^|[^a-z0-9])(test[-_][A-Za-z0-9_-]{8,}|dummy[-_][A-Za-z0-9_-]{8,}|fake[-_][A-Za-z0-9_-]{8,})",
+          ]
+          EOF
+      - name: Run gitleaks
+        # v2.3.0 (the comment matches the version) — the previous
+        # SHA `9af8a76…3e3c` is gone from upstream (404 on the
+        # commit object); the SHA that actually points at the v2.3.0
+        # tag is `1938557f6a58837331b99822ab17b8e536e7bef9`.
+        uses: gitleaks/gitleaks-action@1938557f6a58837331b99822ab17b8e536e7bef9 # v2.3.0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITLEAKS_CONFIG: .gitleaks/allowlist.toml

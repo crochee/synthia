@@ -1,0 +1,61 @@
+[package]
+name = "synthia-tool"
+description = "Tool paradigm for synthia: Tool trait, ToolRegistry, scoping, deferred exposure, workspace path confinement, synthetic contracts"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+documentation.workspace = true
+readme.workspace = true
+keywords.workspace = true
+categories.workspace = true
+[dependencies]
+synthia-core.workspace = true
+synthia-provider.workspace = true
+# `metrics` only: tool dispatch records the Prometheus counters. The
+# OTLP exporter (and with it the whole opentelemetry + transport
+# stack) is deliberately NOT linked, so every agent consumer of this
+# crate stays free of it.
+synthia-telemetry = { workspace = true, default-features = false, features = [
+  "metrics",
+] }
+async-trait.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+schemars = { workspace = true, features = ["preserve_order"] }
+# schemars 1.2.2 has a `#[cfg(feature = "schemars_derive")]` gate on
+# its `pub use schemars_derive::*`, but that gate is broken: Cargo
+# only forwards `feature="default"` to the rustc invocation, so the
+# `schemars_derive` feature is never activated for transitive
+# consumers. We depend on the derive crate directly and import the
+# macro via `use schemars_derive::JsonSchema`. Remove the direct
+# dep once upstream aligns the gate with the documented `derive`
+# feature name.
+schemars_derive.workspace = true
+tracing.workspace = true
+# `rt` (spawn for dispatch + spawn_blocking), `sync` (semaphore,
+# channels), `time` (cleanup interval, spill expiry), `fs` (the
+# full-output stash), `io-util` (the spill writer), `macros`
+# (`select!` / `join!` / `tokio::test`). `process` left with the
+# `shell` tool, which now lives in `synthia-tool-shell`.
+tokio = { workspace = true, features = [
+  "rt",
+  "sync",
+  "time",
+  "fs",
+  "io-util",
+  "macros",
+] }
+tokio-stream.workspace = true
+parking_lot.workspace = true
+futures.workspace = true
+[dev-dependencies]
+# The examples and multi-threaded tests use `#[tokio::main]`, which
+# defaults to the multi-thread flavor.
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
+tempfile.workspace = true
+synthia-test-support.workspace = true
+tracing-subscriber.workspace = true

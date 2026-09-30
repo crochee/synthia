@@ -1,0 +1,223 @@
+[package]
+name = "synthia"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "Facade for the synthia agent framework: one dependency, one prelude"
+repository.workspace = true
+homepage.workspace = true
+documentation.workspace = true
+readme.workspace = true
+keywords.workspace = true
+categories.workspace = true
+
+# The facade holds **no logic** — every module is a `pub use` of one
+# underlying crate (`synthia::harness` = `synthia-harness`, …) and the
+# `prelude` is a curated subset. Dependency direction is one-way:
+# `synthia` → `synthia-*`, never back.
+#
+# Each piece is an *optional* dependency behind a same-named feature,
+# so a consumer compiles exactly the lego they asked for. The default
+# set is the "assemble a basic agent" set; everything else (skills,
+# attachments, MCP, the scheduler, eval, workflows, telemetry,
+# SQLite memory, the app crate, test support) is opt-in.
+#
+# `async-trait` is the one non-synthia dependency: the async traits the
+# facade re-exports (`ModelProvider`, `Tool`, `Agent`, …) can only be
+# implemented with that attribute macro, and a facade that makes you
+# add a second dependency to implement its own traits has failed at
+# its one job. It is re-exported as `synthia::async_trait`.
+[dependencies]
+synthia-core = { workspace = true, optional = true }
+synthia-provider = { workspace = true, optional = true }
+synthia-context = { workspace = true, optional = true }
+synthia-tool = { workspace = true, optional = true }
+synthia-tool-read = { workspace = true, optional = true }
+synthia-tool-write = { workspace = true, optional = true }
+synthia-tool-shell = { workspace = true, optional = true }
+synthia-tool-todo = { workspace = true, optional = true }
+synthia-tool-web = { workspace = true, optional = true }
+synthia-tool-task = { workspace = true, optional = true }
+synthia-tool-scheduler = { workspace = true, optional = true }
+synthia-tool-search = { workspace = true, optional = true }
+synthia-session = { workspace = true, optional = true }
+synthia-steering = { workspace = true, optional = true }
+synthia-harness = { workspace = true, optional = true }
+synthia-macros = { workspace = true, optional = true }
+
+synthia-skill = { workspace = true, optional = true }
+synthia-attachment = { workspace = true, optional = true }
+synthia-mcp = { workspace = true, optional = true }
+synthia-search = { workspace = true, optional = true }
+synthia-scheduler = { workspace = true, optional = true }
+synthia-eval = { workspace = true, optional = true }
+synthia-workflow = { workspace = true, optional = true }
+synthia-telemetry = { workspace = true, optional = true }
+synthia-test-support = { workspace = true, optional = true }
+
+async-trait.workspace = true
+
+[dev-dependencies]
+# Examples and doc tests need *an* executor for `main`/`#[tokio::main]`;
+# the framework's own seams never name a runtime.
+tokio = { workspace = true, features = ["macros", "rt", "rt-multi-thread"] }
+# Draining an `Agent` event stream is `StreamExt::next` — the same
+# combinator a consumer already has through their own `futures` dep.
+futures.workspace = true
+# `Tool::parameters` is a `serde_json::Value`; the example's custom
+# tool builds one, exactly as a consumer's would.
+serde_json.workspace = true
+
+# The example is the tutorial done end to end, so it needs the
+# assembly set (the default features). Under a narrower selection cargo
+# skips it instead of failing the build.
+[[example]]
+name = "assemble_from_zero"
+required-features = [
+  "core",
+  "provider",
+  "context",
+  "tool",
+  "tool-read",
+  "tool-write",
+  "tool-shell",
+  "tool-todo",
+  "session",
+  "steering",
+  "harness",
+]
+
+[features]
+# Assemble a basic agent: provider + tools + steering + context
+# manager + session sink + cancel token + the agent loop + the
+# `#[derive(Tool)]` macro.
+#
+# The default set is "everything a normal agent wants": the providers,
+# every shipped tool plugin (the multi-agent `task` among them), and
+# the `#[derive(Tool)]` macro. Each piece is its own feature precisely
+# so a consumer can drop it — `default-features = false` plus the
+# seven names in MINIMAL.md compiles no HTTP client and **zero** tool
+# implementations.
+default = [
+  "core",
+  "provider",
+  "provider-anthropic",
+  "provider-openai",
+  "context",
+  "tool",
+  "tool-read",
+  "tool-write",
+  "tool-shell",
+  "tool-todo",
+  "tool-web",
+  "tool-task",
+  "session",
+  "steering",
+  "harness",
+  "macros",
+]
+
+# --- the default set -------------------------------------------------
+#
+# Each feature pulls exactly the crate behind its module and the
+# crates that module's types refer to, so enabling one module never
+# leaves a type from a sibling module unnameable.
+core = ["dep:synthia-core"]
+# The `ModelProvider` trait, the wire types, the token estimator, the
+# typed profiles. No HTTP client: see the two adapter features.
+provider = ["dep:synthia-provider", "core"]
+# The shipped adapters, each carrying `reqwest` and its transport
+# stack. `AnthropicProvider` / `OpenAICompatibleProvider`.
+provider-anthropic = ["provider", "synthia-provider/anthropic"]
+provider-openai = ["provider", "synthia-provider/openai"]
+context = ["dep:synthia-context", "core", "provider", "session"]
+# The registry, the `Tool` trait, the exposure projection, the
+# `workspace` path confinement. No tool implementations — those are
+# the plugin features below.
+tool = ["dep:synthia-tool", "core", "provider", "session"]
+# One tool implementation per feature, exactly as a consumer would
+# depend on them. All offline except `tool-web`.
+tool-read = ["tool", "dep:synthia-tool-read"]
+tool-write = ["tool", "dep:synthia-tool-write"]
+tool-shell = ["tool", "dep:synthia-tool-shell"]
+tool-todo = ["tool", "dep:synthia-tool-todo"]
+# The one tool that talks to the network — the only one that pulls
+# an HTTP client and its transport stack.
+tool-web = ["tool", "dep:synthia-tool-web"]
+# The multi-agent `task` tool: a synthetic tool that runs a
+# registered peer as a child agent. Offline, but it pulls the agent
+# crate (children run in-process, through the interceptor seam).
+tool-task = [
+  "dep:synthia-tool-task",
+  "harness",
+  "tool",
+]
+session = ["dep:synthia-session", "core", "provider"]
+steering = ["dep:synthia-steering", "core", "context", "provider"]
+harness = [
+  "dep:synthia-harness",
+  "core",
+  "provider",
+  "context",
+  "session",
+  "steering",
+  "tool",
+]
+# `#[derive(Tool)]` and the other proc macros.
+macros = ["dep:synthia-macros"]
+
+# --- opt-in pieces ---------------------------------------------------
+skill = ["dep:synthia-skill", "core", "tool"]
+attachment = ["dep:synthia-attachment", "core", "provider"]
+mcp = ["dep:synthia-mcp", "core", "tool"]
+# The `schedule` tool — the model-facing adapter over
+# `synthia-scheduler`. It pulls the `scheduler` feature because the
+# tool is constructed from a `ScheduleStore` and delivers through a
+# `Scheduler`: without that feature the module would be unnameable.
+# Opt-in rather than default, like `mcp`: both need a host-constructed
+# runtime object (a supervisor, a store), not just a registration.
+tool-scheduler = [
+  "dep:synthia-tool-scheduler",
+  "tool",
+  "scheduler",
+]
+# The cross-domain `search` tool over a host-built `synthia-search`
+# `Registry`. Opt-in like `mcp` / `tool-scheduler`: the host must first
+# construct the Registry it searches, and it is that Registry — not
+# this feature — that decides which domains exist.
+tool-search = [
+  "dep:synthia-tool-search",
+  "tool",
+  "search",
+]
+scheduler = ["dep:synthia-scheduler", "core"]
+search = ["dep:synthia-search", "core"]
+# The whole cron path, both halves at once: the parser behind
+# `synthia::scheduler::CronTrigger` (`synthia-scheduler/cron`) *and*
+# the `schedule` tool's acceptance of `kind: "cron"`
+# (`synthia-tool-scheduler/cron`). A parser-only feature would be a
+# half-cutover: `create` is refused by the tool layer unless *its*
+# forwarding feature is on, so the round's user-visible win — the
+# model can create cron jobs — would stay unreachable from the facade.
+# Opt-in, and out of the default set, like the two features it builds
+# on.
+cron = [
+  "scheduler",
+  "synthia-scheduler/cron",
+  "tool-scheduler",
+  "synthia-tool-scheduler/cron",
+]
+eval = ["dep:synthia-eval", "core"]
+workflow = ["dep:synthia-workflow", "core"]
+telemetry = [
+  "dep:synthia-telemetry",
+  "core",
+  "synthia-telemetry/metrics",
+  "synthia-telemetry/otlp",
+]
+# Forwards to `synthia-context/sqlite` (bundled SQLite + FTS5 memory).
+sqlite = ["context", "synthia-context/sqlite"]
+# Deterministic fakes (`ReplayProvider`, …) for other crates' test
+# suites; never enable this from a production binary.
+test-support = ["dep:synthia-test-support", "core", "provider", "tool"]

@@ -1,0 +1,47 @@
+[package]
+name = "synthia-tool-shell"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "The `shell` tool plugin: bounded command executor that owns its execution policy"
+repository.workspace = true
+homepage.workspace = true
+documentation.workspace = true
+readme.workspace = true
+keywords.workspace = true
+categories.workspace = true
+
+[dependencies]
+synthia-tool.workspace = true
+async-trait.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+# `SandboxError` — the typed refusal a confined run returns.
+thiserror.workspace = true
+# `schemars_derive::JsonSchema` derive for `ShellArgs`; the derive
+# gate inside `schemars` itself is broken for transitive consumers,
+# hence the direct dep (see `synthia-tool`'s manifest note).
+schemars.workspace = true
+schemars_derive.workspace = true
+# `kill(-pgid, SIGTERM/SIGKILL)` escalation when the timeout fires.
+libc.workspace = true
+# `rt` (spawn for the pipe readers), `time` (the wall-clock timeout
+# + kill grace), `process` (Command), `io-util` (piped
+# stdout/stderr readers), `macros` (`select!`).
+tokio = { workspace = true, features = [
+  "rt",
+  "time",
+  "process",
+  "io-util",
+  "macros",
+] }
+
+[dev-dependencies]
+# `ContentPart` for extracting tool text in tests and the example.
+synthia-provider.workspace = true
+# The example's temp-workspace tag uses a wall-clock timestamp.
+chrono.workspace = true
+# Integration tests and the example use `#[tokio::main]` /
+# `#[tokio::test]` (multi-thread flavor).
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
+tempfile.workspace = true

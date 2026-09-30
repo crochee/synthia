@@ -1,0 +1,174 @@
+# k8s deployment manifest — synthia-server
+#
+# Reference deployment for the synthia-server binary. Mirrors the
+# design points in `docs/COMMERCIAL.md` and `DEPLOYMENT.md`: a single
+# Stateless Deployment fronted by ClusterIP Service, with security
+# context aligned to the container image's runtime user.
+#
+# Design points (k8s industry baseline):
+#   1. Deployment, 1 replica minimum (HPA later). `replicas` is
+#      intentionally a template default; production should override
+#      per cluster with `kubectl patch` / GitOps.
+#   2. SecurityContext: non-root, readOnlyRootFilesystem, runAsUser
+#      65532 — aligns with the distroless / alpine runtime uid we
+#      ship; `seccompProfile: RuntimeDefault` is the default in k8s
+#      1.25+ but stated explicitly so a future pod-template edit
+#      cannot regress it.
+#   3. Probes hit the server's `/livez` (process serves HTTP) and
+#      `/readyz` (AppState initialised). Both mounted on the
+#      public router (no auth layer).
+#   4. ConfigMap holds `config.yaml` (non-secret). API keys live in
+#      a Secret — the deployment template references it via
+#      `envFrom` / `secretKeyRef`.
+#   5. `emptyDir` mounts on `/tmp` + `/data` (sqlite memory / journal
+#      paths) so writes do not hit the read-only root filesystem.
+#   6. PDB prevents rolling upgrades from draining every replica.
+#   7. Service: ClusterIP — the web frontend (a separate
+#      Deployment) reverses proxy to it; no NodePort/LoadBalancer
+#      exposure unless behind an ingress.
+#
+# Image tag is replaced by CI at deploy time, e.g. via `kustomize
+# edit set image synthia/server=docker.io/crochee/synthia-server:0.1.0`.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: synthia-server
+  labels:
+    app.kubernetes.io/name: synthia-server
+    app.kubernetes.io/component: api
+    app.kubernetes.io/part-of: synthia
+spec:
+  replicas: 1
+  revisionHistoryLimit: 3
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      # Soft placement: new pods come up before old ones retire,
+      # so capacity does not dip mid-rollout.
+      maxUnavailable: 0
+      maxSurge: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: synthia-server
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: synthia-server
+        app.kubernetes.io/component: api
+        app.kubernetes.io/part-of: synthia
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        # Aligned with Dockerfile.server's runtime user. The Alpine
+        # image we ship today runs as root by default; the security
+        # context drops privileges to 65532. For distroless images,
+        # `runAsNonRoot: true` is already satisfied by the base
+        # image's `nonroot` user — same value either way.
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        fsGroup: 65532
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: server
+          image: docker.io/crochee/synthia-server:0.1.0
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+          # STOPSIGNAL SIGINT triggers synthia-server's
+          # graceful shutdown (the `tokio::signal::ctrl_c()` handler
+          # in main.rs); 30 s is the documented shutdown budget.
+          terminationGracePeriodSeconds: 30
+          # Probe the same port the server listens on; both
+          # endpoints are mounted on the public router (no auth).
+          livenessProbe:
+            httpGet:
+              path: /livez
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 2
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: http
+            initialDelaySeconds: 2
+            periodSeconds: 5
+            timeoutSeconds: 2
+            failureThreshold: 3
+          env:
+            - name: SYNTHIA_HOST
+              value: "0.0.0.0"
+            - name: SYNTHIA_PORT
+              value: "8080"
+            - name: RUST_LOG
+              value: "info"
+            # Identity env passed through from the OCI image
+            # labels; useful for `kubectl exec ... printenv` when an
+            # operator wants to confirm the running build without curl.
+            - name: SYNTHIA_VERSION
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.labels['app.kubernetes.io/version']
+          # Non-secret config mounted read-only; API keys come from
+          # a Secret. Replace the Secret name after `kubectl create
+          # secret generic synthia-secrets ...`.
+          envFrom:
+            - secretRef:
+                name: synthia-secrets
+                optional: false
+          volumeMounts:
+            - name: data
+              mountPath: /data
+            - name: tmp
+              mountPath: /tmp
+          resources:
+            requests:
+              cpu: 250m
+              memory: 256Mi
+            limits:
+              cpu: "2"
+              memory: 1Gi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+      volumes:
+        - name: data
+          emptyDir: {}
+        - name: tmp
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: synthia-server
+  labels:
+    app.kubernetes.io/name: synthia-server
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: synthia-server
+  ports:
+    - name: http
+      port: 80
+      targetPort: http
+      protocol: TCP
+---
+# PodDisruptionBudget — at least one replica must remain available
+# during voluntary disruptions (node drains, version bumps).
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: synthia-server
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: synthia-server

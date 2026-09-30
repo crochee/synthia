@@ -1,0 +1,29 @@
+[package]
+name = "synthia-test-support"
+description = "Test-only fakes and stubs for synthia (FakeProvider, etc.) — the in-process test surface consumers reuse"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+documentation.workspace = true
+readme.workspace = true
+keywords.workspace = true
+categories.workspace = true
+[dependencies]
+synthia-core.workspace = true
+synthia-provider.workspace = true
+synthia-tool.workspace = true
+async-trait.workspace = true
+parking_lot.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+# `sync` = the fake provider's channel/mutex; the fakes never spawn and
+# never touch the filesystem.
+tokio = { workspace = true, features = ["sync"] }
+futures.workspace = true
+
+[dev-dependencies]
+# The `replay_provider` example drives a run with `#[tokio::main]`.
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }

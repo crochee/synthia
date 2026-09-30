@@ -1,0 +1,72 @@
+# markdown-lint.yml — Synthia
+#
+# 与 .markdownlint.json 配对使用（单一真源）：
+#   - 锁每个 crate 顶层 README.md 的 markdown 格式；
+#   - 与 .editorconfig 的 trim_trailing_whitespace / LF 配合；与 prettier
+#     互不重叠（prettier 只跑前端，markdown-lint 跑所有 markdown）；
+#   - 与 `make fmt-check` / `make check-web` 互不重叠（rustfmt + 前端
+#     prettier）；组成 "rustfmt + prettier + markdownlint" 三件套。
+#
+# scope 决定：显式列举 26 个 crate README + 顶层 CONTRIBUTORS.md（不是
+# glob 排除模式）— 这样新加一个目录不会"无意中"进入 lint 范围，而是
+# 显式决策后才加。这是 rust-lang/tokio 的同一做法。
+#
+# 触发: push / PR / 每天 UTC 04:00（与 stale-bot 错开 2 小时）。
+name: markdown-lint
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+    branches: [master]
+  schedule:
+    - cron: "0 4 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: markdown-lint-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  lint:
+    name: markdownlint (.markdownlint.json)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Run markdownlint-cli (explicit per-crate README + CONTRIBUTORS)
+        uses: DavidAnson/markdownlint-cli2-action@v17
+        with:
+          config: .markdownlint.json
+          globs: |
+            CONTRIBUTORS.md
+            crates/synthia/README.md
+            crates/synthia-core/README.md
+            crates/synthia-provider/README.md
+            crates/synthia-context/README.md
+            crates/synthia-session/README.md
+            crates/synthia-tool/README.md
+            crates/synthia-harness/README.md
+            crates/synthia-telemetry/README.md
+            crates/synthia-attachment/README.md
+            crates/synthia-mcp/README.md
+            crates/synthia-scheduler/README.md
+            crates/synthia-workflow/README.md
+            crates/synthia-eval/README.md
+            crates/synthia-search/README.md
+            crates/synthia-skill/README.md
+            crates/synthia-steering/README.md
+            crates/synthia-test-support/README.md
+            crates/synthia-server/README.md
+            crates/synthia-tool-read/README.md
+            crates/synthia-tool-write/README.md
+            crates/synthia-tool-shell/README.md
+            crates/synthia-tool-todo/README.md
+            crates/synthia-tool-web/README.md
+            crates/synthia-tool-task/README.md
+            crates/synthia-tool-scheduler/README.md
+            crates/synthia-tool-search/README.md

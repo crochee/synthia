@@ -1,0 +1,80 @@
+# .gitattributes — Synthia
+#
+# 与 .editorconfig 互不重叠: 本文件告诉 *git* (diff / merge / archive /
+# GitHub 渲染) 如何处理每个路径; .editorconfig 告诉 *editor*.
+# 两者都是语言无关开源项目基线 (pi-mono / dsh / tokio / rust-lang/
+# cargo 都有一份).
+#
+# 规则清单:
+#   1. 文本文件统一 LF + UTF-8 (与 .editorconfig 一致; 防 WSL / macOS
+#      contributor 误提交 CRLF);
+#   2. 标记 git diff 永远不试图"修复"的二进制;
+#   3. GitHub linguist 关闭 vendor / generated 文件的统计, 让
+#      github 语言条与本仓真实语言一致;
+#   4. CHANGELOG.md / *.lock 不走 PR diff (把它们改成巨型 conflict
+#      没有价值).
+
+# ── Text / line endings ───────────────────────────────────────────────
+*               text=auto eol=lf
+*.rs            text eol=lf
+*.toml          text eol=lf
+*.json          text eol=lf
+*.yml           text eol=lf
+*.yaml          text eol=lf
+*.md            text eol=lf
+*.sh            text eol=lf
+*.bash          text eol=lf
+Makefile        text eol=lf
+
+# Windows contributor 的 CRLF 不会通过 PR review —— lint 不查 EOF,
+# 但下面的 `* text=auto` 让 `git checkout` 在 index 时**重新规范**到 LF.
+
+# ── Binary (防 git 尝试 "clean" / "smudge") ──────────────────────────
+*.png           binary
+*.jpg           binary
+*.jpeg          binary
+*.gif           binary
+*.ico           binary
+*.svg           binary
+*.woff          binary
+*.woff2         binary
+*.ttf           binary
+*.eot           binary
+*.pdf           binary
+*.zip           binary
+*.tar           binary
+*.gz            binary
+*.tgz           binary
+*.br            binary
+
+# 仓库内的预编译 reference binary 也按 binary 处理 (防止 PR diff 把
+# 整包当作文本展示).
+/target/**      binary
+**/target/**    binary
+**/dist/**      binary
+**/*.exe        binary
+
+# ── Linguist 关闭 (vendor / generated) ───────────────────────────────
+# synthia-web/node_modules 在 .gitignore 里, 不需要 linguist-vendored;
+# 但 synthia-web/dist 与 docs/superpowers/specs/<name>/design.md 之类
+# 容易触发 linguist 误统计. 关掉.
+synthia-web/dist/**         linguist-generated=true
+synthia-web/package-lock.json linguist-generated=true
+Cargo.lock                  linguist-generated=true
+**/*.min.js                 linguist-generated=true
+**/*.min.css                linguist-generated=true
+
+# Markdown 不应该按代码统计占比, 但**也不**应该让 GitHub 把 README
+# 的语言栏吞掉. 默认 OK, 不需要 linguist-documentation.
+
+# ── Merge strategy ───────────────────────────────────────────────────
+# 已知冲突高发: CHANGELOG.md (多人同时改 [Unreleased]) 与 Cargo.lock
+# (依赖更新). 用 union (auto-merge, 不阻断 PR, 让 git 走文件级 union
+# 合并) 把这两类文件的冲突率压到接近 0; 仍是常规 3-way merge 兜底,
+# 真冲突会正常出现.
+CHANGELOG.md    merge=union
+Cargo.lock      merge=union
+
+# ── Diff / blame ─────────────────────────────────────────────────────
+# *.lock 不可读 (cargo 生成的版本号 dump); blame 跳过去.
+Cargo.lock      -diff

@@ -1,0 +1,112 @@
+# syntax=docker/dockerfile:1.7
+#
+# Multi-stage Dockerfile for synthia-web (React/Vite).
+#
+# Stage 1: build the production bundle with Vite
+# Stage 2: serve the bundle with Nginx
+#
+# Runtime configuration (override at `docker run -e ...`):
+#   - SYNTHIA_BACKEND_HOST   hostname nginx proxies /api, /v1,
+#                            /livez, /readyz, /ws to. Defaults to
+#                            `server` so docker-compose service
+#                            linking just works.
+#   - SYNTHIA_BACKEND_PORT   port the backend listens on. Defaults
+#                            to 8080 (matches Dockerfile.server's
+#                            exposed port).
+# Both flow into nginx via the bundled entrypoint script
+# (`docker-entrypoint.sh`), which runs `envsubst` over
+# `nginx.conf.template` to produce `/etc/nginx/conf.d/default.conf`
+# at container start, then execs nginx in the foreground.
+#
+# Build identity baked at compile time as Vite env vars
+# (`VITE_SYNTHIA_VERSION` / `VITE_SYNTHIA_GIT_SHA` /
+# `VITE_SYNTHIA_BUILD_TIME`), surfaced under the OCI image labels
+# below so `docker inspect` reveals the exact build without running
+# the image.
+
+ARG NODE_VERSION=20
+ARG NGINX_VERSION=alpine
+# 全局 ARG —— 必须在所有 FROM 之前声明, docker buildx 才能把
+# `--build-arg SYNTHIA_*=...` 传给 runtime stage. ARG scope 是
+# stage 级的, 每个 stage 内部需要重新声明才能在 stage 内引用,
+# 但**值**继承自全局, 不需要在每个 stage 重新声明时给 default.
+ARG SYNTHIA_VERSION="0.1.0"
+ARG SYNTHIA_GIT_SHA=""
+ARG SYNTHIA_BUILD_TIME=""
+
+########## Stage 1: build the production bundle with Vite ##########
+FROM node:${NODE_VERSION}-alpine AS builder
+WORKDIR /app
+
+# ARG 已在全局作用域声明 (见文件顶部), builder stage 重新声明
+# 才能在 stage 内引用 (ARG scope 是 stage 级的).
+ARG SYNTHIA_VERSION
+ARG SYNTHIA_GIT_SHA
+ARG SYNTHIA_BUILD_TIME
+ENV VITE_SYNTHIA_VERSION=${SYNTHIA_VERSION} \
+    VITE_SYNTHIA_GIT_SHA=${SYNTHIA_GIT_SHA} \
+    VITE_SYNTHIA_BUILD_TIME=${SYNTHIA_BUILD_TIME}
+
+# Install dependencies (cached layer)
+COPY synthia-web/package.json synthia-web/package-lock.json* ./
+RUN npm ci
+
+# Build
+COPY synthia-web/ .
+RUN npm run build
+
+########## Stage 2: nginx runtime with envsubst entrypoint ##########
+FROM nginx:${NGINX_VERSION} AS runtime
+
+# ARG 已在全局作用域声明 (见文件顶部), runtime stage 重新声明
+# 才能在 stage 内引用 (ARG scope 是 stage 级的).
+ARG SYNTHIA_VERSION
+ARG SYNTHIA_GIT_SHA
+ARG SYNTHIA_BUILD_TIME
+
+# Templated nginx config (envsubst'd at container start).
+COPY nginx.conf.template /etc/nginx/templates/default.conf.template
+
+# Entrypoint substitutes ${SYNTHIA_BACKEND_HOST} / ${SYNTHIA_BACKEND_PORT}
+# into the rendered config and launches nginx in the foreground.
+RUN cat > /docker-entrypoint.sh <<'ENTRYPOINT_EOF'
+#!/bin/sh
+set -eu
+: "${SYNTHIA_BACKEND_HOST:=server}"
+: "${SYNTHIA_BACKEND_PORT:=8080}"
+export SYNTHIA_BACKEND_HOST SYNTHIA_BACKEND_PORT
+envsubst '${SYNTHIA_BACKEND_HOST} ${SYNTHIA_BACKEND_PORT}' \
+    < /etc/nginx/templates/default.conf.template \
+    > /etc/nginx/conf.d/default.conf
+exec "$@"
+ENTRYPOINT_EOF
+RUN chmod +x /docker-entrypoint.sh
+
+# Static assets
+COPY --from=builder /app/dist /usr/share/nginx/html
+
+EXPOSE 80
+
+# Healthcheck hits the static index
+HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
+  CMD wget --quiet --tries=1 --spider http://localhost/ || exit 1
+
+# OCI image labels — surface under `docker inspect` / `podman
+# inspect` / Kubernetes `status.containerStatuses[].imageID` so a
+# support engineer can confirm the right image without running it.
+LABEL org.opencontainers.image.title="synthia-web" \
+      org.opencontainers.image.description="Synthia Agent web UI — React/Vite SPA served by nginx with SSE-aware reverse proxy to synthia-server" \
+      org.opencontainers.image.source="https://github.com/crochee/synthia" \
+      org.opencontainers.image.licenses="MIT" \
+      org.opencontainers.image.version=${SYNTHIA_VERSION} \
+      org.opencontainers.image.revision=${SYNTHIA_GIT_SHA} \
+      org.opencontainers.image.created=${SYNTHIA_BUILD_TIME}
+
+ENV SYNTHIA_BACKEND_HOST=server \
+    SYNTHIA_BACKEND_PORT=8080 \
+    SYNTHIA_VERSION=${SYNTHIA_VERSION} \
+    SYNTHIA_GIT_SHA=${SYNTHIA_GIT_SHA} \
+    SYNTHIA_BUILD_TIME=${SYNTHIA_BUILD_TIME}
+
+ENTRYPOINT ["/docker-entrypoint.sh"]
+CMD ["nginx", "-g", "daemon off;"]

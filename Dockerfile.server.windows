@@ -1,0 +1,110 @@
+# syntax=docker/dockerfile:1.7
+#
+# Multi-stage Dockerfile for cross-compiling synthia-server to
+# Windows PE (x86_64-pc-windows-gnu).
+#
+# Pattern mirrors `Dockerfile.server` (musl) and `Dockerfile.mcp`:
+# cargo-chef 把第三方依赖拆到独立层, 源码改动只重编本仓 crate.
+# 区别仅在 base: debian-slim (而非 alpine), 装 mingw-w64 提供
+# `x86_64-w64-mingw32-gcc` —— rustc 的 windows-gnu 目标调它链接.
+#
+# `RUST_IMAGE` 默认 `rust:1.98-slim-bookworm`, 与 `rust-toolchain.toml`
+# 的 stable channel 解耦 (后者是 fmt/clippy 的 source of truth, 这个是
+# 跨构建基底; 改一处不影响另一处). 升级工具链 = 改 RUST_IMAGE 默认值.
+#
+# 镜像只用于出产物, 不运行: 末尾 `FROM scratch AS artifact` 把 PE 拷出,
+# 由 `docker buildx build --target artifact --output type=local,dest=dist .`
+# 直接落地 dist/synthia-server.exe. 镜像本体不持久化.
+#
+# Build identity 同样由 `build.rs` 通过 cargo:rustc-env= 烘进二进制,
+# 与 Dockerfile.server / release.yml 走同一份协议 (SYNTHIA_GIT_SHA /
+# SYNTHIA_BUILD_TIME / SYNTHIA_TARGET=...). CI 透传 tag SHA + wall-clock;
+# 本地 `make windows` 无 SHA 时 `build.rs` 走 git 回退或 unknown 占位.
+
+ARG RUST_IMAGE=rust:1.98-slim-bookworm
+
+ARG SYNTHIA_GIT_SHA=""
+ARG SYNTHIA_BUILD_TIME=""
+
+########## Stage 0: chef —— 工具链 + mingw + cargo-chef (可复用基底) ##########
+FROM --platform=$BUILDPLATFORM ${RUST_IMAGE} AS chef
+
+# mingw-w64 提供 x86_64-w64-mingw32-gcc —— rustc 的 windows-gnu 目标调它链接.
+# 该目标的 std 随 rustup 而非镜像, 所以显式 target add.
+#
+# cmake + nasm: aws-lc-sys (rustls 的 C 后端, 走 quinn → tokio-tungstenite
+# → WebSocket) 在 cross compile 时尝试编一个 C 测试二进制, 需要 cmake
+# 探测工具链; 安装 nasm 让 aws-lc-sys 走预组装 NASM 对象, 避免从源码编
+# 整个 libcrypto. 详见 https://crane.dev/faq/cross-compiling-aws-lc-sys.html
+#
+# mingw-w64-tools 提供 winpthread —— aws-lc-sys 在 cross 模式下会找
+# <pthread.h>, debian-slim 自带的 mingw 不一定在默认 include 路径里.
+#
+# apt cache mount 让 .deb 跨构建复用 (BuildKit 特性, 不进层).
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
+    --mount=type=cache,target=/var/lib/apt,sharing=locked \
+    set -eux; \
+    apt-get update; \
+    apt-get install -y --no-install-recommends \
+        mingw-w64 cmake nasm; \
+    rm -rf /var/lib/apt/lists/*
+RUN rustup target add x86_64-pc-windows-gnu
+
+# cargo-chef 一次性安装 (registry cache mount 复用下载).
+RUN --mount=type=cache,target=/usr/local/cargo/registry,sharing=locked \
+    --mount=type=cache,target=/usr/local/cargo/git,sharing=locked \
+    cargo install cargo-chef --locked
+WORKDIR /work
+
+########## Stage 1: planner —— 依赖清单 (recipe.json, ~KB 级) ##########
+FROM chef AS planner
+# .dockerignore 白名单保证构建上下文里只有这三个路径.
+COPY Cargo.toml Cargo.lock ./
+COPY crates ./crates
+RUN cargo chef prepare --recipe-path recipe.json
+
+########## Stage 2: cacher —— 依赖层 (Cargo.toml/lock 变化才重编) ##########
+FROM chef AS cacher
+COPY --from=planner /work/recipe.json recipe.json
+# Release profile already pinned in workspace Cargo.toml
+# (`opt-level=3 / lto=thin / codegen-units=1 / strip=symbols`); the
+# ENV below is a guard rail so a future profile edit cannot silently
+# regress to fat LTO (which exhausts memory on small CI runners).
+ENV CARGO_PROFILE_RELEASE_LTO=thin \
+    CARGO_PROFILE_RELEASE_STRIP=symbols \
+    # aws-lc-sys cross compile to windows-gnu: 让预组装 NASM 对象走通;
+    # 关掉 gcc 的 stringop-overflow / array-bounds / restrict 警告
+    # (-Werror 把这些当 hard fail, 在 cross 模式下误报). 参考
+    # https://crane.dev/faq/cross-compiling-aws-lc-sys.html
+    AWS_LC_SYS_PREBUILT_NASM=1 \
+    CFLAGS_x86_64_pc_windows_gnu="-Wno-stringop-overflow -Wno-array-bounds -Wno-restrict"
+RUN --mount=type=cache,target=/usr/local/cargo/registry,sharing=locked \
+    --mount=type=cache,target=/usr/local/cargo/git,sharing=locked \
+    cargo chef cook --release --target x86_64-pc-windows-gnu \
+        -p synthia-server --bin synthia-server \
+        --recipe-path recipe.json
+
+########## Stage 3: builder —— 本仓库 crate (增量: 只编 crates/) ##########
+FROM cacher AS builder
+ARG SYNTHIA_GIT_SHA
+ARG SYNTHIA_BUILD_TIME
+ENV SYNTHIA_GIT_SHA=${SYNTHIA_GIT_SHA} \
+    SYNTHIA_BUILD_TIME=${SYNTHIA_BUILD_TIME} \
+    SYNTHIA_PROFILE=release \
+    SYNTHIA_TARGET=x86_64-pc-windows-gnu
+COPY Cargo.toml Cargo.lock ./
+COPY crates ./crates
+# `.git/HEAD` 让 build.rs 在本地 docker 构建下能跑 `git rev-parse HEAD`
+# 回退; CI 透传 SYNTHIA_GIT_SHA, 这一步被覆盖. .dockerignore 当前把
+# .git/ 整体排除 —— 本地 `make windows` 因此会落到 build.rs 的 "unknown"
+# 分支, 与 release.yml 的预期一致 (CI 永远是 source of truth).
+RUN --mount=type=cache,target=/usr/local/cargo/registry,sharing=locked \
+    --mount=type=cache,target=/usr/local/cargo/git,sharing=locked \
+    cargo build --release --locked --target x86_64-pc-windows-gnu \
+        -p synthia-server \
+    && cp target/x86_64-pc-windows-gnu/release/synthia-server.exe \
+        /synthia-server.exe
+
+########## Stage 4: artifact —— scratch 导出层 (--target artifact 入口) ##########
+FROM scratch AS artifact
+COPY --from=builder /synthia-server.exe /synthia-server.exe

@@ -1,0 +1,7 @@
+node_modules
+dist
+*.lock
+package-lock.json
+# `*.lock` above does not match `pnpm-lock.yaml`; lockfiles are
+# generated, so prettier must not reformat them.
+pnpm-lock.yaml

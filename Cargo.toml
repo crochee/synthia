@@ -1,0 +1,280 @@
+[workspace]
+members = [
+    "crates/synthia",
+    "crates/synthia-core",
+    "crates/synthia-telemetry",
+    "crates/synthia-provider",
+    "crates/synthia-context",
+    "crates/synthia-tool",
+    "crates/synthia-tool-read",
+    "crates/synthia-tool-write",
+    "crates/synthia-tool-shell",
+    "crates/synthia-tool-todo",
+    "crates/synthia-tool-web",
+    "crates/synthia-tool-scheduler",
+    "crates/synthia-tool-search",
+    "crates/synthia-skill",
+    "crates/synthia-session",
+    "crates/synthia-steering",
+    "crates/synthia-tool-task",
+    "crates/synthia-harness",
+    "crates/synthia-server",
+    "crates/synthia-test-support",
+    "crates/synthia-mcp",
+    "crates/synthia-mcp-server",
+    "crates/synthia-search",
+    "crates/synthia-scheduler",
+    "crates/synthia-macros",
+    "crates/synthia-eval",
+    "crates/synthia-workflow",
+]
+resolver = "2"
+
+[workspace.dependencies]
+# The facade crate: one dependency, one prelude. It re-exports the
+# pieces below and is never depended on by them (one-way, no cycle).
+synthia = { path = "crates/synthia" }
+synthia-core = { path = "crates/synthia-core" }
+synthia-tool-read = { path = "crates/synthia-tool-read" }
+synthia-tool-write = { path = "crates/synthia-tool-write" }
+synthia-tool-shell = { path = "crates/synthia-tool-shell" }
+synthia-tool-todo = { path = "crates/synthia-tool-todo" }
+synthia-tool-web = { path = "crates/synthia-tool-web" }
+synthia-telemetry = { path = "crates/synthia-telemetry", default-features = false }
+synthia-provider = { path = "crates/synthia-provider", default-features = false }
+synthia-context = { path = "crates/synthia-context" }
+synthia-tool = { path = "crates/synthia-tool", default-features = false }
+synthia-skill = { path = "crates/synthia-skill" }
+ synthia-steering = { path = "crates/synthia-steering" }
+synthia-session = { path = "crates/synthia-session" }
+synthia-harness = { path = "crates/synthia-harness" }
+ synthia-server = { path = "crates/synthia-server" }
+synthia-attachment = { path = "crates/synthia-attachment" }
+synthia-mcp = { path = "crates/synthia-mcp" }
+synthia-mcp-server = { path = "crates/synthia-mcp-server" }
+synthia-tool-task = { path = "crates/synthia-tool-task" }
+synthia-tool-scheduler = { path = "crates/synthia-tool-scheduler" }
+synthia-tool-search = { path = "crates/synthia-tool-search" }
+synthia-scheduler = { path = "crates/synthia-scheduler" }
+synthia-search = { path = "crates/synthia-search" }
+synthia-test-support = { path = "crates/synthia-test-support" }
+synthia-macros = { path = "crates/synthia-macros" }
+synthia-eval = { path = "crates/synthia-eval" }
+synthia-workflow = { path = "crates/synthia-workflow" }
+syn = "2.0"
+quote = "1.0"
+proc-macro2 = "1.0"
+
+ # Async runtime
+#
+# No `full`: every crate declares the features it actually uses, so the
+# feature set a consumer ends up compiling is the union of what the
+# pieces they enabled need — a crate that only awaits channels does not
+# pull the process, fs, signal, and net subsystems. `cargo check -p
+# <crate>` is the authority; each crate's `tokio` line carries a short
+# comment saying why its features are what they are.
+tokio = { version = "1.53", default-features = false }
+tokio-stream = { version = "0.1", features = ["sync"] }
+tokio-util = "0.7"
+async-trait = "0.1"
+futures = "0.3"
+async-stream = "0.3"
+
+# Serialization
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+toml = "0.8"
+schemars = { version = "1.2", features = ["derive", "preserve_order"] }
+schemars_derive = "1.2"
+
+# Error handling
+anyhow = "1.0"
+thiserror = "2.0"
+validator = { version = "0.21", features = ["derive"] }
+
+# Utilities
+ulid = { version = "3.0", features = ["serde"] }
+chrono = { version = "0.4", features = ["serde"] }
+# Cron parsing is opt-in: only `synthia-scheduler`'s `cron` feature
+# pulls this in, and it does so behind `dep:cron`, so no default build
+# grows a parser dependency.
+cron = "0.17"
+uuid = { version = "1.24", features = ["v4", "serde"] }
+indexmap = "2.14"
+parking_lot = "0.12"
+# `bundled` compiles SQLite from the amalgamation (FTS5 enabled) so the
+# build needs no system libsqlite3; only the optional `synthia-context`
+# `sqlite` feature pulls this in.
+rusqlite = { version = "0.40", features = ["bundled"] }
+
+# HTTP server
+axum = { version = "0.8", features = ["ws"] }
+tower = "0.5"
+tower-http = { version = "0.7", features = ["trace", "cors", "fs"] }
+http = "1.5"
+
+# HTTP client
+reqwest = { version = "0.13", features = ["json", "stream"] }
+
+# Tracing pillars, feature sets centralized here so every crate opts in to
+# exactly what the code uses (default-features = false on the OTel /
+# tracing-subscriber families). The three telemetry pillars:
+#   - logging  → tracing + tracing-subscriber (fmt / ansi console + env-filter)
+#   - traces   → opentelemetry OTLP (tonic gRPC + reqwest HTTP transports,
+#                TLS for `https://` gRPC endpoints; metrics/logs signals off)
+#   - metrics  → prometheus (text exposition only; protobuf / push off)
+# Crate-level feature gates (`otel`, `metrics`) live in
+# `crates/synthia-telemetry/Cargo.toml` and re-export through downstream
+# crates that opt into observability.
+tracing = { version = "0.1", default-features = false, features = [
+  "std",
+  "attributes",
+] }
+tracing-subscriber = { version = "0.3", default-features = false, features = [
+  "fmt",
+  "ansi",
+  "env-filter",
+] }
+opentelemetry = { version = "0.32", default-features = false, features = [
+  "trace",
+] }
+opentelemetry_sdk = { version = "0.32", default-features = false, features = [
+  "trace",
+  "rt-tokio",
+  "experimental_trace_batch_span_processor_with_async_runtime",
+] }
+opentelemetry-semantic-conventions = { version = "0.32", features = [
+  "semconv_experimental",
+] }
+opentelemetry-otlp = { version = "0.32", default-features = false, features = [
+  "trace",
+  "grpc-tonic",
+  "http-proto",
+  "reqwest-client",
+  "tls-ring",
+  "tls-webpki-roots",
+] }
+tracing-opentelemetry = { version = "0.33", default-features = false }
+url = "2.5"
+prometheus = { version = "0.14", default-features = false }
+lazy_static = "1.5"
+
+# Encoding
+base64 = "0.22"
+
+# Additional utilities
+dashmap = "6.2"
+regex = "1.13"
+sha2 = "0.10"
+hex = "0.4"
+tokio-tungstenite = "0.29"
+libc = "0.2"
+tempfile = "3.8"
+wiremock = "0.6"
+dotenvy = "0.15"
+http-body-util = "0.1"
+
+# CLI
+clap = { version = "4.6", features = ["derive", "env"] }
+
+# YAML parsing
+serde_yaml = "0.9"
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.98"
+license = "MIT"
+repository = "https://github.com/crochee/synthia"
+homepage = "https://github.com/crochee/synthia"
+documentation = "https://docs.rs/synthia"
+readme = "README.md"
+keywords = ["ai", "agent", "llm", "plugin", "orchestration"]
+categories = ["asynchronous", "development-tools"]
+
+# --- Release profile ---
+#
+# Optimised for low-latency request handling on a single
+# long-lived server process. Compared to Cargo's defaults we:
+#   - drop `debug` symbols (`0` ⇒ fastest link, smallest binary).
+#     Profile-guided optimisation requires symbols so we keep
+#     `1` if/when PGO is wired in; until then `0` wins on
+#     cold-start time and RSS, which is the metric that matters
+#     for a chat server that streams many small responses.
+#   - enable thin LTO (`"thin"`) — full LTO gives ~5% throughput
+#     on hot paths but blows the build time from minutes to hours;
+#     thin LTO is the sweet spot for a server binary that still
+#     builds in seconds.
+#   - set `codegen-units = 1` so the compiler can inline across
+#     crate boundaries (the LTO step). The default of 16 enables
+#     faster parallel compilation but leaves ~10% of optimisations
+#     on the table.
+#   - bump `opt-level = 3` (Cargo's default) to keep the
+#     tightest scalar / loop optimisations on.
+#
+# `panic = "abort"` is intentionally left at the default
+# ("unwind") — turning it to abort would shrink the binary by a
+# few hundred KB at the cost of an opaque crash dump, and the
+# server-side middleware already converts panics to JSON 500s
+# before they ever reach the unwinder (see
+# `middleware/error_handler.rs`).
+[profile.release]
+opt-level = 3
+lto = "thin"
+codegen-units = 1
+debug = 0
+strip = "symbols"
+
+# ───────────────────────────────────────────────────────────────────────
+# Workspace lints — applied to every member of this workspace unless the
+# member opts out with its own `[lints]` table.
+#
+# Why here, not in clippy.toml: clippy.toml only governs the *clippy* lints
+# (the cognitive-complexity threshold, the disallowed-methods list, etc.).
+# Rustdoc lints (`missing_docs`, `broken_intra_doc_links`, `private_doc_tests`,
+# etc.) and Rust lints (`unused`, `dead_code`, ...) live in Cargo.toml's
+# `[workspace.lints]` since Cargo 1.74.
+#
+# Levels chosen for a 4w+ star-grade library workspace:
+#   - `missing_docs = "warn"` (not "deny"): we have many public surface
+#     items that predate this convention. A warn lets `make doc-check`
+#     surface them, and reviewers add a doc comment when touching the
+#     function. Promoting to "deny" is a one-line change once the surface
+#     stabilises.
+#   - `rustdoc::broken_intra_doc_links = "warn"` — `-D warnings` in
+#     RUSTDOCFLAGS (see `.github/workflows/docs.yml` and `make doc-check`)
+#     already turns this into a failure, so an explicit warn keeps the
+#     intent local to the file that configures it.
+#   - `rustdoc::private_doc_tests = "warn"` — see the Rust API Guidelines:
+#     any `#[cfg(test)]` doctest must be reachable through the public
+#     surface or it is dead. Surfacing warns, not denying, lets the test
+#     owner move or remove the test.
+# ───────────────────────────────────────────────────────────────────────
+[workspace.lints.rust]
+missing_docs = "warn"
+
+[workspace.lints.rustdoc]
+broken_intra_doc_links = "warn"
+private_doc_tests = "warn"
+missing_crate_level_docs = "warn"
+
+# ───────────────────────────────────────────────────────────────────────
+# docs.rs metadata — drives how `docs.rs/<crate>` renders this workspace.
+#
+# Without this block, docs.rs falls back to "default features only", so
+# every opt-in feature surface (`cron` / `mcp` / `search` / `eval` /
+# `workflow` / `scheduler` / `telemetry` / `sqlite` / `attachment` /
+# `skill` / `tool-scheduler` / `tool-search` …) renders as an empty
+# module. That hides the opt-in contract from anyone reading the
+# rendered docs — exactly the audience the facade is for.
+#
+# `all-features = true` is the simplest way to render every surface;
+# the dependency cost is bounded because `check-mvp-deps` already
+# proves the 7-feature MVP subset pulls zero HTTP/OTel/DB stack.
+# `no-default-features = true` is NOT set, because the default set is
+# the "assemble a basic agent" set — the entry-level reader must see
+# it first.
+# ───────────────────────────────────────────────────────────────────────
+[workspace.metadata.docs.rs]
+all-features = true
+targets = ["x86_64-unknown-linux-gnu"]

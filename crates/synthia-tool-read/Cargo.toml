@@ -1,0 +1,32 @@
+[package]
+name = "synthia-tool-read"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "The `read` builtin: workspace file reader with line ranges"
+repository.workspace = true
+homepage.workspace = true
+documentation.workspace = true
+readme.workspace = true
+keywords.workspace = true
+categories.workspace = true
+
+[dependencies]
+synthia-tool.workspace = true
+async-trait.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+schemars = { workspace = true, features = ["preserve_order"] }
+# Direct dep for the `JsonSchema` derive — see the note in
+# `synthia-tool/Cargo.toml` about schemars 1.2's broken feature gate.
+schemars_derive.workspace = true
+
+# `fs` — the tool reads files through `tokio::fs` so dispatch can
+# detach it on the runtime.
+tokio = { workspace = true, features = ["fs"] }
+
+[dev-dependencies]
+# `#[tokio::test]` needs `macros` + `rt`; `#[tokio::main]` in the
+# example defaults to the multi-thread runtime.
+tokio = { workspace = true, features = ["macros", "rt", "rt-multi-thread"] }
+tempfile.workspace = true

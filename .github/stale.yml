@@ -1,0 +1,93 @@
+# Stale bot — Synthia
+#
+# 自动关闭停滞的 issue / PR。
+# 规则: CNCF / Kubernetes / Rust-Bridge 通用配置（GitHub 官方 stale action）。
+#   - bug/question: 60 天无活动 → stale; 7 天后无活动 → close
+#   - enhancement/needs-triage: 90 天无活动 → stale; 14 天后无活动 → close
+#   - 其他 label: 30 天无活动 → stale; 7 天后无活动 → close
+#   - 锁定 + discussions label 的永远不 stale（discuss 不是 issue 池）
+#   - 任何 maintainer 标 `keep-open` / `pinned` / `roadmap` 的豁免。
+#
+# 触发周期: 每天 UTC 02:00（在 dependabot / security-audit cron 之前）,
+# 让无人维护的 issue 在 dev 早晨合 PR 前先被回收。
+
+name: "Stale"
+version: "2"
+
+permissions:
+  issues: write
+  pull-requests: write
+
+schedule:
+  - interval: "daily"
+    time: "02:00"
+    timezone: "UTC"
+
+only: issues
+
+# Exempt labels — 这些 label 永远不会 stale / close
+exempt_labels:
+  - keep-open
+  - pinned
+  - security
+  - roadmap
+  - needs-design
+  - blocking-release
+  - "discussion"
+
+# Exempt assignees — maintainers 也不会 stale（自己 issue 自己管）
+# 留空: dependabot 已经处理依赖 label, 不用 maintainer 列表
+exempt_assignees: []
+
+# ── bug / 30 天 ────────────────────────────────────────────
+"bug":
+  days_until_stale: 60
+  days_until_close: 7
+  stale_label: "stale"
+  close_comment: |
+    这条 issue 已 **60** 天无活动，自动标记为 stale。
+    如果仍相关，请回复或移除 `stale` 标签；**7** 天后仍无活动将被自动关闭。
+    详见 [CONTRIBUTING.md](../../blob/master/CONTRIBUTING.md)。
+
+"question":
+  days_until_stale: 60
+  days_until_close: 7
+  stale_label: "stale"
+  close_comment: |
+    这条 issue 已 **60** 天无活动。
+    短问题用 `Question` 模板即可；**设计讨论**走
+    [Discussions](https://github.com/crochee/synthia/discussions) 而不是
+    issue tracker。**7** 天后仍无活动将被自动关闭。
+
+# ── enhancement / 90 天 ────────────────────────────────────
+"enhancement":
+  days_until_stale: 90
+  days_until_close: 14
+  stale_label: "stale"
+  close_comment: |
+    这条 enhancement 已 **90** 天无活动。
+    提议实现前请先在
+    [Discussions](https://github.com/crochee/synthia/discussions) 收敛到
+    「改这个 trait / 加这个 crate / 加这个 feature flag」。**14** 天后仍无
+    活动将被自动关闭。
+
+"needs-triage":
+  days_until_stale: 30
+  days_until_close: 7
+  stale_label: "needs-triage"
+  close_comment: |
+    这条 issue 已 **30** 天无 maintainer triage。**7** 天后仍无活动将
+    被自动关闭。如果还需要处理，请重新打开并加 `keep-open` 标签。
+
+# ── 默认: 任何未识别 label 的 issue ─────────────────────
+"_default":
+  days_until_stale: 45
+  days_until_close: 7
+  stale_label: "stale"
+  close_comment: |
+    这条 issue 已 **45** 天无活动。**7** 天后仍无活动将被自动关闭。
+    如果仍相关，请回复或移除 `stale` 标签。
+
+# ── PR: 不开 stale（PR 通常被人在 review） ───────────────
+limit_per_run: 30
+days_until_delete: -1

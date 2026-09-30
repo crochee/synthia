@@ -1,0 +1,148 @@
+# syntax=docker/dockerfile:1.7
+#
+# Multi-stage Dockerfile for synthia-server (Rust) using cargo-chef
+# for dependency-layer caching.
+#
+# Build identity baked at compile time via `build.rs`
+# (cargo:rustc-env=SYNTHIA_*):
+#   - SYNTHIA_GIT_SHA      — full 40-char commit SHA (release.yml,
+#                            Dockerfile.server, or `git log -1` fallback)
+#   - SYNTHIA_BUILD_TIME   — ISO-8601 wall-clock (release.yml / build arg)
+#   - SYNTHIA_TARGET       — full triple
+#   - SYNTHIA_PROFILE      — "release" (defaults from CARGO_CFG_PROFILE)
+#   - SYNTHIA_LONG_VERSION — pre-computed `<pkg> (<sha> <time>) <tgt> <prof>`
+#                            string, mirrors `build_info::long_version()`
+#                            so `clap` `--version` and `GET /version`
+#                            always agree
+#   - CARGO_PKG_VERSION    — Cargo workspace version (0.1.0)
+#
+# Identity is exposed at runtime via the `--version` CLI flag, the
+# `/version` HTTP route, and the OCI `org.opencontainers.image.*`
+# labels below.
+#
+# Stage layout (cargo-chef pattern, see
+# https://github.com/LukeMathWalker/cargo-chef):
+#   0. chef        — install cargo-chef once
+#   1. planner     — emit a recipe.json from Cargo.lock
+#   2. cacher      — compile only third-party deps (the slowest
+#                    layer, cached on its own)
+#   3. builder     — compile synthia-server's own crates (fast
+#                    cache; invalidates only on source change)
+#   4. runtime     — minimal Alpine with tini + the binary
+#
+# First build: ~5 min (cacher). Subsequent builds with no
+# Cargo.lock / dep change: <30 s (cacher cache hit). Source-only
+# changes: ~1 min (cacher cache hit, builder invalidated).
+#
+# Example build:
+#   docker build -f Dockerfile.server \
+#     --build-arg SYNTHIA_GIT_SHA=$(git rev-parse HEAD) \
+#     --build-arg SYNTHIA_BUILD_TIME=$(date -u +%FT%TZ) \
+#     -t docker.io/crochee/synthia-server:0.1.0 .
+
+ARG RUST_VERSION=1.98
+# 全局 ARG —— 必须在所有 FROM 之前声明, docker buildx 才能把
+# `--build-arg SYNTHIA_*=...` 传给 runtime stage (Stage 4).
+# 仅在每个 stage 内部重新声明才能引用 (ARG scope 是 stage 级的,
+# 见 https://docs.docker.com/build/building/variables/#scoping),
+# 但**值**继承自全局, 不需要在每个 stage 重新声明时给出 default.
+ARG SYNTHIA_GIT_SHA=""
+ARG SYNTHIA_BUILD_TIME=""
+ARG SYNTHIA_TARGET="x86_64-unknown-linux-musl"
+ARG SYNTHIA_VERSION="0.1.0"
+
+########## Stage 0: chef installer (toolchain only, reused) ##########
+# `--platform=$BUILDPLATFORM` 让 builder 跑在 host 原生架构 (arm64 /
+# amd64 都能编), 不走 qemu. `--target artifact` 时整个镜像只用来出
+# 本机可执行文件, 不交叉 (musl std 来自 base image, 跟 host 平台一致).
+FROM --platform=$BUILDPLATFORM rust:${RUST_VERSION}-alpine AS chef
+RUN apk add --no-cache musl-dev pkgconfig openssl-dev
+RUN cargo install cargo-chef --locked
+WORKDIR /app
+
+########## Stage 1: dependency recipe (~10 KB JSON) ##########
+FROM chef AS planner
+COPY Cargo.toml Cargo.lock ./
+COPY crates ./crates
+RUN cargo chef prepare --recipe-path recipe.json
+
+########## Stage 2: third-party dependency layer ##########
+FROM chef AS cacher
+COPY --from=planner /app/recipe.json recipe.json
+# Release profile already pinned in workspace Cargo.toml
+# (`opt-level=3 / lto=thin / codegen-units=1 / strip=symbols`); the
+# ENV below is a guard rail so a future profile edit cannot silently
+# regress to fat LTO (which exhausts memory on small CI runners).
+ENV CARGO_PROFILE_RELEASE_LTO=thin \
+    CARGO_PROFILE_RELEASE_STRIP=symbols
+RUN cargo chef cook --release -p synthia-server --bin synthia-server \
+    --recipe-path recipe.json
+
+########## Stage 3: build synthia-server with identity baked in ##########
+FROM cacher AS builder
+# CI-provided identity (also has `git log -1` fallback in build.rs).
+# ARG 已在全局作用域声明 (见文件顶部), builder stage 重新声明才能
+# 在 stage 内引用 (ARG scope 是 stage 级的).
+ARG SYNTHIA_GIT_SHA
+ARG SYNTHIA_BUILD_TIME
+ARG SYNTHIA_TARGET
+COPY Cargo.toml Cargo.lock ./
+COPY crates ./crates
+# `build.rs` lives at crates/synthia-server/build.rs; the
+# `COPY crates ./crates` above brings it along. No explicit copy.
+ENV SYNTHIA_GIT_SHA=${SYNTHIA_GIT_SHA} \
+    SYNTHIA_BUILD_TIME=${SYNTHIA_BUILD_TIME} \
+    SYNTHIA_PROFILE=release \
+    SYNTHIA_TARGET=${SYNTHIA_TARGET}
+RUN cargo build --release --locked -p synthia-server \
+    && cp target/release/synthia-server /app/synthia-server
+
+########## Stage 3b: artifact —— scratch 导出层 (CI 用 `--output=...`) ##########
+# CI 与 `make server-artifact` 都用 `docker buildx build --target
+# artifact` 直接落到 dist/, 不进任何运行时镜像层. 镜像本身只在 buildx
+# cache 里短暂存在, 由 builder 阶段的可执行文件作 scratch 根.
+FROM scratch AS artifact
+COPY --from=builder /app/synthia-server /synthia-server
+
+########## Stage 4: minimal Alpine runtime with tini ##########
+FROM alpine:3.19 AS runtime
+RUN apk add --no-cache ca-certificates tini
+WORKDIR /app
+
+# Carry the build-arg values into the runtime layer's ENV so
+# `docker inspect` shows them, and so future ENTRYPOINT scripts can
+# read them. ARG 已在全局作用域声明 (见文件顶部), runtime stage
+# 重新声明才能在 stage 内引用 (ARG scope 是 stage 级的).
+ARG SYNTHIA_GIT_SHA
+ARG SYNTHIA_BUILD_TIME
+ARG SYNTHIA_TARGET
+ARG SYNTHIA_VERSION
+
+COPY --from=builder /app/synthia-server /usr/local/bin/synthia-server
+
+ENV SYNTHIA_HOST=0.0.0.0 \
+    SYNTHIA_PORT=8080 \
+    SYNTHIA_VERSION=${SYNTHIA_VERSION} \
+    SYNTHIA_GIT_SHA=${SYNTHIA_GIT_SHA} \
+    SYNTHIA_BUILD_TIME=${SYNTHIA_BUILD_TIME} \
+    SYNTHIA_TARGET=${SYNTHIA_TARGET} \
+    RUST_LOG=info
+
+EXPOSE 8080
+
+# `tini` reaps zombies and forwards signals; SIGINT -> graceful
+# shutdown (matches `tokio::signal::ctrl_c()` handler in main.rs).
+STOPSIGNAL SIGINT
+ENTRYPOINT ["/sbin/tini", "--"]
+CMD ["synthia-server"]
+
+# OCI image labels — surface under `docker inspect` / `podman
+# inspect` / Kubernetes `status.containerStatuses[].imageID` so a
+# support engineer can confirm the right image without running it.
+LABEL org.opencontainers.image.title="synthia-server" \
+      org.opencontainers.image.description="Synthia Agent HTTP server — production runtime" \
+      org.opencontainers.image.source="https://github.com/crochee/synthia" \
+      org.opencontainers.image.licenses="MIT" \
+      org.opencontainers.image.version=${SYNTHIA_VERSION} \
+      org.opencontainers.image.revision=${SYNTHIA_GIT_SHA} \
+      org.opencontainers.image.created=${SYNTHIA_BUILD_TIME}

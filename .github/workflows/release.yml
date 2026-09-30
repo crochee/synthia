@@ -1,0 +1,344 @@
+# release.yml — tag 推送自动出跨平台容器镜像 (linux/amd64 + linux/arm64).
+#
+# 产物: docker.io/crochee/synthia-server 与 docker.io/crochee/synthia-web,
+# 每个镜像打 tag 两件套: `<tag>` 直用 + `<tag>-<short-sha>` 追溯.
+# (workflow 仅由 tag push 触发; `<branch>-<short-sha>` 给 branch
+# pre-release 预留接口, 当前 ON 里没启用.) 草稿 release 不再创建
+# — 镜像直接 push 到 Docker Hub, release notes 留给 GitHub UI 的
+# auto-generated notes (tag 创建时自动生成) 或 maintainer 手填.
+#
+# 镜像身份通过 OCI labels 自证: SYNTHIA_GIT_SHA / SYNTHIA_VERSION /
+# SYNTHIA_BUILD_TIME 由 Dockerfile.server / Dockerfile.web 在 build
+# 阶段烤进 `org.opencontainers.image.{revision,version,created}`,
+# 因此 `docker buildx imagetools inspect` 是 release-time 验证的最
+# 便宜入口 — 不需要跑容器.
+#
+# 触发: `v*.*.*` 形式的 tag push. Draft release 不需要 — 镜像已经
+# 直接推到 registry.
+name: release
+
+on:
+  push:
+    tags: ["v*.*.*"]
+
+# Workflow-level default: 镜像 push 需要 packages: write (这里等价于
+# Docker Hub 的 push 权限, 由 docker/login-action 用 secrets.DOCKERHUB_*
+# 走 OAuth bearer 而非 token, 但 GitHub-side packages: write 仍声明以
+# 应对 ghcr.io fallback).
+permissions:
+  contents: read
+  packages: write
+
+env:
+  CARGO_TERM_COLOR: always
+
+# Release runs must NOT cancel each other: 每个 tag 出全套产物, 重试
+# 出来的是新镜像 tag, 按 tag 顺序不冲突.
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  # ────────────────────────────────────────────────────────────────────────
+  # 容器镜像 — linux/amd64 + linux/arm64 双架构 (buildx + QEMU); server
+  # 走 Dockerfile.server, web 走 Dockerfile.web. 两个 Dockerfile 都已
+  # 经在 OCI labels 里把 SYNTHIA_GIT_SHA / SYNTHIA_VERSION /
+  # SYNTHIA_BUILD_TIME 烤进 org.opencontainers.image.{revision,version,created},
+  # 所以 inspect labels 是 release-time identity 验证的最便宜入口.
+  #
+  # tag 两件套 (本 workflow 仅在 tag push 触发):
+  #   `<tag>` 直用
+  #   `<tag>-<short-sha>` 追溯
+  # `<branch>-<short-sha>` 是给 branch pre-release 预留的接口, 当
+  # 前 `on: push: tags: ["v*.*.*"]` 不启用, 所以 build step 不会
+  # 拼出它.
+  #
+  # 发布目标 docker.io/crochee/; login 走 secrets.DOCKERHUB_USERNAME
+  # + secrets.DOCKERHUB_TOKEN, repository 必须先在 Docker Hub 手动
+  # 建好 (CI 不创建 namespace).
+  # ────────────────────────────────────────────────────────────────────────
+  images:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          # 需要 full history: tag 触发的 build 要 resolve 到该 tag 的精确
+          # commit; 默认 shallow clone 会丢掉历史, version 字符串会漂.
+          fetch-depth: 0
+
+      - name: Record build identity
+        id: identity
+        # GITHUB_REF / GITHUB_REF_NAME / GITHUB_REF_TYPE 行为:
+        #   push tag (v1.2.3)  → REF=refs/tags/v1.2.3 REF_NAME=v1.2.3  TYPE=tag
+        #   push branch (main) → REF=refs/heads/main   REF_NAME=main      TYPE=branch
+        # OCI tag 禁止 '/', 所以 tag push 时 `refs/tags/` 前缀必须剥;
+        # branch push 时 `refs/heads/` 前缀同理. `${VAR#prefix}` 在
+        # 不匹配时原样保留, 因此必须按 GITHUB_REF_TYPE 分情况, 不
+        # 能写一个通用的 `${GITHUB_REF#refs/.../}`. workflow 限定
+        # `on: push: tags: ["v*.*.*"]`, 但仍写防御性分支以兼容手动
+        # dispatch.
+        run: |
+          case "${GITHUB_REF_TYPE}" in
+            tag)
+                # REF=refs/tags/v1.2.3 → tag=v1.2.3, branch 留空 (不在 tag push 用)
+                tag="${GITHUB_REF_NAME}"
+                branch=""
+                ;;
+            branch)
+                tag=""
+                branch="${GITHUB_REF_NAME}"
+                ;;
+            *)
+                echo "::error::unexpected GITHUB_REF_TYPE=${GITHUB_REF_TYPE}"
+                exit 1
+                ;;
+          esac
+          # Defensive: 即便 tag/branch 单字段为合法, 也再清一遍 `refs/`
+          # 前缀, 防 GITHUB_REF_NAME 在某个 runner 实现里变了.
+          tag="${tag#refs/tags/}"
+          branch="${branch#refs/heads/}"
+          echo "sha=${GITHUB_SHA}" >> "${GITHUB_OUTPUT}"
+          echo "short_sha=$(echo "${GITHUB_SHA}" | cut -c1-7)" >> "${GITHUB_OUTPUT}"
+          echo "version=$(awk -F'\"' '/^version =/ {print $2; exit}' Cargo.toml)" >> "${GITHUB_OUTPUT}"
+          echo "tag=${tag}" >> "${GITHUB_OUTPUT}"
+          echo "branch=${branch}" >> "${GITHUB_OUTPUT}"
+          echo "ref_type=${GITHUB_REF_TYPE}" >> "${GITHUB_OUTPUT}"
+
+      - name: Record build wall-clock
+        id: when
+        # `github.event.repository.updated_at` reflects the repo's last
+        # edit, not the build moment — back-to-back tag rebuilds minutes
+        # apart emit the same timestamp and mask a stale image. Use
+        # `date -u` so each build has its own wall-clock string embedded.
+        run: |
+          echo "now=$(date -u +%FT%TZ)" >> "${GITHUB_OUTPUT}"
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+        # buildx 在多架构 build 时把跨架构产物吐到一个临时 registry;
+        # 本机 daemon 不支持 manifest list push, 必须挂一个 registry.
+        # docker.io 是默认 driver endpoint, 配合下面的 docker/login-action
+        # 直接复用同一份凭据.
+
+      - name: Login to Docker Hub
+        if: github.event_name == 'push'
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      # server 镜像 — linux/amd64 + linux/arm64. build-arg 与
+      # Dockerfile.server 的 SYNTHIA_GIT_SHA / SYNTHIA_BUILD_TIME /
+      # SYNTHIA_TARGET 完全对齐, builder 阶段会原样写入
+      # cargo:rustc-env=, 最终进 binary 的 `--version` 行 — 与
+      # `--version` 自证路径同源.
+      - name: Build and push synthia-server (multi-arch)
+        env:
+          SHA: ${{ steps.identity.outputs.sha }}
+          SHORT_SHA: ${{ steps.identity.outputs.short_sha }}
+          TAG: ${{ steps.identity.outputs.tag }}
+          REF_TYPE: ${{ steps.identity.outputs.ref_type }}
+          VERSION: ${{ steps.identity.outputs.version }}
+          BUILD_TIME: ${{ steps.when.outputs.now }}
+        run: |
+          set -euo pipefail
+          # tag 两件套: `<tag>` + `<tag>-<short-sha>`.
+          # 当前 on: 仅 tag push 触发, 没有 branch, 所以 `<branch>-<short-sha>`
+          # 不会出现 — 一旦 workflow 加 branch 触发, 这里再扩.
+          if [ "${REF_TYPE}" != "tag" ]; then
+            echo "::error::release.yml is gated on tag push only; got REF_TYPE=${REF_TYPE}"
+            exit 1
+          fi
+          if [ -z "${TAG}" ]; then
+            echo "::error::empty TAG — GITHUB_REF_NAME was empty"
+            exit 1
+          fi
+          tags=(
+            "docker.io/crochee/synthia-server:${TAG}"
+            "docker.io/crochee/synthia-server:${TAG}-${SHORT_SHA}"
+          )
+          tag_args=()
+          for t in "${tags[@]}"; do tag_args+=(--tag "$t"); done
+
+          docker buildx build \
+            --platform linux/amd64,linux/arm64 \
+            --build-arg "SYNTHIA_GIT_SHA=${SHA}" \
+            --build-arg "SYNTHIA_BUILD_TIME=${BUILD_TIME}" \
+            --build-arg "SYNTHIA_VERSION=${VERSION}" \
+            --build-arg "SYNTHIA_TARGET=x86_64-unknown-linux-musl" \
+            --file Dockerfile.server \
+            --target runtime \
+            --push \
+            "${tag_args[@]}" \
+            .
+
+      # web 镜像 — 同套 tag 方案. Dockerfile.web 的 SYNTHIA_VERSION /
+      # SYNTHIA_GIT_SHA / SYNTHIA_BUILD_TIME 也已经写进 OCI labels.
+      # web 不需要 SYNTHIA_TARGET — nginx image 跟 arch 无关, 只跟
+      # nginx binary 本身所在架构走 (buildx --platform 自动选).
+      - name: Build and push synthia-web (multi-arch)
+        env:
+          SHA: ${{ steps.identity.outputs.sha }}
+          SHORT_SHA: ${{ steps.identity.outputs.short_sha }}
+          TAG: ${{ steps.identity.outputs.tag }}
+          REF_TYPE: ${{ steps.identity.outputs.ref_type }}
+          VERSION: ${{ steps.identity.outputs.version }}
+          BUILD_TIME: ${{ steps.when.outputs.now }}
+        run: |
+          set -euo pipefail
+          if [ "${REF_TYPE}" != "tag" ]; then
+            echo "::error::release.yml is gated on tag push only; got REF_TYPE=${REF_TYPE}"
+            exit 1
+          fi
+          if [ -z "${TAG}" ]; then
+            echo "::error::empty TAG — GITHUB_REF_NAME was empty"
+            exit 1
+          fi
+          tags=(
+            "docker.io/crochee/synthia-web:${TAG}"
+            "docker.io/crochee/synthia-web:${TAG}-${SHORT_SHA}"
+          )
+          tag_args=()
+          for t in "${tags[@]}"; do tag_args+=(--tag "$t"); done
+
+          docker buildx build \
+            --platform linux/amd64,linux/arm64 \
+            --build-arg "SYNTHIA_GIT_SHA=${SHA}" \
+            --build-arg "SYNTHIA_BUILD_TIME=${BUILD_TIME}" \
+            --build-arg "SYNTHIA_VERSION=${VERSION}" \
+            --file Dockerfile.web \
+            --target runtime \
+            --push \
+            "${tag_args[@]}" \
+            .
+
+      # Verify baked identity — inspect labels, 不跑容器. 用 registry
+      # 提供的元数据直接校验, 避免在 ubuntu-latest 上跑 arm64 binary
+      # / nginx (architecture mismatch 只会拿到 exec format error).
+      #
+      # 早期实现用 `docker buildx imagetools inspect --format
+      # '{{json .Image.Labels}}'`, 但 buildx 0.10+ 默认 OCI media type
+      # 时模板解析对纯 OCI manifest (config media type =
+      # application/vnd.oci.image.config.v1+json) 有 bug, 返回空字符串.
+      # 仓库内 image config blob 实际包含完整 labels — 仅 verify 端
+      # 看不到. 改为走 registry v2 API 显式 follow
+      # `manifest list → amd64 child manifest → config blob`,
+      # 不依赖 buildx 的模板解析 (manifest type 无关).
+      - name: Verify image labels
+        env:
+          SHA: ${{ steps.identity.outputs.sha }}
+          VERSION: ${{ steps.identity.outputs.version }}
+          TAG: ${{ steps.identity.outputs.tag }}
+        run: |
+          set -euo pipefail
+          # Per-image OCI label verifier — pulls manifest list, picks the
+          # amd64 child, fetches the config blob, asserts
+          # org.opencontainers.image.{revision,version} match CI env.
+          verify_image() {
+            local image="$1"
+            # `docker.io/<repo>:<tag>` or `docker.io/<repo>@sha256:<digest>`
+            # — both formats must split cleanly: repo has no tag/digest,
+            # ref is the suffix. `#docker.io/` strips the registry prefix;
+            # then `%:*` strips any tag (so `@sha256:...` refs don't
+            # pollute the token scope with `repo:sha256:...:pull`, which
+            # dockerhub treats as 404).
+            local repo="${image#docker.io/}"
+            local ref="${image##*:}"
+            repo="${repo%:*}"
+            local base="https://registry-1.docker.io"
+            # Bearer token for this repo + pull scope; refreshed per image.
+            local token
+            token="$(curl -fsSL \
+              "https://auth.docker.io/token?service=registry.docker.io&scope=repository:${repo}:pull" \
+              | jq -r .token)"
+
+            # Step 1: fetch the manifest list (top-level ref), keep raw bytes
+            # because both OCI (vnd.oci.image.index.v1+json) and Docker
+            # (vnd.docker.distribution.manifest.list.v2+json) media types
+            # use the same shape — `.manifests[]` with platform+architecture.
+            local manifest_list child_manifest_json amd64_digest config_digest
+            manifest_list="$(curl -fsSL \
+              -H "Authorization: Bearer ${token}" \
+              -H "Accept: application/vnd.oci.image.index.v1+json" \
+              -H "Accept: application/vnd.docker.distribution.manifest.list.v2+json" \
+              -H "Accept: application/vnd.oci.image.manifest.v1+json" \
+              -H "Accept: application/vnd.docker.distribution.manifest.v2+json" \
+              "${base}/v2/${repo}/manifests/${ref}")"
+            amd64_digest="$(printf '%s' "${manifest_list}" \
+              | jq -r '.manifests[] | select(.platform.architecture=="amd64") | .digest')"
+            if [ -z "${amd64_digest}" ] || [ "${amd64_digest}" = "null" ]; then
+              echo "::error::${image}: no amd64 child in manifest list"
+              echo "::error::raw manifest list: ${manifest_list}"
+              return 1
+            fi
+
+            # Step 2: fetch the amd64 child manifest — get the config digest.
+            child_manifest_json="$(curl -fsSL \
+              -H "Authorization: Bearer ${token}" \
+              -H "Accept: application/vnd.oci.image.manifest.v1+json" \
+              -H "Accept: application/vnd.docker.distribution.manifest.v2+json" \
+              "${base}/v2/${repo}/manifests/${amd64_digest}")"
+            config_digest="$(printf '%s' "${child_manifest_json}" \
+              | jq -r '.config.digest')"
+            if [ -z "${config_digest}" ] || [ "${config_digest}" = "null" ]; then
+              echo "::error::${image}: child manifest has no config digest"
+              echo "::error::raw child manifest: ${child_manifest_json}"
+              return 1
+            fi
+
+            # Step 3: fetch the image config blob (follows 307 to
+            # CloudFront). This is where OCI labels live — directly on the
+            # config object, not on any manifest. buildx's `--format
+            # .Image.Labels` template has a long-standing bug with pure OCI
+            # media types (returns empty), so we read it ourselves.
+            local config_blob labels_json revision version_label
+            config_blob="$(curl -fsSL \
+              -H "Authorization: Bearer ${token}" \
+              -H "Accept: application/vnd.oci.image.config.v1+json" \
+              -H "Accept: application/vnd.docker.container.image.v1+json" \
+              "${base}/v2/${repo}/blobs/${config_digest}")"
+            labels_json="$(printf '%s' "${config_blob}" \
+              | jq -c '.config.Labels // {}')"
+            if [ "${labels_json}" = "{}" ]; then
+              # Distinguish build-side miss (no labels baked) from
+              # registry-side failure (config blob malformed) — dump the
+              # config so the next run can see exactly which one.
+              echo "::error::${image}: image config has no Labels at ${config_digest}"
+              echo "::error::raw config blob: ${config_blob}"
+              return 1
+            fi
+
+            revision="$(printf '%s' "${labels_json}" \
+              | jq -r '."org.opencontainers.image.revision" // empty')"
+            version_label="$(printf '%s' "${labels_json}" \
+              | jq -r '."org.opencontainers.image.version" // empty')"
+            if [ -z "${revision}" ]; then
+              echo "::error::${image}: missing org.opencontainers.image.revision"
+              echo "::error::labels json: ${labels_json}"
+              return 1
+            fi
+            if [ -z "${version_label}" ]; then
+              echo "::error::${image}: missing org.opencontainers.image.version"
+              echo "::error::labels json: ${labels_json}"
+              return 1
+            fi
+            if [ "${revision}" != "${SHA}" ]; then
+              echo "::error::${image}: revision ${revision} != expected SHA ${SHA}"
+              return 1
+            fi
+            if [ "${version_label}" != "${VERSION}" ]; then
+              echo "::error::${image}: version ${version_label} != expected ${VERSION}"
+              return 1
+            fi
+            echo "${image} → labels OK (revision=${SHA:0:7}, version=${VERSION})"
+          }
+
+          for image in \
+              "docker.io/crochee/synthia-server:${TAG}" \
+              "docker.io/crochee/synthia-web:${TAG}"; do
+            verify_image "${image}"
+          done

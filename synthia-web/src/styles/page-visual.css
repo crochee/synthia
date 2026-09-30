@@ -1,0 +1,1000 @@
+/**
+ * Shared visual language for list and detail pages.
+ *
+ * Goal: turn the existing flat Card / MetadataTable surfaces
+ * into something with actual hierarchy — colored icon tiles,
+ * hero headers, gradient backgrounds, status pills, and a
+ * sensible max-width on the page column so the content reads
+ * at a comfortable measure.
+ *
+ * The rules below coexist with `page.css` (which keeps the
+ * legacy metadata-table + form styles) and `tokens.css`
+ * (which owns colors / typography). Every color referenced
+ * here resolves through a CSS variable — no new hex literals
+ * live in this file so dark-mode and any future theme swap
+ * remains a token-only change.
+ *
+ * Naming: all classes here are prefixed `.nt-vis-*` so the
+ * scope is obvious and they don't collide with page-specific
+ * `nt-session-*` / `nt-chat-*` / `nt-agent-*` classes.
+ */
+
+/* ---- Page column -------------------------------------------------
+ *
+ * Width: the column used to be capped at 1280px and centred
+ * with `margin: 0 auto`. On a 1568px-wide viewport (a typical
+ * laptop with devtools open) that left ~144px of empty white
+ * on each side of the content — visually unbalanced and
+ * reading as "cramped in the middle". Switching the column
+ * to fill the available width and using side padding for
+ * breathing room (instead of centring) lets the cards /
+ * hero / property grids span edge-to-edge of the post-
+ * sidebar area instead of floating as a centred island.
+ *
+ * The shell now grows up to 1600px wide before stopping; the
+ * cap is high enough that the 220px sidebar leaves ~1380px
+ * for content — wide enough for a 3-up card grid without
+ * each card becoming a strip.
+ *
+ * Vertical rhythm: section gap of `--spacing-2xl` (48px)
+ * with page padding-y of `--spacing-2xl` (48px) is the
+ * right level — `--spacing-3xl` (64px) was the prior
+ * round's "more space" response and produced a tall page
+ * with too much white between every block. Reverting to
+ * the 48px rhythm keeps sections distinct without making
+ * the page feel hollow.
+ */
+.nt-vis-page {
+  /* `max-width` was 1600px, but the sidebar already occupies
+   * the left ~220px of the viewport. With max-width 1600
+   * the page column on a 1920px viewport was capped at
+   * 1600px, leaving a 100px gap between the page's right
+   * edge and the viewport's right edge — that's the
+   * right-side blank the user kept reporting. The grid
+   * inside the page then only filled the inner 1600px and
+   * appeared short of the viewport.
+   *
+   * Removing `max-width` lets the page run edge-to-edge
+   * of the post-sidebar area on every viewport. The flex
+   * layout still keeps content from over-stretching on
+   * absurdly wide displays (each card / section has its
+   * own max-width via the auto-fit grid + the hero's
+   * padding), so there's no harm in dropping the cap. */
+  width: 100%;
+  margin: 0;
+  padding: var(--spacing-2xl) 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-2xl);
+}
+
+@media (max-width: 640px) {
+  .nt-vis-page {
+    padding: var(--spacing-lg) var(--spacing-sm);
+    gap: var(--spacing-lg);
+  }
+}
+
+/* ---- Page hero ---------------------------------------------------
+ *
+ * Big coloured header band for list / detail pages. Houses the
+ * title, an optional subtitle / description, and a row of
+ * status pills / metadata on the right. Uses a soft gradient
+ * background derived from the accent so the page reads as
+ * "this section has its own visual identity" without leaning
+ * on saturated colour.
+ */
+
+.nt-vis-hero {
+  position: relative;
+  display: flex;
+  align-items: stretch;
+  gap: var(--spacing-xl);
+  /* Asymmetric padding: 24px top/bottom/left, ZERO right.
+   * The page column already runs edge-to-edge of the
+   * post-sidebar area, so the hero's left padding sits
+   * inside that column. The right side, on the other hand,
+   * sits flush against the viewport edge — and giving the
+   * hero 24px of right padding on top of that put a
+   * noticeable white gutter between the meta cluster and
+   * the viewport's right edge. Setting right padding to 0
+   * lets the meta cluster reach the viewport edge, which
+   * removes the perception of "right-side blank" even
+   * though the layout was already flush. */
+  padding: var(--spacing-lg) 0 var(--spacing-lg) var(--spacing-xl);
+  background: linear-gradient(
+    135deg,
+    var(--nt-vis-hero-bg-from, var(--bg-secondary)) 0%,
+    var(--nt-vis-hero-bg-to, var(--bg-tertiary)) 100%
+  );
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--border-subtle);
+  box-shadow: var(--shadow-sm);
+  overflow: hidden;
+}
+
+.nt-vis-hero::before {
+  /* Decorative soft blob in the corner that gets tinted by the
+     per-page --nt-vis-hero-accent. Pure decoration — sits
+     behind the content via z-index.
+   *
+   * The blob was at opacity 0.08 originally, then dropped to 0
+   * to silence the user's "right-side blank" feedback when the
+   * hero was a wide tinted card with a narrow meta cluster.
+   * This revision re-enables the blob at a softer 0.05 — the
+   * page-level visual identity from Round 1 comes from this
+   * corner tint, and at 0.05 it reads as a faint accent
+   * rather than a "decorative empty region" that the user
+   * reads as waste. The wide empty space to the right of
+   * the meta cluster is now also filled with content
+   * (`flex: 1` on the meta cluster) so the blob never has
+   * to do the heavy lifting alone. */
+  content: '';
+  position: absolute;
+  top: -40%;
+  right: -10%;
+  width: 320px;
+  height: 320px;
+  border-radius: 50%;
+  background: radial-gradient(
+    circle,
+    var(--nt-vis-hero-accent, var(--accent-primary)) 0%,
+    transparent 70%
+  );
+  opacity: 0.05;
+  pointer-events: none;
+}
+
+.nt-vis-hero__icon {
+  flex-shrink: 0;
+  width: 64px;
+  height: 64px;
+  border-radius: var(--radius-lg);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 32px;
+  background: linear-gradient(
+    135deg,
+    var(--nt-vis-hero-accent, var(--accent-primary)) 0%,
+    var(--nt-vis-hero-accent-2, var(--accent-cyan)) 100%
+  );
+  color: var(--text-inverse);
+  box-shadow:
+    0 4px 12px rgba(0, 0, 0, 0.06),
+    0 0 0 4px rgba(255, 255, 255, 0.6);
+  font-family: var(--font-sans);
+  line-height: 1;
+}
+
+.nt-vis-hero__body {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-sm);
+  position: relative;
+  z-index: 1;
+}
+
+.nt-vis-hero__title {
+  font-family: var(--font-sans);
+  font-size: var(--fs-xl);
+  font-weight: var(--fw-semibold);
+  color: var(--text-primary);
+  margin: 0;
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  flex-wrap: wrap;
+  line-height: 1.3;
+}
+
+.nt-vis-hero__title code {
+  font-family: var(--font-mono);
+  font-size: 0.85em;
+  padding: 2px 8px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  color: var(--text-secondary);
+  font-weight: var(--fw-medium);
+}
+
+.nt-vis-hero__subtitle {
+  font-size: var(--fs-base);
+  color: var(--text-secondary);
+  margin: 0;
+  line-height: var(--lh-loose);
+  max-width: 64ch;
+}
+
+.nt-vis-hero__pills {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  flex-wrap: wrap;
+  margin-top: var(--spacing-sm);
+}
+
+.nt-vis-hero__meta {
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-start;
+  align-items: flex-end;
+  gap: var(--spacing-xs);
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+  color: var(--text-muted);
+  /* `flex: 1 1 auto` lets the meta cluster claim the entire
+   * right column of the hero — horizontally AND vertically.
+   * `align-self: stretch` makes the cluster span the full
+   * height of the hero body beside it. No `max-width` cap:
+   * the cluster used to be capped at 360px which on a
+   * 1348px column still left 600+ px of unused space to
+   * its right. Removing the cap lets the cluster reach all
+   * the way to the viewport's right edge (subject only to
+   * the hero's 24px right padding). The divider line on
+   * the left gives the wide cluster its own column
+   * identity so it doesn't read as unaligned text floating
+   * in space. */
+  flex: 1 1 auto;
+  align-self: stretch;
+  padding-left: var(--spacing-xl);
+  padding-right: var(--spacing-xl);
+  border-left: 1px solid var(--border-subtle);
+  position: relative;
+  z-index: 1;
+  min-height: 100%;
+  min-width: 0;
+}
+
+@media (max-width: 640px) {
+  .nt-vis-hero {
+    padding: var(--spacing-md);
+    gap: var(--spacing-md);
+  }
+  .nt-vis-hero__icon {
+    width: 44px;
+    height: 44px;
+    font-size: 22px;
+  }
+  .nt-vis-hero__title {
+    font-size: var(--fs-lg);
+  }
+  .nt-vis-hero__meta {
+    align-items: flex-start;
+  }
+}
+
+/* ---- Hero back link ----------------------------------------------
+ *
+ * Sits above the hero, gives a consistent return path. Anchor
+ * variant so we don't introduce a Button just to leave a page.
+ */
+.nt-vis-back {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-family: var(--font-sans);
+  font-size: var(--fs-sm);
+  color: var(--text-secondary);
+  text-decoration: none;
+  padding: 6px 10px;
+  border-radius: var(--radius-sm);
+  width: fit-content;
+  transition:
+    color var(--transition-base),
+    background-color var(--transition-base);
+}
+
+.nt-vis-back:hover {
+  color: var(--text-primary);
+  background: var(--bg-tertiary);
+  text-decoration: none;
+}
+
+/* ---- Status pills ------------------------------------------------
+ *
+ * Coloured pill used by hero headers and detail cards. The
+ * base `.nt-vis-pill` is neutral; tone modifiers set both
+ * the foreground color and a subtle background tint. The
+ * `nt-pill` rules already in page.css are kept intact — these
+ * variants are a separate vocabulary for the new design.
+ */
+
+.nt-vis-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 10px;
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+  font-weight: var(--fw-medium);
+  letter-spacing: 0.02em;
+  border-radius: var(--radius-pill);
+  background: var(--bg-tertiary);
+  color: var(--text-secondary);
+  border: 1px solid var(--border-subtle);
+  white-space: nowrap;
+  line-height: 1.4;
+}
+
+.nt-vis-pill__dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+  flex-shrink: 0;
+}
+
+.nt-vis-pill--blue {
+  background: rgba(37, 99, 235, 0.08);
+  color: var(--accent-primary);
+  border-color: rgba(37, 99, 235, 0.18);
+}
+.nt-vis-pill--cyan {
+  background: rgba(8, 145, 178, 0.08);
+  color: var(--accent-cyan);
+  border-color: rgba(8, 145, 178, 0.18);
+}
+.nt-vis-pill--purple {
+  background: rgba(124, 58, 237, 0.08);
+  color: var(--accent-purple);
+  border-color: rgba(124, 58, 237, 0.18);
+}
+.nt-vis-pill--magenta {
+  background: rgba(225, 29, 72, 0.08);
+  color: var(--accent-magenta);
+  border-color: rgba(225, 29, 72, 0.18);
+}
+.nt-vis-pill--yellow {
+  background: rgba(180, 83, 9, 0.08);
+  color: var(--accent-yellow);
+  border-color: rgba(180, 83, 9, 0.18);
+}
+.nt-vis-pill--green {
+  background: rgba(22, 163, 74, 0.08);
+  color: var(--accent-success);
+  border-color: rgba(22, 163, 74, 0.18);
+}
+.nt-vis-pill--red {
+  background: rgba(220, 38, 38, 0.08);
+  color: var(--accent-red);
+  border-color: rgba(220, 38, 38, 0.18);
+}
+.nt-vis-pill--neutral {
+  background: var(--bg-tertiary);
+  color: var(--text-secondary);
+  border-color: var(--border-subtle);
+}
+
+/* Soft "outline-only" variant — used for built-in badges and
+ * similar metadata that shouldn't shout. */
+.nt-vis-pill--ghost {
+  background: transparent;
+  border-color: var(--border-strong);
+  color: var(--text-secondary);
+}
+
+/* ---- Card grid ---------------------------------------------------
+ *
+ * Responsive grid for list pages. Auto-fills cards at a
+ * comfortable min width — at 1080px column it's a 2- or
+ * 3-up grid; below ~640px it collapses to a single column.
+ */
+
+.nt-vis-grid {
+  display: grid;
+  /* `auto-fit` with a 660px floor caps the row at 2
+   * columns — the user explicitly requested "max 3 per
+   * row, ideally 2" so the cards have room for the full
+   * icon + title + description + pills + double-button
+   * row without cramming. At 660px min a 1348px column
+   * holds 2 columns (~660px each), a 1920px column also
+   * holds 2 (each stretched to ~948px), and 2K/4K
+   * screens keep 2 wide cards.
+   *
+   * Below ~1340px the row drops to 1 column; below ~640px
+   * we still show 1 column (the auto-fit's `1fr` upper
+   * bound makes a single column stretch to fill). */
+  grid-template-columns: repeat(auto-fit, minmax(660px, 1fr));
+  gap: var(--spacing-lg);
+}
+
+.nt-vis-grid--wide {
+  /* Agents page uses this variant. 720px floor keeps it
+   * consistent with the regular grid at 2 columns on
+   * 1348-1920px viewports. */
+  grid-template-columns: repeat(auto-fit, minmax(720px, 1fr));
+}
+
+@media (max-width: 640px) {
+  .nt-vis-grid,
+  .nt-vis-grid--wide {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* ---- Entity card (list row) --------------------------------------
+ *
+ * Replaces the flat Card used by the existing list pages. Each
+ * card carries:
+ *   - a left-side icon tile coloured by entity type
+ *   - a header row with the entity name + status pill
+ *   - a short description / metadata strip
+ *   - a row of actions aligned to the bottom-right
+ *
+ * The whole card is a link — but explicit action buttons stop
+ * event propagation so the row link doesn't swallow their
+ * clicks (the inline-delete pattern from AgentsPage).
+ */
+
+.nt-vis-card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-md);
+  padding: var(--spacing-lg);
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-sm);
+  text-decoration: none;
+  color: inherit;
+  position: relative;
+  overflow: hidden;
+  transition:
+    transform var(--transition-base),
+    border-color var(--transition-base),
+    box-shadow var(--transition-base);
+}
+
+.nt-vis-card::before {
+  /* Subtle accent ribbon at the top — 3px gradient bar whose
+     colors are driven by the entity class modifier. */
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 3px;
+  background: linear-gradient(
+    90deg,
+    var(--nt-vis-accent, var(--accent-primary)) 0%,
+    var(--nt-vis-accent-2, var(--accent-cyan)) 100%
+  );
+  opacity: 0.85;
+}
+
+.nt-vis-card:hover {
+  transform: translateY(-2px);
+  border-color: var(--border-primary);
+  box-shadow: var(--shadow-md);
+  text-decoration: none;
+}
+
+.nt-vis-card__header {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--spacing-md);
+}
+
+.nt-vis-card__icon {
+  flex-shrink: 0;
+  width: 44px;
+  height: 44px;
+  border-radius: var(--radius-md);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 22px;
+  background: linear-gradient(
+    135deg,
+    var(--nt-vis-accent, var(--accent-primary)) 0%,
+    var(--nt-vis-accent-2, var(--accent-cyan)) 100%
+  );
+  color: var(--text-inverse);
+  font-family: var(--font-sans);
+  line-height: 1;
+}
+
+.nt-vis-card__main {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.nt-vis-card__name {
+  font-family: var(--font-sans);
+  font-size: var(--fs-md);
+  font-weight: var(--fw-semibold);
+  color: var(--text-primary);
+  margin: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.nt-vis-card__name code {
+  font-family: var(--font-mono);
+  font-weight: var(--fw-medium);
+}
+
+.nt-vis-card__subtitle {
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.nt-vis-card__desc {
+  font-family: var(--font-sans);
+  font-size: var(--fs-sm);
+  color: var(--text-secondary);
+  line-height: var(--lh-normal);
+  margin: 0;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.nt-vis-card__pills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 2px;
+}
+
+.nt-vis-card__footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--spacing-sm);
+  margin-top: auto;
+  padding-top: var(--spacing-md);
+  border-top: 1px dashed var(--border-subtle);
+}
+
+.nt-vis-card__actions {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+  flex-shrink: 0;
+}
+
+/* ---- Accent variants (entity-type colour theme) ------------------
+ *
+ * Each variant sets the card's accent gradient. Pages set the
+ * class on the card root. Reuses the design tokens so dark mode
+ * gets these for free.
+ */
+.nt-vis-card--skill {
+  --nt-vis-accent: var(--accent-purple);
+  --nt-vis-accent-2: var(--accent-magenta);
+}
+.nt-vis-card--tool {
+  --nt-vis-accent: var(--accent-cyan);
+  --nt-vis-accent-2: var(--accent-primary);
+}
+.nt-vis-card--agent {
+  --nt-vis-accent: var(--accent-primary);
+  --nt-vis-accent-2: var(--accent-purple);
+}
+.nt-vis-card--agent-protected {
+  --nt-vis-accent: var(--accent-yellow);
+  --nt-vis-accent-2: var(--accent-magenta);
+}
+.nt-vis-card--session {
+  --nt-vis-accent: var(--accent-success);
+  --nt-vis-accent-2: var(--accent-cyan);
+}
+.nt-vis-card--session-error {
+  --nt-vis-accent: var(--accent-red);
+  --nt-vis-accent-2: var(--accent-magenta);
+}
+.nt-vis-card--session-pending {
+  --nt-vis-accent: var(--accent-yellow);
+  --nt-vis-accent-2: var(--accent-cyan);
+}
+
+/* ---- Hero accent variants ----------------------------------------
+ *
+ * The hero block on detail pages reuses the same accent
+ * convention so an agent detail hero matches its list card.
+ */
+.nt-vis-hero--skill {
+  --nt-vis-hero-accent: var(--accent-purple);
+  --nt-vis-hero-accent-2: var(--accent-magenta);
+}
+.nt-vis-hero--tool {
+  --nt-vis-hero-accent: var(--accent-cyan);
+  --nt-vis-hero-accent-2: var(--accent-primary);
+}
+.nt-vis-hero--agent {
+  --nt-vis-hero-accent: var(--accent-primary);
+  --nt-vis-hero-accent-2: var(--accent-purple);
+}
+.nt-vis-hero--agent-protected {
+  --nt-vis-hero-accent: var(--accent-yellow);
+  --nt-vis-hero-accent-2: var(--accent-magenta);
+}
+.nt-vis-hero--session {
+  --nt-vis-hero-accent: var(--accent-success);
+  --nt-vis-hero-accent-2: var(--accent-cyan);
+}
+
+/* ---- Property card grid (detail pages) ---------------------------
+ *
+ * Two-column grid of small "stat" cards for the most-looked-at
+ * fields on detail pages. Replaces the top-of-page
+ * `<Card title="Metadata"><MetadataTable ... /></Card>` block
+ * with a denser, more visual surface. Collapses to one column
+ * below ~640px.
+ *
+ * The previous `minmax(180px, 1fr)` was too aggressive — on a
+ * wide detail page it squeezed 7-8 cards into a single row
+ * that read as a flat strip. The new floor is 240px so the
+ * grid is 3-4 cards wide on a 1200px column and 2 cards wide
+ * at narrower viewports, with each card large enough to host
+ * a real label + value with breathing room.
+ */
+
+.nt-vis-prop-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  gap: var(--spacing-md);
+}
+
+@media (max-width: 640px) {
+  .nt-vis-prop-grid {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+
+.nt-vis-prop {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: var(--spacing-md) var(--spacing-lg);
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  min-width: 0;
+  transition: border-color var(--transition-base);
+}
+
+.nt-vis-prop:hover {
+  border-color: var(--border-strong);
+}
+
+.nt-vis-prop__label {
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-muted);
+  font-weight: var(--fw-medium);
+}
+
+.nt-vis-prop__value {
+  font-family: var(--font-sans);
+  font-size: var(--fs-md);
+  color: var(--text-primary);
+  font-weight: var(--fw-medium);
+  line-height: 1.4;
+  word-break: break-word;
+}
+
+.nt-vis-prop__value code {
+  font-family: var(--font-mono);
+  font-size: 0.9em;
+  color: var(--text-secondary);
+  background: var(--bg-tertiary);
+  padding: 1px 6px;
+  border-radius: var(--radius-sm);
+}
+
+.nt-vis-prop--accent-blue {
+  border-left: 3px solid var(--accent-primary);
+}
+.nt-vis-prop--accent-cyan {
+  border-left: 3px solid var(--accent-cyan);
+}
+.nt-vis-prop--accent-purple {
+  border-left: 3px solid var(--accent-purple);
+}
+.nt-vis-prop--accent-yellow {
+  border-left: 3px solid var(--accent-yellow);
+}
+.nt-vis-prop--accent-green {
+  border-left: 3px solid var(--accent-success);
+}
+.nt-vis-prop--accent-red {
+  border-left: 3px solid var(--accent-red);
+}
+
+/* ---- Section card ------------------------------------------------
+ *
+ * Reusable wrapper around a labelled content block (Body,
+ * Instructions, History, …). Gives the existing `.nt-markdown`
+ * and code blocks a clear visual container. Pairs with the
+ * property grid above for a complete detail-page surface.
+ */
+
+.nt-vis-section {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-sm);
+  overflow: hidden;
+}
+
+.nt-vis-section__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--spacing-sm);
+  padding: var(--spacing-xl) var(--spacing-lg);
+  border-bottom: 1px solid var(--border-subtle);
+  background: linear-gradient(180deg, var(--bg-secondary) 0%, var(--bg-tertiary) 100%);
+}
+
+.nt-vis-section__title {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  font-family: var(--font-sans);
+  font-size: var(--fs-md);
+  font-weight: var(--fw-semibold);
+  color: var(--text-primary);
+  margin: 0;
+}
+
+.nt-vis-section__title-glyph {
+  width: 28px;
+  height: 28px;
+  border-radius: var(--radius-sm);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 16px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-subtle);
+  color: var(--accent-primary);
+}
+
+.nt-vis-section__meta {
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+  color: var(--text-muted);
+}
+
+.nt-vis-section__body {
+  padding: var(--spacing-xl) var(--spacing-lg);
+}
+
+/* The Markdown body inside a section. Margin-top on h1-h4 from
+   page.css is set assuming the body sits below the title — but
+   inside a section the title already supplies that rhythm, so
+   the first child of the body should not add top spacing. */
+.nt-vis-section__body > .nt-markdown > *:first-child {
+  margin-top: 0;
+}
+
+/* ---- Code block surface (JSON schema, etc.) ----------------------
+ *
+ * Bordered, slightly-tinted code block with a coloured left
+ * rail — clearer than the unadorned <pre> the existing pages
+ * use. Used on the tool detail page for the input schema.
+ */
+
+.nt-vis-code {
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  border-left: 3px solid var(--accent-cyan);
+  padding: var(--spacing-md);
+  overflow-x: auto;
+  font-family: var(--font-mono);
+  font-size: var(--fs-sm);
+  line-height: 1.6;
+  color: var(--text-primary);
+  margin: 0;
+  white-space: pre;
+}
+
+.nt-vis-code--blue {
+  border-left-color: var(--accent-primary);
+}
+.nt-vis-code--purple {
+  border-left-color: var(--accent-purple);
+}
+
+/* ---- Hero metadata cluster (right-side of detail hero) ----------
+ *
+ * Compact key/value list on the right of the hero — for
+ * timestamps, IDs, totals. Kept short (1–4 rows) so it doesn't
+ * compete with the title.
+ */
+
+.nt-vis-meta-cluster {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+  color: var(--text-muted);
+  align-items: flex-end;
+}
+
+.nt-vis-meta-cluster__row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.nt-vis-meta-cluster__row > span:first-child {
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-muted);
+}
+
+.nt-vis-meta-cluster__row > span:last-child {
+  color: var(--text-secondary);
+}
+
+/* ---- Toolbar divider ---------------------------------------------
+ *
+ * The list toolbar sits above the grid; a subtle horizontal
+ * rule below the hero separates the page-level header from the
+ * action bar.
+ */
+
+.nt-vis-toolbar-row {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-md);
+  flex-wrap: wrap;
+}
+
+.nt-vis-toolbar-row__spacer {
+  flex: 1 1 auto;
+}
+
+.nt-vis-toolbar-row__stats {
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+  color: var(--text-muted);
+  display: inline-flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+}
+
+/* ---- Inline mini-card (Sessions page search card) ----------------
+ *
+ * The "Search memory" card on SessionsPage is a self-contained
+ * surface — give it the same section styling without forcing a
+ * page-wide hero.
+ */
+
+.nt-vis-search-card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-sm);
+  padding: var(--spacing-md);
+  background: linear-gradient(135deg, rgba(124, 58, 237, 0.04) 0%, rgba(8, 145, 178, 0.04) 100%);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+}
+
+.nt-vis-search-card__title {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  font-family: var(--font-sans);
+  font-size: var(--fs-md);
+  font-weight: var(--fw-semibold);
+  color: var(--text-primary);
+  margin: 0;
+}
+
+.nt-vis-search-card__form {
+  display: flex;
+  gap: var(--spacing-sm);
+  align-items: center;
+}
+
+.nt-vis-search-card__form input[type='search'] {
+  flex: 1 1 auto;
+  height: var(--control-height-sm);
+  padding: 0 var(--space-3);
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-md);
+  color: var(--text-primary);
+  font-family: var(--font-sans);
+  font-size: var(--fs-sm);
+  transition:
+    border-color var(--transition-base),
+    box-shadow var(--transition-base);
+}
+
+.nt-vis-search-card__form input[type='search']:focus {
+  outline: none;
+  border-color: var(--accent-primary);
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.12);
+}
+
+.nt-vis-search-card__results {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-xs);
+}
+
+.nt-vis-search-card__hit {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: var(--spacing-sm) var(--spacing-md);
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  border-left: 3px solid var(--accent-purple);
+}
+
+.nt-vis-search-card__hit-meta {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+  color: var(--text-muted);
+}
+
+.nt-vis-search-card__hit-meta code {
+  color: var(--accent-purple);
+  font-weight: var(--fw-medium);
+}
+
+.nt-vis-search-card__hit-content {
+  font-family: var(--font-sans);
+  font-size: var(--fs-sm);
+  color: var(--text-primary);
+  line-height: var(--lh-normal);
+  margin: 0;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.nt-vis-search-card__error {
+  font-family: var(--font-mono);
+  font-size: var(--fs-sm);
+  color: var(--accent-red);
+  margin: 0;
+}
+
+.nt-vis-search-card__empty {
+  font-family: var(--font-sans);
+  font-size: var(--fs-sm);
+  color: var(--text-muted);
+  text-align: center;
+  padding: var(--spacing-sm);
+  margin: 0;
+}
+
+/* ---- Reduced motion ---------------------------------------------- */
+
+@media (prefers-reduced-motion: reduce) {
+  .nt-vis-card,
+  .nt-vis-card:hover {
+    transform: none;
+  }
+}

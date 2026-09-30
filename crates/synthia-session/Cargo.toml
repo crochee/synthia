@@ -1,0 +1,32 @@
+[package]
+name = "synthia-session"
+description = "Durable session log for synthia: SessionSink trait, JSONL / in-memory sinks, replay"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+documentation.workspace = true
+readme.workspace = true
+keywords.workspace = true
+categories.workspace = true
+[dependencies]
+thiserror.workspace = true
+tracing.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+async-trait.workspace = true
+parking_lot.workspace = true
+chrono.workspace = true
+ulid.workspace = true
+# For `Clock`: session timestamps (`OperationSnapshot::taken_at`) go
+# through the injectable clock rather than `chrono::Utc::now`.
+synthia-core.workspace = true
+synthia-provider.workspace = true
+
+futures.workspace = true
+tokio = { workspace = true, features = ["rt", "sync", "time", "macros"] }
+[dev-dependencies]
+tempfile.workspace = true
+tokio = { workspace = true, features = ["macros", "rt", "rt-multi-thread"] }

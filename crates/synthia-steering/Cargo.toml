@@ -1,0 +1,28 @@
+[package]
+name = "synthia-steering"
+description = "Policy layer for synthia: Steering container with guards, hints, hooks, trackers, output transformers, tier-aware defaults"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+documentation.workspace = true
+readme.workspace = true
+keywords.workspace = true
+categories.workspace = true
+[dependencies]
+thiserror.workspace = true
+async-trait.workspace = true
+futures.workspace = true
+parking_lot.workspace = true
+synthia-context.workspace = true
+synthia-core = { workspace = true, features = ["tokio-util"] }
+synthia-provider.workspace = true
+regex.workspace = true
+serde_json.workspace = true
+tokio-util.workspace = true
+tracing.workspace = true
+[dev-dependencies]
+tokio = { workspace = true, features = ["macros", "rt"] }
+tracing-subscriber = { workspace = true }
