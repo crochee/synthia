@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"constant":["KNOWN_SESSION_EVENT_TYPES"],"enum":["CompactionOutcome","SessionEvent","SurfaceOp"],"fn":["empty_event_of"],"struct":["ReplaceRange","SurfaceToken"]};

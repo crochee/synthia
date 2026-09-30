@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"enum":["SkillProviderError"],"struct":["FileSkillProvider","InMemorySkillProvider","PerProviderReport","SkillCollectReport","SkillProviderInfo","SkillRank","SkillRegistry"],"trait":["SkillProvider"],"type":["BoxedSkillProvider"]};

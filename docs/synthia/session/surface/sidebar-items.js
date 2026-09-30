@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"enum":["FoldError"],"fn":["assemble_chunks","fold_surface"],"struct":["FoldedSurface"]};

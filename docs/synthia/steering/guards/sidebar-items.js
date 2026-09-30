@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"constant":["CATASTROPHIC_SHELL_PATTERNS"],"struct":["LoopDetectionGuard","PromptInjectionGuard","ShellDenyGuard","ToolBudgetGuard","WorkspaceBoundaryGuard"]};

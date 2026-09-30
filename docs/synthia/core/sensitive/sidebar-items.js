@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"fn":["redact_partial","redact_partial_with"],"struct":["Sensitive"],"trait":["SensitiveData"]};

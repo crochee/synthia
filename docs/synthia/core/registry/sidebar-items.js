@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"constant":["MAX_LIMIT"],"fn":["paginate_registry_list"],"struct":["EmptyFilter","RegistryList"],"trait":["Registry","RegistryItem"]};

@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"constant":["SKILL_TOOL_NAME"],"fn":["register_skill_tool"],"mod":["skill_tool"],"struct":["SkillTool"]};

@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"enum":["BuiltinScorer","MctsScorer"],"struct":["HeuristicScorer","ScoredBranch"],"trait":["Scorer"]};

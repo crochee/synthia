@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"struct":["SequenceGenerator","SharedIdGen","UlidGenerator"],"trait":["IdGen"]};

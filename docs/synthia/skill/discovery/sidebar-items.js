@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"constant":["PROJECT_SKILLS_DIR"],"fn":["discover_skills"]};

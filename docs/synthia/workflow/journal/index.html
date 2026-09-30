@@ -1,0 +1,53 @@
+<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><meta name="generator" content="rustdoc"><meta name="description" content="The resume journal: what a run leaves behind so a later one can skip work it already paid for."><title>synthia::workflow::journal - Rust</title><script>if(window.location.protocol!=="file:")document.head.insertAdjacentHTML("beforeend","SourceSerif4-Regular-6b053e98.ttf.woff2,FiraSans-Italic-81dc35de.woff2,FiraSans-Regular-0fe48ade.woff2,FiraSans-MediumItalic-ccf7e434.woff2,FiraSans-Medium-e1aa3f0a.woff2,SourceCodePro-Regular-8badfe75.ttf.woff2,SourceCodePro-Semibold-aa29a496.ttf.woff2".split(",").map(f=>`<link rel="preload" as="font" type="font/woff2"href="../../../static.files/${f}">`).join(""))</script><link rel="stylesheet" href="../../../static.files/normalize-9960930a.css"><link rel="stylesheet" href="../../../static.files/rustdoc-1ed95124.css"><meta name="rustdoc-vars" data-root-path="../../../" data-static-root-path="../../../static.files/" data-current-crate="synthia" data-themes="" data-resource-suffix="" data-rustdoc-version="1.98.1 (48a229cea 2026-09-01)" data-channel="1.98.1" data-search-js="search-9944d736.js" data-stringdex-js="stringdex-2da4960a.js" data-settings-js="settings-170eb4bf.js" ><script src="../../../static.files/storage-41dd4d93.js"></script><script defer src="../sidebar-items.js"></script><script defer src="../../../static.files/main-417ebf0a.js"></script><noscript><link rel="stylesheet" href="../../../static.files/noscript-f7c3ffd8.css"></noscript><link rel="alternate icon" type="image/png" href="../../../static.files/favicon-32x32-eab170b8.png"><link rel="icon" type="image/svg+xml" href="../../../static.files/favicon-044be391.svg"></head><body class="rustdoc mod"><a class="skip-main-content" href="#main-content">Skip to main content</a><!--[if lte IE 11]><div class="warning">This old browser is unsupported and will most likely display funky things.</div><![endif]--><rustdoc-topbar><h2><a href="#">Module journal</a></h2></rustdoc-topbar><nav class="sidebar"><div class="sidebar-crate"><h2><a href="../../../synthia/index.html">synthia</a><span class="version">0.1.0</span></h2></div><div class="sidebar-elems"><section id="rustdoc-toc"><h2 class="location"><a href="#">Module journal</a></h2><h3><a href="#">Sections</a></h3><ul class="block top-toc"><li><a href="#what-resume-buys" title="What resume buys">What resume buys</a></li><li><a href="#why-a-prefix-and-not-a-lookup-table" title="Why a prefix, and not a lookup table">Why a prefix, and not a lookup table</a></li><li><a href="#failures-are-never-replayed" title="Failures are never replayed">Failures are never replayed</a></li><li><a href="#the-decision-is-recorded-not-re-derived" title="The decision is recorded, not re-derived">The decision is recorded, not re-derived</a></li><li><a href="#torn-lines-and-unwritable-disks" title="Torn lines and unwritable disks">Torn lines and unwritable disks</a></li></ul><h3><a href="#structs">Module Items</a></h3><ul class="block"><li><a href="#structs" title="Structs">Structs</a></li><li><a href="#functions" title="Functions">Functions</a></li></ul></section><div id="rustdoc-modnav"><h2><a href="../index.html">In synthia::<wbr>workflow</a></h2></div></div></nav><div class="sidebar-resizer" title="Drag to resize sidebar"></div><main><div class="width-limiter"><section id="main-content" class="content" tabindex="-1"><div class="main-heading"><div class="rustdoc-breadcrumbs"><a href="../../index.html">synthia</a>::<wbr><a href="../index.html">workflow</a></div><h1>Module <span>journal</span>&nbsp;<button id="copy-path" title="Copy item path to clipboard">Copy item path</button></h1><rustdoc-toolbar></rustdoc-toolbar><span class="sub-heading"><a class="src" href="../../../src/synthia_workflow/lib.rs.html#81">Source</a> </span></div><details class="toggle top-doc" open><summary class="hideme"><span>Expand description</span></summary><div class="docblock"><p>The resume journal: what a run leaves behind so a later one can
+skip work it already paid for.</p>
+<h3 id="what-resume-buys"><a class="doc-anchor" href="#what-resume-buys">§</a>What resume buys</h3>
+<p>A workflow is a document; the documented loop is “edit the document
+and re-run it”. Without a journal that re-pays every agent from
+scratch, which for a 40-call audit is the entire cost of the run — to
+change one line of the last stage. With one, the unchanged prefix
+comes back from disk and only the edit runs.</p>
+<h3 id="why-a-prefix-and-not-a-lookup-table"><a class="doc-anchor" href="#why-a-prefix-and-not-a-lookup-table">§</a>Why a <em>prefix</em>, and not a lookup table</h3>
+<p>Each entry is keyed by both its position in the run’s plan and a hash
+of everything that decides what that agent does. A replay walks
+positions in order and stops reusing at the first entry that does not
+match — every call from there on runs live. Reusing a later match out
+of order would be reusing a result produced under different upstream
+conditions: the same prompt at position 12 of a <em>different</em> run is
+not the same work, because what fed it changed.</p>
+<p>In this crate positions come from a deterministic pre-order walk of
+the document (<a href="../struct.WorkflowPlan.html#method.calls" title="method synthia::workflow::WorkflowPlan::calls"><code>WorkflowPlan::calls</code></a>),
+not from call arrival, so a resume that matches matches exactly.</p>
+<h3 id="failures-are-never-replayed"><a class="doc-anchor" href="#failures-are-never-replayed">§</a>Failures are never replayed</h3>
+<p>A failed call is journaled as a failure and never replayed as one.
+Resuming a run that died at call 5 exists to retry call 5, so the
+prefix ends there and 5 onwards run live — replaying the failure
+would make it permanent. A skipped call is journaled the same way,
+for the same reason.</p>
+<p>The one failure a resume may reuse is a <code>best_of</code> candidate that
+lost: when another candidate of the same step has a successful entry,
+the step’s winner is already decided, so re-running the candidate
+that failed cannot change anything. That is checked in
+<a href="../struct.WorkflowPlan.html#method.replay_prefix" title="method synthia::workflow::WorkflowPlan::replay_prefix"><code>WorkflowPlan::replay_prefix</code></a>,
+not here: the journal keeps recording what happened. A selection no
+candidate won has no such entry, so it is retried whole.</p>
+<h3 id="the-decision-is-recorded-not-re-derived"><a class="doc-anchor" href="#the-decision-is-recorded-not-re-derived">§</a>The decision is recorded, not re-derived</h3>
+<p>A <code>best_of</code> step’s winner is a <em>decision</em>, and a host may make it
+any way it likes (<a href="../trait.WorkflowHost.html#method.select_candidate" title="method synthia::workflow::WorkflowHost::select_candidate"><code>WorkflowHost::select_candidate</code></a>), so it is not
+something a replay can derive from the entries. The run that decides
+writes the decision as a fresh line for the winner’s position
+(<a href="../struct.JournalEntry.html#structfield.winner" title="field synthia::workflow::JournalEntry::winner"><code>JournalEntry::winner</code></a>); a replay reads it back and reproduces
+the choice instead of asking the host again, which is what keeps a
+replayed run free of new effects — and a judge call from being paid
+for twice. An older journal, or a run killed between its last
+candidate settling and the decision, carries no decision for that
+step: the resume falls back to the built-in rule, because there is
+no decision to reproduce.</p>
+<h3 id="torn-lines-and-unwritable-disks"><a class="doc-anchor" href="#torn-lines-and-unwritable-disks">§</a>Torn lines and unwritable disks</h3>
+<p>The file is JSON Lines, appended as each call settles, so a run that
+is killed mid-flight still leaves everything it had finished. A
+half-written last line is normal: <a href="../fn.read_journal.html" title="fn synthia::workflow::read_journal"><code>read_journal</code></a> skips what it
+cannot parse and keeps the rest, because a shorter prefix is still a
+useful one and refusing to run would cost the whole run. For the same
+reason an append that fails costs a future resume and nothing else.</p>
+</div></details><h2 id="structs" class="section-header">Structs<a href="#structs" class="anchor">§</a></h2><dl class="item-table"><dt><a class="struct" href="struct.JournalEntry.html" title="struct synthia::workflow::journal::JournalEntry">Journal<wbr>Entry</a></dt><dd>One settled agent call, as replayed.</dd><dt><a class="struct" href="struct.JournalKeyInput.html" title="struct synthia::workflow::journal::JournalKeyInput">Journal<wbr>KeyInput</a></dt><dd>The fields that decide what an agent call does.</dd></dl><h2 id="functions" class="section-header">Functions<a href="#functions" class="anchor">§</a></h2><dl class="item-table"><dt><a class="fn" href="fn.append_journal.html" title="fn synthia::workflow::journal::append_journal">append_<wbr>journal</a></dt><dd>Append one settled call. Failure to write is not failure to run.</dd><dt><a class="fn" href="fn.journal_key.html" title="fn synthia::workflow::journal::journal_key">journal_<wbr>key</a></dt><dd>Stable identity hash of a call’s payload. Field order is fixed here,
+not by the caller.</dd><dt><a class="fn" href="fn.read_journal.html" title="fn synthia::workflow::journal::read_journal">read_<wbr>journal</a></dt><dd>Read a journal into position order.</dd></dl></section></div></main></body></html>

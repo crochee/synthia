@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"constant":["DEFAULT_TRIGGER","MENTION_SEPARATOR"],"enum":["RoutingDecision"],"fn":["mentions_to_task_specs","parse_mentions"],"struct":["LeaderRouter","Mention","PassThroughRouter"],"trait":["Router"]};

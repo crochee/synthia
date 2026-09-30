@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"constant":["MAX_INTERVAL_SECS"],"enum":["JobKind","JobStatus","ScheduleError"],"struct":["Job","JobId"]};

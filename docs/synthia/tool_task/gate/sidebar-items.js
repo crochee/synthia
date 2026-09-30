@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"enum":["CommandStopReason","GateError","GateVerdict"],"fn":["apply_gate_to_output","no_cancel_token","run_gate","verdict_summary"],"struct":["CommandOutcome","GateSpec","StdCommandRunner"],"trait":["CommandRunner"]};

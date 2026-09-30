@@ -1,0 +1,46 @@
+<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><meta name="generator" content="rustdoc"><meta name="description" content="Built-in `OutputTransformer` implementations, adopted from traitclaw’s `traitclaw-core/src/transformers.rs`."><title>synthia::steering::transformer - Rust</title><script>if(window.location.protocol!=="file:")document.head.insertAdjacentHTML("beforeend","SourceSerif4-Regular-6b053e98.ttf.woff2,FiraSans-Italic-81dc35de.woff2,FiraSans-Regular-0fe48ade.woff2,FiraSans-MediumItalic-ccf7e434.woff2,FiraSans-Medium-e1aa3f0a.woff2,SourceCodePro-Regular-8badfe75.ttf.woff2,SourceCodePro-Semibold-aa29a496.ttf.woff2".split(",").map(f=>`<link rel="preload" as="font" type="font/woff2"href="../../../static.files/${f}">`).join(""))</script><link rel="stylesheet" href="../../../static.files/normalize-9960930a.css"><link rel="stylesheet" href="../../../static.files/rustdoc-1ed95124.css"><meta name="rustdoc-vars" data-root-path="../../../" data-static-root-path="../../../static.files/" data-current-crate="synthia" data-themes="" data-resource-suffix="" data-rustdoc-version="1.98.1 (48a229cea 2026-09-01)" data-channel="1.98.1" data-search-js="search-9944d736.js" data-stringdex-js="stringdex-2da4960a.js" data-settings-js="settings-170eb4bf.js" ><script src="../../../static.files/storage-41dd4d93.js"></script><script defer src="../sidebar-items.js"></script><script defer src="../../../static.files/main-417ebf0a.js"></script><noscript><link rel="stylesheet" href="../../../static.files/noscript-f7c3ffd8.css"></noscript><link rel="alternate icon" type="image/png" href="../../../static.files/favicon-32x32-eab170b8.png"><link rel="icon" type="image/svg+xml" href="../../../static.files/favicon-044be391.svg"></head><body class="rustdoc mod"><a class="skip-main-content" href="#main-content">Skip to main content</a><!--[if lte IE 11]><div class="warning">This old browser is unsupported and will most likely display funky things.</div><![endif]--><rustdoc-topbar><h2><a href="#">Module transformer</a></h2></rustdoc-topbar><nav class="sidebar"><div class="sidebar-crate"><h2><a href="../../../synthia/index.html">synthia</a><span class="version">0.1.0</span></h2></div><div class="sidebar-elems"><section id="rustdoc-toc"><h2 class="location"><a href="#">Module transformer</a></h2><h3><a href="#">Sections</a></h3><ul class="block top-toc"><li><a href="#composition" title="Composition">Composition</a></li><li><a href="#divergence-from-traitclaw" title="Divergence from traitclaw">Divergence from traitclaw</a></li></ul><h3><a href="#structs">Module Items</a></h3><ul class="block"><li><a href="#structs" title="Structs">Structs</a></li></ul></section><div id="rustdoc-modnav"><h2><a href="../index.html">In synthia::<wbr>steering</a></h2></div></div></nav><div class="sidebar-resizer" title="Drag to resize sidebar"></div><main><div class="width-limiter"><section id="main-content" class="content" tabindex="-1"><div class="main-heading"><div class="rustdoc-breadcrumbs"><a href="../../index.html">synthia</a>::<wbr><a href="../index.html">steering</a></div><h1>Module <span>transformer</span>&nbsp;<button id="copy-path" title="Copy item path to clipboard">Copy item path</button></h1><rustdoc-toolbar></rustdoc-toolbar><span class="sub-heading"><a class="src" href="../../../src/synthia_steering/lib.rs.html#46">Source</a> </span></div><details class="toggle top-doc" open><summary class="hideme"><span>Expand description</span></summary><div class="docblock"><p>Built-in <a href="../trait.OutputTransformer.html" title="trait synthia::steering::OutputTransformer"><code>OutputTransformer</code></a> implementations, adopted from
+traitclaw’s <code>traitclaw-core/src/transformers.rs</code>.</p>
+<h2 id="composition"><a class="doc-anchor" href="#composition">§</a>Composition</h2>
+<p><a href="../struct.TransformerChain.html" title="struct synthia::steering::TransformerChain"><code>TransformerChain</code></a> pipes an output through several
+transformers in order; <a href="../struct.JsonExtractor.html" title="struct synthia::steering::JsonExtractor"><code>JsonExtractor</code></a> keeps only the JSON
+payload of a verbose result; <a href="../struct.BudgetAwareTruncator.html" title="struct synthia::steering::BudgetAwareTruncator"><code>BudgetAwareTruncator</code></a> cuts an
+oversized result down to a head/tail excerpt and stashes the
+full text in a
+<a href="../../core/trait.FullOutputStore.html" title="trait synthia::core::FullOutputStore"><code>FullOutputStore</code></a>, so the model
+can pull it back on demand through the <code>__get_full_output</code> tool
+(<code>synthia_tool::RetrieveFullOutputTool</code>).</p>
+<h2 id="divergence-from-traitclaw"><a class="doc-anchor" href="#divergence-from-traitclaw">§</a>Divergence from traitclaw</h2>
+<p>traitclaw splits this work across two types: <code>ProgressiveTransformer</code>
+(an LLM summarises the output, the full text is cached under the
+tool name) and <code>BudgetAwareTruncator</code> (char-count truncation with a
+halved limit under context pressure). Synthia keeps one:
+<a href="../struct.BudgetAwareTruncator.html" title="struct synthia::steering::BudgetAwareTruncator"><code>BudgetAwareTruncator</code></a>, the deterministic half. The divergences
+and their reasons:</p>
+<ul>
+<li><strong>Excerpt instead of summary.</strong> The commit path must not depend
+on a provider call: a summary can fail, cost a round trip per
+oversized output, and rewrite data the model may need verbatim.
+Head + tail + a handle to the full text is free, cannot fail,
+and is the same two-phase shape (elide now, retrieve on demand).</li>
+<li><strong>Handle keyed, not tool-name keyed.</strong> traitclaw cached the full
+output under <code>tool_name</code>, so a second oversized call from the
+same tool silently replaced the first. Handles are minted per
+<code>put</code>, so every stashed output stays addressable.</li>
+<li><strong>Per-call adaptive halving.</strong> <a href="../trait.OutputTransformer.html#tymethod.transform" title="method synthia::steering::OutputTransformer::transform"><code>OutputTransformer::transform</code></a>
+receives no tracker — only the per-call
+<a href="../../context/struct.AgentState.html" title="struct synthia::context::AgentState"><code>AgentState</code></a> snapshot — so the effective budget is recomputed
+on every call from <code>AgentState::context_utilization()</code>. That is
+the same signal and the same rule traitclaw applied
+(<code>&gt; aggressive_threshold</code> ⇒ halve), just read from the snapshot
+instead of a long-lived tracker.</li>
+<li><strong>Characters, not bytes.</strong> Every length here is a Unicode
+scalar-value count (<code>char</code>), matching the <code>budget_chars</code> name.
+traitclaw compared <code>String::len</code> (bytes) against a char-based
+limit, so multibyte output could overrun the advertised budget.</li>
+</ul>
+<p>The marker format is a wire contract shared with the tool crate
+(which cannot be depended on from here):
+<code>[truncated: N chars elided; full output via __get_full_output("out-1")]</code>.</p>
+</div></details><h2 id="structs" class="section-header">Structs<a href="#structs" class="anchor">§</a></h2><dl class="item-table"><dt><a class="struct" href="struct.BudgetAwareTruncator.html" title="struct synthia::steering::transformer::BudgetAwareTruncator">Budget<wbr>Aware<wbr>Truncator</a></dt><dd>Truncates an oversized output to a head/tail excerpt and stashes
+the full text in a <a href="../../core/trait.FullOutputStore.html" title="trait synthia::core::FullOutputStore"><code>FullOutputStore</code></a>.</dd><dt><a class="struct" href="struct.JsonExtractor.html" title="struct synthia::steering::transformer::JsonExtractor">Json<wbr>Extractor</a></dt><dd>Extracts the first top-level JSON object or array from an
+output, discarding the text around it.</dd><dt><a class="struct" href="struct.TransformerChain.html" title="struct synthia::steering::transformer::TransformerChain">Transformer<wbr>Chain</a></dt><dd>Applies transformers to one output, in order.</dd></dl></section></div></main></body></html>

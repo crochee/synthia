@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"fn":["register_mcp_tools","sync_mcp_tools"],"struct":["McpCallResult","McpClient","McpContentBlock","McpToolGeneration","McpToolSpec"]};

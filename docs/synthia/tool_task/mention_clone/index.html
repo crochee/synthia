@@ -1,0 +1,61 @@
+<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><meta name="generator" content="rustdoc"><meta name="description" content="`MentionClone` — invisible-throwaway sub-agent that handles a `@agent: …` mention."><title>synthia::tool_task::mention_clone - Rust</title><script>if(window.location.protocol!=="file:")document.head.insertAdjacentHTML("beforeend","SourceSerif4-Regular-6b053e98.ttf.woff2,FiraSans-Italic-81dc35de.woff2,FiraSans-Regular-0fe48ade.woff2,FiraSans-MediumItalic-ccf7e434.woff2,FiraSans-Medium-e1aa3f0a.woff2,SourceCodePro-Regular-8badfe75.ttf.woff2,SourceCodePro-Semibold-aa29a496.ttf.woff2".split(",").map(f=>`<link rel="preload" as="font" type="font/woff2"href="../../../static.files/${f}">`).join(""))</script><link rel="stylesheet" href="../../../static.files/normalize-9960930a.css"><link rel="stylesheet" href="../../../static.files/rustdoc-1ed95124.css"><meta name="rustdoc-vars" data-root-path="../../../" data-static-root-path="../../../static.files/" data-current-crate="synthia" data-themes="" data-resource-suffix="" data-rustdoc-version="1.98.1 (48a229cea 2026-09-01)" data-channel="1.98.1" data-search-js="search-9944d736.js" data-stringdex-js="stringdex-2da4960a.js" data-settings-js="settings-170eb4bf.js" ><script src="../../../static.files/storage-41dd4d93.js"></script><script defer src="../sidebar-items.js"></script><script defer src="../../../static.files/main-417ebf0a.js"></script><noscript><link rel="stylesheet" href="../../../static.files/noscript-f7c3ffd8.css"></noscript><link rel="alternate icon" type="image/png" href="../../../static.files/favicon-32x32-eab170b8.png"><link rel="icon" type="image/svg+xml" href="../../../static.files/favicon-044be391.svg"></head><body class="rustdoc mod"><a class="skip-main-content" href="#main-content">Skip to main content</a><!--[if lte IE 11]><div class="warning">This old browser is unsupported and will most likely display funky things.</div><![endif]--><rustdoc-topbar><h2><a href="#">Module mention_clone</a></h2></rustdoc-topbar><nav class="sidebar"><div class="sidebar-crate"><h2><a href="../../../synthia/index.html">synthia</a><span class="version">0.1.0</span></h2></div><div class="sidebar-elems"><section id="rustdoc-toc"><h2 class="location"><a href="#">Module mention_<wbr>clone</a></h2><h3><a href="#">Sections</a></h3><ul class="block top-toc"><li><a href="#why" title="Why">Why</a></li><li><a href="#shape" title="Shape">Shape</a></li><li><a href="#runtime-neutrality" title="Runtime neutrality">Runtime neutrality</a></li></ul><h3><a href="#structs">Module Items</a></h3><ul class="block"><li><a href="#structs" title="Structs">Structs</a></li></ul></section><div id="rustdoc-modnav"><h2><a href="../index.html">In synthia::<wbr>tool_<wbr>task</a></h2></div></div></nav><div class="sidebar-resizer" title="Drag to resize sidebar"></div><main><div class="width-limiter"><section id="main-content" class="content" tabindex="-1"><div class="main-heading"><div class="rustdoc-breadcrumbs"><a href="../../index.html">synthia</a>::<wbr><a href="../index.html">tool_task</a></div><h1>Module <span>mention_<wbr>clone</span>&nbsp;<button id="copy-path" title="Copy item path to clipboard">Copy item path</button></h1><rustdoc-toolbar></rustdoc-toolbar><span class="sub-heading"><a class="src" href="../../../src/synthia_tool_task/lib.rs.html#61">Source</a> </span></div><details class="toggle top-doc" open><summary class="hideme"><span>Expand description</span></summary><div class="docblock"><p><code>MentionClone</code> — invisible-throwaway sub-agent that handles a
+<code>@agent: …</code> mention.</p>
+<h3 id="why"><a class="doc-anchor" href="#why">§</a>Why</h3>
+<p>The default <a href="../struct.LeaderRouter.html" title="struct synthia::tool_task::LeaderRouter"><code>LeaderRouter</code></a>
+path makes the leader’s model itself emit a <code>task</code> tool call to
+dispatch each mention — the model sees the mention, decides
+to invoke the <code>task</code> tool, and the tool runs in the leader’s
+own loop. That is visible (the model’s reasoning and the
+tool_use block land in the leader’s transcript) and trustful
+(the leader’s model is the one paying the tool-call round
+trip).</p>
+<p>For short, deterministic delegation flows the user wants the
+mention to fire invisibly: nothing lands in the chat
+transcript for the user’s model to reason about, and nothing
+in the leader’s tool list because the clone is the only thing
+that calls the <code>agent</code> tool. That is what <a href="../struct.MentionClone.html" title="struct synthia::tool_task::MentionClone"><code>MentionClone</code></a>
+delivers.</p>
+<h3 id="shape"><a class="doc-anchor" href="#shape">§</a>Shape</h3>
+<p>Adopted from pi-subagents
+<code>src/mention-clone.ts::runMentionClone</code>. Synthia ports the
+parts that map cleanly onto its library rules:</p>
+<ul>
+<li><strong>One tool, one job.</strong> The clone’s tool registry carries
+only the <code>agent</code> tool (re-registered against the leader’s
+peer registry so it resolves to the real peer set).</li>
+<li><strong>No filesystem / shell.</strong> Built-ins like <code>read</code>, <code>write</code>,
+and <code>shell</code> are absent — an invisible turn with the full
+toolset could do invisible work.</li>
+<li><strong>Background delivery.</strong> A foreground clone returns its
+answer via its TOOL RESULT, but the tool result lands in a
+session that is about to be discarded. The clone is run
+with <code>subagent_depth = parent + 1</code> so the resulting events
+route through the standard sub-agent notification path
+(the <a href="../struct.GroupJoin.html" title="struct synthia::tool_task::GroupJoin"><code>GroupJoin</code></a> bus is
+the production consumer).</li>
+</ul>
+<p>What we do <strong>not</strong> port: the <code>createAgentSession</code> /
+<code>runInChildSessionContext</code> plumbing (pi-coding-agent runtime),
+the system-prompt copy trick (synthia’s <a href="../../harness/struct.PromptContext.html" title="struct synthia::harness::PromptContext"><code>PromptContext</code></a>
+assembler is deterministic enough that the clone can build a
+faithful prompt from the same <code>PromptContext</code>), and the
+multi-extension <code>&lt;system-reminder&gt;</code> machinery (synthia has no
+extension bus).</p>
+<h3 id="runtime-neutrality"><a class="doc-anchor" href="#runtime-neutrality">§</a>Runtime neutrality</h3>
+<p>Like every other library crate, <a href="../struct.MentionClone.html" title="struct synthia::tool_task::MentionClone"><code>MentionClone</code></a> does not
+name <code>tokio</code> types. The clone’s <a href="../../harness/struct.ReActAgent.html" title="struct synthia::harness::ReActAgent"><code>ReActAgent</code></a> is the same
+runtime-neutral shape the rest of the agent runtime uses; the
+caller drives the stream with whatever executor it already
+owns.</p>
+</div></details><h2 id="structs" class="section-header">Structs<a href="#structs" class="anchor">§</a></h2><dl class="item-table"><dt><a class="struct" href="struct.AgentContext.html" title="struct synthia::tool_task::mention_clone::AgentContext">Agent<wbr>Context</a></dt><dd>Bundle of dependencies the parent passes to <a href="../struct.MentionClone.html" title="struct synthia::tool_task::MentionClone"><code>MentionClone</code></a>
+so the clone can rebuild a faithful child agent without
+inheriting the parent’s own tool list. All fields are
+required; <code>None</code> would force the clone to silently re-use
+the parent’s tool surface, which is the very thing the
+clone is supposed to prevent.</dd><dt><a class="struct" href="struct.MentionClone.html" title="struct synthia::tool_task::mention_clone::MentionClone">Mention<wbr>Clone</a></dt><dd>Build + run a throwaway sub-agent that handles one
+<code>@agent: …</code> mention.</dd><dt><a class="struct" href="struct.MentionCloneHandle.html" title="struct synthia::tool_task::mention_clone::MentionCloneHandle">Mention<wbr>Clone<wbr>Handle</a></dt><dd>Result of one <a href="../struct.MentionClone.html#method.run" title="associated function synthia::tool_task::MentionClone::run"><code>MentionClone::run</code></a> invocation. The handle
+is intentionally tiny — the clone’s stream is the
+deliverable, not a long-lived handle. Callers typically
+<code>for_each</code> the events into their own notification path
+(the existing <a href="../struct.GroupJoin.html" title="struct synthia::tool_task::GroupJoin"><code>GroupJoin</code></a>
+bus is the production consumer).</dd></dl></section></div></main></body></html>

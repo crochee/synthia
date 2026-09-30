@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"enum":["MeasurementBaseline","TokenMeterError"],"fn":["estimate_message_tokens"],"struct":["ContextPressure","TokenMeasurement","TokenMeter","UsageBuckets"]};

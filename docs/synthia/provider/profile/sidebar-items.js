@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"constant":["DEFAULT_ANTHROPIC_CONTEXT_WINDOW","DEFAULT_ANTHROPIC_MAX_OUTPUT_TOKENS","DEFAULT_OPENAI_CONTEXT_WINDOW","DEFAULT_OPENAI_MAX_OUTPUT_TOKENS"],"enum":["ProviderProfile"],"struct":["AnthropicProfile","ModelCapabilities","OpenAIProfile","ProviderRegistry","StubProfile"]};

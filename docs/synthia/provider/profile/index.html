@@ -1,0 +1,63 @@
+<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><meta name="generator" content="rustdoc"><meta name="description" content="Typed provider profile — the lego-compatible configuration surface for `synthia_provider`."><title>synthia::provider::profile - Rust</title><script>if(window.location.protocol!=="file:")document.head.insertAdjacentHTML("beforeend","SourceSerif4-Regular-6b053e98.ttf.woff2,FiraSans-Italic-81dc35de.woff2,FiraSans-Regular-0fe48ade.woff2,FiraSans-MediumItalic-ccf7e434.woff2,FiraSans-Medium-e1aa3f0a.woff2,SourceCodePro-Regular-8badfe75.ttf.woff2,SourceCodePro-Semibold-aa29a496.ttf.woff2".split(",").map(f=>`<link rel="preload" as="font" type="font/woff2"href="../../../static.files/${f}">`).join(""))</script><link rel="stylesheet" href="../../../static.files/normalize-9960930a.css"><link rel="stylesheet" href="../../../static.files/rustdoc-1ed95124.css"><meta name="rustdoc-vars" data-root-path="../../../" data-static-root-path="../../../static.files/" data-current-crate="synthia" data-themes="" data-resource-suffix="" data-rustdoc-version="1.98.1 (48a229cea 2026-09-01)" data-channel="1.98.1" data-search-js="search-9944d736.js" data-stringdex-js="stringdex-2da4960a.js" data-settings-js="settings-170eb4bf.js" ><script src="../../../static.files/storage-41dd4d93.js"></script><script defer src="../sidebar-items.js"></script><script defer src="../../../static.files/main-417ebf0a.js"></script><noscript><link rel="stylesheet" href="../../../static.files/noscript-f7c3ffd8.css"></noscript><link rel="alternate icon" type="image/png" href="../../../static.files/favicon-32x32-eab170b8.png"><link rel="icon" type="image/svg+xml" href="../../../static.files/favicon-044be391.svg"></head><body class="rustdoc mod"><a class="skip-main-content" href="#main-content">Skip to main content</a><!--[if lte IE 11]><div class="warning">This old browser is unsupported and will most likely display funky things.</div><![endif]--><rustdoc-topbar><h2><a href="#">Module profile</a></h2></rustdoc-topbar><nav class="sidebar"><div class="sidebar-crate"><h2><a href="../../../synthia/index.html">synthia</a><span class="version">0.1.0</span></h2></div><div class="sidebar-elems"><section id="rustdoc-toc"><h2 class="location"><a href="#">Module profile</a></h2><h3><a href="#">Sections</a></h3><ul class="block top-toc"><li><a href="#motivation" title="Motivation">Motivation</a></li><li><a href="#layering" title="Layering">Layering</a></li><li><a href="#backward-compatibility" title="Backward compatibility">Backward compatibility</a></li><li><a href="#reference" title="Reference">Reference</a></li><li><a href="#module-layout" title="Module layout">Module layout</a></li></ul><h3><a href="#structs">Module Items</a></h3><ul class="block"><li><a href="#structs" title="Structs">Structs</a></li><li><a href="#enums" title="Enums">Enums</a></li><li><a href="#constants" title="Constants">Constants</a></li></ul></section><div id="rustdoc-modnav"><h2><a href="../index.html">In synthia::<wbr>provider</a></h2></div></div></nav><div class="sidebar-resizer" title="Drag to resize sidebar"></div><main><div class="width-limiter"><section id="main-content" class="content" tabindex="-1"><div class="main-heading"><div class="rustdoc-breadcrumbs"><a href="../../index.html">synthia</a>::<wbr><a href="../index.html">provider</a></div><h1>Module <span>profile</span>&nbsp;<button id="copy-path" title="Copy item path to clipboard">Copy item path</button></h1><rustdoc-toolbar></rustdoc-toolbar><span class="sub-heading"><a class="src" href="../../../src/synthia_provider/lib.rs.html#29">Source</a> </span></div><details class="toggle top-doc" open><summary class="hideme"><span>Expand description</span></summary><div class="docblock"><p>Typed provider profile — the lego-compatible configuration surface
+for <code>synthia_provider</code>.</p>
+<h3 id="motivation"><a class="doc-anchor" href="#motivation">§</a>Motivation</h3>
+<p><a href="../struct.WorkspaceConfig.html" title="struct synthia::provider::WorkspaceConfig"><code>WorkspaceConfig</code></a> — the historical
+on-disk provider config — keys providers by a string in a
+<code>HashMap&lt;String, ProviderEntry&gt;</code> and dispatches on the entry’s
+<code>r#type: String</code>. A lib consumer writing</p>
+
+<div class="example-wrap ignore"><a href="#" class="tooltip" title="This example is not tested">ⓘ</a><pre class="rust rust-example-rendered"><code><span class="kw">let </span>cfg = WorkspaceConfig::default();
+<span class="kw">let </span>provider = cfg.create_provider(<span class="string">"openai"</span>)<span class="question-mark">?</span>;</code></pre></div>
+<p>gets no compile-time feedback if <code>"openai"</code> is misspelled, if the
+entry’s <code>r#type</code> is something the <code>match</code> statement doesn’t yet
+recognise, or if a feature (e.g. <code>supports_reasoning</code>) is absent.</p>
+<p><a href="../enum.ProviderProfile.html" title="enum synthia::provider::ProviderProfile"><code>ProviderProfile</code></a> is the typed alternative: a closed <code>enum</code> whose
+variants carry exactly the configuration their backend needs.
+lib consumers write</p>
+
+<div class="example-wrap ignore"><a href="#" class="tooltip" title="This example is not tested">ⓘ</a><pre class="rust rust-example-rendered"><code><span class="kw">use </span>synthia_provider::{ProviderProfile, OpenAIProfile, AnthropicProfile};
+
+<span class="kw">let </span>profile = ProviderProfile::Anthropic(AnthropicProfile::claude_sonnet_4());
+<span class="kw">let </span>provider: Box&lt;<span class="kw">dyn </span>ModelProvider&gt; = profile.build_provider()<span class="question-mark">?</span>;</code></pre></div>
+<p>and the type system carries the entire decision:</p>
+<ul>
+<li>spelling — <code>ProviderProfile::OpenAI</code> vs <code>…::Anthropic</code> is a token,
+not a string lookup;</li>
+<li>per-profile defaults — <code>AnthropicProfile::claude_sonnet_4()</code>
+carries the right <code>context_window = 200_000</code> and
+<code>supports_reasoning = true</code>;</li>
+<li>error surface — <code>build_provider</code> returns a typed
+<a href="../../core/enum.Error.html" title="enum synthia::core::Error"><code>synthia_core::Error</code></a> (missing API key, unknown model) instead
+of panicking on a string mismatch.</li>
+</ul>
+<h3 id="layering"><a class="doc-anchor" href="#layering">§</a>Layering</h3><div class="example-wrap"><pre class="language-text"><code>lib consumer
+  │
+  ▼
+ProviderProfile::build_provider() ─▶ ModelProvider (Box&lt;dyn&gt;)
+                                      │
+                                      ▼
+                           OpenAICompatibleProvider / AnthropicProvider /
+                           ModelProviderStub / custom</code></pre></div><h3 id="backward-compatibility"><a class="doc-anchor" href="#backward-compatibility">§</a>Backward compatibility</h3>
+<p><code>ProviderProfile::from_entry(&amp;ProviderEntry)</code> and
+<code>ProviderEntry::from_profile(&amp;profile)</code> round-trip the legacy
+config-file shape so existing <code>.agents/config.toml</code> files keep
+loading. The <code>WorkspaceConfig::create_provider</code> path is preserved
+unchanged for the on-disk-config workflow.</p>
+<h3 id="reference"><a class="doc-anchor" href="#reference">§</a>Reference</h3>
+<p>Adopted from dsh <code>packages/llm/llm/src/profile.ts</code> (preset
+pattern): a single typed enum that the consumer selects from
+and the builder uses to construct the underlying <code>ModelProvider</code>.</p>
+<h3 id="module-layout"><a class="doc-anchor" href="#module-layout">§</a>Module layout</h3><div><table><thead><tr><th>Module</th><th>Responsibility</th></tr></thead><tbody>
+<tr><td><code>capabilities</code></td><td><a href="../struct.ModelCapabilities.html" title="struct synthia::provider::ModelCapabilities"><code>ModelCapabilities</code></a> — the shared flags struct + defaults.</td></tr>
+<tr><td><code>openai</code></td><td><a href="../struct.OpenAIProfile.html" title="struct synthia::provider::OpenAIProfile"><code>OpenAIProfile</code></a> + helpers.</td></tr>
+<tr><td><code>anthropic</code></td><td><a href="../struct.AnthropicProfile.html" title="struct synthia::provider::AnthropicProfile"><code>AnthropicProfile</code></a> + helpers.</td></tr>
+<tr><td><code>stub</code></td><td><a href="../struct.StubProfile.html" title="struct synthia::provider::StubProfile"><code>StubProfile</code></a> for offline tests and tutorials.</td></tr>
+<tr><td><code>enum_</code></td><td><a href="../enum.ProviderProfile.html" title="enum synthia::provider::ProviderProfile"><code>ProviderProfile</code></a> (the closed enum) + the <code>build_*</code> / <code>resolve_*</code> surface.</td></tr>
+<tr><td><code>registry</code></td><td><a href="../struct.ProviderRegistry.html" title="struct synthia::provider::ProviderRegistry"><code>ProviderRegistry</code></a> — the in-memory named-profile map.</td></tr>
+</tbody></table>
+</div></div></details><h2 id="structs" class="section-header">Structs<a href="#structs" class="anchor">§</a></h2><dl class="item-table"><dt><a class="struct" href="struct.AnthropicProfile.html" title="struct synthia::provider::profile::AnthropicProfile">Anthropic<wbr>Profile</a></dt><dd>Typed Anthropic provider profile.</dd><dt><a class="struct" href="struct.ModelCapabilities.html" title="struct synthia::provider::profile::ModelCapabilities">Model<wbr>Capabilities</a></dt><dd>Common capability flags shared by every concrete profile.</dd><dt><a class="struct" href="struct.OpenAIProfile.html" title="struct synthia::provider::profile::OpenAIProfile">OpenAI<wbr>Profile</a></dt><dd>Typed OpenAI-compatible provider profile.</dd><dt><a class="struct" href="struct.ProviderRegistry.html" title="struct synthia::provider::profile::ProviderRegistry">Provider<wbr>Registry</a></dt><dd>A typed registry of named <code>ProviderProfile</code>s — the
+lego-composition primitive that replaces the legacy
+<code>WorkspaceConfig.providers</code> <code>HashMap&lt;String, ProviderEntry&gt;</code> for
+in-memory assembly.</dd><dt><a class="struct" href="struct.StubProfile.html" title="struct synthia::provider::profile::StubProfile">Stub<wbr>Profile</a></dt><dd>Typed stub provider profile for offline tests and tutorials.</dd></dl><h2 id="enums" class="section-header">Enums<a href="#enums" class="anchor">§</a></h2><dl class="item-table"><dt><a class="enum" href="enum.ProviderProfile.html" title="enum synthia::provider::profile::ProviderProfile">Provider<wbr>Profile</a></dt><dd>The closed enum a lib consumer selects from.</dd></dl><h2 id="constants" class="section-header">Constants<a href="#constants" class="anchor">§</a></h2><dl class="item-table"><dt><a class="constant" href="constant.DEFAULT_ANTHROPIC_CONTEXT_WINDOW.html" title="constant synthia::provider::profile::DEFAULT_ANTHROPIC_CONTEXT_WINDOW">DEFAULT_<wbr>ANTHROPIC_<wbr>CONTEXT_<wbr>WINDOW</a></dt><dd>Default context window for Anthropic profiles that don’t override
+it. Mirrors the Claude Sonnet / Opus class default.</dd><dt><a class="constant" href="constant.DEFAULT_ANTHROPIC_MAX_OUTPUT_TOKENS.html" title="constant synthia::provider::profile::DEFAULT_ANTHROPIC_MAX_OUTPUT_TOKENS">DEFAULT_<wbr>ANTHROPIC_<wbr>MAX_<wbr>OUTPUT_<wbr>TOKENS</a></dt><dd>Default <code>max_output_tokens</code> for Anthropic profiles.</dd><dt><a class="constant" href="constant.DEFAULT_OPENAI_CONTEXT_WINDOW.html" title="constant synthia::provider::profile::DEFAULT_OPENAI_CONTEXT_WINDOW">DEFAULT_<wbr>OPENAI_<wbr>CONTEXT_<wbr>WINDOW</a></dt><dd>Default context window for OpenAI-compatible profiles that don’t
+override it. Mirrors the GPT-4o / GPT-4-turbo class default.</dd><dt><a class="constant" href="constant.DEFAULT_OPENAI_MAX_OUTPUT_TOKENS.html" title="constant synthia::provider::profile::DEFAULT_OPENAI_MAX_OUTPUT_TOKENS">DEFAULT_<wbr>OPENAI_<wbr>MAX_<wbr>OUTPUT_<wbr>TOKENS</a></dt><dd>Default <code>max_output_tokens</code> for OpenAI-compatible profiles.</dd></dl></section></div></main></body></html>

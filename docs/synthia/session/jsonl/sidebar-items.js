@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"constant":["CURRENT_SCHEMA_VERSION"],"fn":["is_metadata_header_row"],"struct":["JsonlSessionSink","MetaMarker","SessionMetadataHeader"]};

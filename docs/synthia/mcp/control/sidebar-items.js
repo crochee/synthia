@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"constant":["MCP_TOOL_NAME"],"fn":["register_mcp_control_tool"],"struct":["McpControlTool"]};

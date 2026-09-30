@@ -1,0 +1,76 @@
+<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><meta name="generator" content="rustdoc"><meta name="description" content="`SessionSink` — the only public surface of `synthia-session`."><title>synthia::session::sink - Rust</title><script>if(window.location.protocol!=="file:")document.head.insertAdjacentHTML("beforeend","SourceSerif4-Regular-6b053e98.ttf.woff2,FiraSans-Italic-81dc35de.woff2,FiraSans-Regular-0fe48ade.woff2,FiraSans-MediumItalic-ccf7e434.woff2,FiraSans-Medium-e1aa3f0a.woff2,SourceCodePro-Regular-8badfe75.ttf.woff2,SourceCodePro-Semibold-aa29a496.ttf.woff2".split(",").map(f=>`<link rel="preload" as="font" type="font/woff2"href="../../../static.files/${f}">`).join(""))</script><link rel="stylesheet" href="../../../static.files/normalize-9960930a.css"><link rel="stylesheet" href="../../../static.files/rustdoc-1ed95124.css"><meta name="rustdoc-vars" data-root-path="../../../" data-static-root-path="../../../static.files/" data-current-crate="synthia" data-themes="" data-resource-suffix="" data-rustdoc-version="1.98.1 (48a229cea 2026-09-01)" data-channel="1.98.1" data-search-js="search-9944d736.js" data-stringdex-js="stringdex-2da4960a.js" data-settings-js="settings-170eb4bf.js" ><script src="../../../static.files/storage-41dd4d93.js"></script><script defer src="../sidebar-items.js"></script><script defer src="../../../static.files/main-417ebf0a.js"></script><noscript><link rel="stylesheet" href="../../../static.files/noscript-f7c3ffd8.css"></noscript><link rel="alternate icon" type="image/png" href="../../../static.files/favicon-32x32-eab170b8.png"><link rel="icon" type="image/svg+xml" href="../../../static.files/favicon-044be391.svg"></head><body class="rustdoc mod"><a class="skip-main-content" href="#main-content">Skip to main content</a><!--[if lte IE 11]><div class="warning">This old browser is unsupported and will most likely display funky things.</div><![endif]--><rustdoc-topbar><h2><a href="#">Module sink</a></h2></rustdoc-topbar><nav class="sidebar"><div class="sidebar-crate"><h2><a href="../../../synthia/index.html">synthia</a><span class="version">0.1.0</span></h2></div><div class="sidebar-elems"><section id="rustdoc-toc"><h2 class="location"><a href="#">Module sink</a></h2><h3><a href="#">Sections</a></h3><ul class="block top-toc"><li><a href="#surface-size" title="Surface size">Surface size</a></li><li><a href="#event-shape" title="Event shape">Event shape</a></li><li><a href="#semantics" title="Semantics">Semantics</a><ul><li><a href="#write-through" title="Write-through">Write-through</a></li><li><a href="#inert-container" title="Inert container">Inert container</a></li><li><a href="#read-parity" title="Read parity">Read parity</a></li></ul></li></ul><h3><a href="#structs">Module Items</a></h3><ul class="block"><li><a href="#structs" title="Structs">Structs</a></li><li><a href="#enums" title="Enums">Enums</a></li><li><a href="#traits" title="Traits">Traits</a></li></ul></section><div id="rustdoc-modnav"><h2><a href="../index.html">In synthia::<wbr>session</a></h2></div></div></nav><div class="sidebar-resizer" title="Drag to resize sidebar"></div><main><div class="width-limiter"><section id="main-content" class="content" tabindex="-1"><div class="main-heading"><div class="rustdoc-breadcrumbs"><a href="../../index.html">synthia</a>::<wbr><a href="../index.html">session</a></div><h1>Module <span>sink</span>&nbsp;<button id="copy-path" title="Copy item path to clipboard">Copy item path</button></h1><rustdoc-toolbar></rustdoc-toolbar><span class="sub-heading"><a class="src" href="../../../src/synthia_session/lib.rs.html#65">Source</a> </span></div><details class="toggle top-doc" open><summary class="hideme"><span>Expand description</span></summary><div class="docblock"><p><code>SessionSink</code> — the <strong>only</strong> public surface of <code>synthia-session</code>.</p>
+<h3 id="surface-size"><a class="doc-anchor" href="#surface-size">§</a>Surface size</h3>
+<p>The session crate used to expose ~30 public types
+(<code>SessionManager</code>, <code>Store</code>, <code>Session</code>, <code>SessionStateMachine</code>,
+<code>SessionInputQueue</code>, <code>EventStore</code>, …) plus state-machine and
+token-budget modules. That surface bled orchestration policy
+(approval workflows, status transitions, cache eviction) into a
+module called “session”, which broke the layering between the
+agent runtime (stateless, streaming) and the session storage
+(write-through, inert).</p>
+<p>After the original refactor:</p>
+<ul>
+<li><a href="../trait.SessionSink.html" title="trait synthia::session::SessionSink"><code>SessionSink</code></a> was the only trait the agent runtime imported.</li>
+<li>It had exactly <strong>5 methods</strong> (<code>id</code>, <code>append</code>, <code>read</code>,
+<code>snapshot</code>, <code>close</code>). Anything else the caller wanted to do
+with a session was <strong>policy</strong> and lived outside this crate
+(typically in <code>synthia-server</code>).</li>
+<li>All on-disk persistence, state machines, approval flows, and
+token-budget tracking had been either deleted or moved into
+the <code>synthia-server::session</code> orchestration layer.</li>
+</ul>
+<p>The trait gained two <strong>default-implemented</strong> methods in a
+later round so the same primitive could carry three orthogonal
+concerns without growing the surface for callers that did not
+need them:</p>
+<ul>
+<li><a href="../trait.SessionSink.html#method.append_with_key" title="method synthia::session::SessionSink::append_with_key"><code>SessionSink::append_with_key</code></a> — idempotent append:
+<code>Some(key)</code> callers that re-submit the same key observe the
+original <code>seq</code> (no double-write); <code>None</code> callers see the
+legacy non-idempotent behaviour.</li>
+<li><a href="../trait.SessionSink.html#method.append_many" title="method synthia::session::SessionSink::append_many"><code>SessionSink::append_many</code></a> — batch append with one
+durable barrier (<code>fsync</code>) at the tail, instead of N. The
+default implementation loops over <code>append</code> so backends that
+cannot batch still satisfy the contract; the production
+<code>JsonlSessionSink</code> overrides it for a single-<code>fsync</code>
+fast path (<code>routes/sessions.rs::fork_session</code> is the
+motivating caller — a per-row <code>fsync</code> made a 27 k-row fork
+take 63.8 s).</li>
+</ul>
+<p>Both are default-implemented: a backend that does not care
+about idempotency or batch durability stays at the original
+5-method surface.</p>
+<h3 id="event-shape"><a class="doc-anchor" href="#event-shape">§</a>Event shape</h3>
+<p><code>SessionSink</code> is event-shape-agnostic: it stores opaque
+<code>serde_json::Value</code> records. Callers (<code>synthia-harness</code>) are
+responsible for serializing their own events before calling
+<code>append</code>. This keeps the dependency direction strictly
+<code>agent → session</code> (never the reverse) and lets the same sink
+back agents with different event taxonomies (ReAct, planner,
+…) without trait churn.</p>
+<h3 id="semantics"><a class="doc-anchor" href="#semantics">§</a>Semantics</h3><h4 id="write-through"><a class="doc-anchor" href="#write-through">§</a>Write-through</h4>
+<p><code>append</code> returns <code>Ok(())</code> only when the event is durable (or
+the implementation has explicit transactional semantics, such
+as <code>InMemorySessionSink</code>). The agent loop MUST treat
+<code>Err(SessionError)</code> as fatal and stop the run — the call site
+is responsible for retrying at the request boundary, not at
+the agent step boundary. This matches the <code>fail-fast</code> rule
+agreed with the user.</p>
+<h4 id="inert-container"><a class="doc-anchor" href="#inert-container">§</a>Inert container</h4>
+<p><code>SessionSink</code> is a <strong>mechanism</strong>, not a <strong>policy</strong>. It does
+NOT track approval state, session state-machine transitions,
+token budgets, or per-user routing. Callers (the
+<code>synthia-server::session::SessionController</code>) own that
+bookkeeping on top of the sink’s primitives.</p>
+<h4 id="read-parity"><a class="doc-anchor" href="#read-parity">§</a>Read parity</h4>
+<p><code>read()</code> and <code>read_from(from)</code> MUST return records in
+chronological order, identical to the order they were passed
+to <code>append</code>. Implementations that batch / compress MUST
+surface that order in <code>read()</code> and <code>read_from()</code> output. This
+lets any caller that wants to rehydrate a session under a
+different agent reconstruct a consistent message stream
+regardless of the backend. <code>read_from(N)</code> returns the suffix
+of the chronological sequence strictly past event <code>N</code>, so a
+caller resuming from a previously-observed cursor sees only
+the events it has not yet read.</p>
+</div></details><h2 id="structs" class="section-header">Structs<a href="#structs" class="anchor">§</a></h2><dl class="item-table"><dt><a class="struct" href="struct.SessionSnapshot.html" title="struct synthia::session::sink::SessionSnapshot">Session<wbr>Snapshot</a></dt><dd>Snapshot metadata returned by <code>SessionSink::snapshot</code>.</dd></dl><h2 id="enums" class="section-header">Enums<a href="#enums" class="anchor">§</a></h2><dl class="item-table"><dt><a class="enum" href="enum.SessionEndReason.html" title="enum synthia::session::sink::SessionEndReason">Session<wbr>EndReason</a></dt><dd>Outcome category attached to the final <code>close()</code> call.</dd><dt><a class="enum" href="enum.SessionError.html" title="enum synthia::session::sink::SessionError">Session<wbr>Error</a></dt><dd>Errors a sink can surface.</dd></dl><h2 id="traits" class="section-header">Traits<a href="#traits" class="anchor">§</a></h2><dl class="item-table"><dt><a class="trait" href="trait.SessionSink.html" title="trait synthia::session::sink::SessionSink">Session<wbr>Sink</a></dt><dd>The single trait every agent loop sees.</dd></dl></section></div></main></body></html>

@@ -1,0 +1,49 @@
+<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><meta name="generator" content="rustdoc"><meta name="description" content="Branch scoring for `Step::Mcts`."><title>synthia::workflow::scorer - Rust</title><script>if(window.location.protocol!=="file:")document.head.insertAdjacentHTML("beforeend","SourceSerif4-Regular-6b053e98.ttf.woff2,FiraSans-Italic-81dc35de.woff2,FiraSans-Regular-0fe48ade.woff2,FiraSans-MediumItalic-ccf7e434.woff2,FiraSans-Medium-e1aa3f0a.woff2,SourceCodePro-Regular-8badfe75.ttf.woff2,SourceCodePro-Semibold-aa29a496.ttf.woff2".split(",").map(f=>`<link rel="preload" as="font" type="font/woff2"href="../../../static.files/${f}">`).join(""))</script><link rel="stylesheet" href="../../../static.files/normalize-9960930a.css"><link rel="stylesheet" href="../../../static.files/rustdoc-1ed95124.css"><meta name="rustdoc-vars" data-root-path="../../../" data-static-root-path="../../../static.files/" data-current-crate="synthia" data-themes="" data-resource-suffix="" data-rustdoc-version="1.98.1 (48a229cea 2026-09-01)" data-channel="1.98.1" data-search-js="search-9944d736.js" data-stringdex-js="stringdex-2da4960a.js" data-settings-js="settings-170eb4bf.js" ><script src="../../../static.files/storage-41dd4d93.js"></script><script defer src="../sidebar-items.js"></script><script defer src="../../../static.files/main-417ebf0a.js"></script><noscript><link rel="stylesheet" href="../../../static.files/noscript-f7c3ffd8.css"></noscript><link rel="alternate icon" type="image/png" href="../../../static.files/favicon-32x32-eab170b8.png"><link rel="icon" type="image/svg+xml" href="../../../static.files/favicon-044be391.svg"></head><body class="rustdoc mod"><a class="skip-main-content" href="#main-content">Skip to main content</a><!--[if lte IE 11]><div class="warning">This old browser is unsupported and will most likely display funky things.</div><![endif]--><rustdoc-topbar><h2><a href="#">Module scorer</a></h2></rustdoc-topbar><nav class="sidebar"><div class="sidebar-crate"><h2><a href="../../../synthia/index.html">synthia</a><span class="version">0.1.0</span></h2></div><div class="sidebar-elems"><section id="rustdoc-toc"><h2 class="location"><a href="#">Module scorer</a></h2><h3><a href="#">Sections</a></h3><ul class="block top-toc"><li><a href="#tie-break" title="Tie-break">Tie-break</a></li><li><a href="#gate-failed-branches" title="Gate-failed branches">Gate-failed branches</a></li><li><a href="#zero-text-branches" title="Zero-text branches">Zero-text branches</a></li></ul><h3><a href="#structs">Module Items</a></h3><ul class="block"><li><a href="#structs" title="Structs">Structs</a></li><li><a href="#enums" title="Enums">Enums</a></li><li><a href="#traits" title="Traits">Traits</a></li></ul></section><div id="rustdoc-modnav"><h2><a href="../index.html">In synthia::<wbr>workflow</a></h2></div></div></nav><div class="sidebar-resizer" title="Drag to resize sidebar"></div><main><div class="width-limiter"><section id="main-content" class="content" tabindex="-1"><div class="main-heading"><div class="rustdoc-breadcrumbs"><a href="../../index.html">synthia</a>::<wbr><a href="../index.html">workflow</a></div><h1>Module <span>scorer</span>&nbsp;<button id="copy-path" title="Copy item path to clipboard">Copy item path</button></h1><rustdoc-toolbar></rustdoc-toolbar><span class="sub-heading"><a class="src" href="../../../src/synthia_workflow/lib.rs.html#85">Source</a> </span></div><details class="toggle top-doc" open><summary class="hideme"><span>Expand description</span></summary><div class="docblock"><p>Branch scoring for <a href="../enum.Step.html#variant.Mcts" title="variant synthia::workflow::Step::Mcts"><code>Step::Mcts</code></a>.</p>
+<p>An MCTS step is <em>branching</em> search: each branch is one (or more, with
+<code>max_depth &gt; 0</code>) agent calls run in parallel, and the branch whose
+final text scores the highest wins. Scoring is a <em>pure comparison</em> —
+no model calls, no host effects — so it can run synchronously on the
+runtime side, after every branch settled. The trait is sealed from
+<code>async</code> on purpose: a synchronous scorer is one the runtime owns, and
+moving that line would move it off the deterministic journal path
+that replay depends on.</p>
+<p>Three scorers are part of the wire format and the runtime carries
+them as variants of <a href="../enum.MctsScorer.html" title="enum synthia::workflow::MctsScorer"><code>MctsScorer</code></a>:</p>
+<ul>
+<li><a href="../enum.MctsScorer.html#variant.ShortestText" title="variant synthia::workflow::MctsScorer::ShortestText"><code>MctsScorer::ShortestText</code></a> prefers shorter outputs, with the
+zero-length penalty described below applied uniformly.</li>
+<li><a href="../enum.MctsScorer.html#variant.LongestText" title="variant synthia::workflow::MctsScorer::LongestText"><code>MctsScorer::LongestText</code></a> prefers longer outputs and is what the
+best_of example judges by.</li>
+<li><a href="../enum.MctsScorer.html#variant.Heuristic" title="variant synthia::workflow::MctsScorer::Heuristic"><code>MctsScorer::Heuristic</code></a> is the host’s hook: a custom
+<a href="../trait.Scorer.html" title="trait synthia::workflow::Scorer"><code>Scorer</code></a> registered in code. Because a closure is not a value
+that round-trips through JSON, it is absent from the wire format —
+a document that names <code>heuristic</code> carries the runtime’s registered
+<code>HeuristicScorer</code> instead.</li>
+</ul>
+<h3 id="tie-break"><a class="doc-anchor" href="#tie-break">§</a>Tie-break</h3>
+<p>Two branches with equal scores always resolve to the one with the
+<em>lower</em> <a href="../struct.ScoredBranch.html#structfield.branch_id" title="field synthia::workflow::ScoredBranch::branch_id"><code>ScoredBranch::branch_id</code></a>. <code>branch_id</code> is the position of
+the branch’s first call (depth 0) in the run’s plan, which is
+assigned in pre-order, so this is deterministic — same document, same
+tie-break, every run, live or replayed.</p>
+<h3 id="gate-failed-branches"><a class="doc-anchor" href="#gate-failed-branches">§</a>Gate-failed branches</h3>
+<p>A branch that failed its gate is still scored. The same branch gets
+its final text (an empty string when the agent itself failed, the
+gate’s output line when only the gate failed) and a
+<a href="../struct.ScoredBranch.html#structfield.gate" title="field synthia::workflow::ScoredBranch::gate"><code>ScoredBranch::gate</code></a> of <code>GateVerdict::Failed</code>. A scorer that
+ignores that verdict may still pick it; <code>ShortestText</code> and
+<code>LongestText</code> don’t, because a failed gate answers an empty input.
+The runtime’s tie-break is the final word: a branch whose gate
+failed never wins unless <em>every</em> branch’s gate failed, in which case
+the tie-break chooses one (and the step reports no winner text —
+<a href="../enum.GateVerdict.html#variant.Failed" title="variant synthia::workflow::GateVerdict::Failed"><code>GateVerdict::Failed</code></a> means the call has no useful output).</p>
+<h3 id="zero-text-branches"><a class="doc-anchor" href="#zero-text-branches">§</a>Zero-text branches</h3>
+<p>An empty <code>text</code> is a valid input. The built-in scorers score <code>0.0</code>
+for it and never pick it over a branch that produced text —
+<code>ShortestText</code> breaks ties in <code>branch_id</code> order, so an empty branch
+tied with another empty branch still loses to one with a non-empty
+text. No scorer returns <code>NaN</code>; an empty input is a zero, not an
+error.</p>
+</div></details><h2 id="structs" class="section-header">Structs<a href="#structs" class="anchor">§</a></h2><dl class="item-table"><dt><a class="struct" href="struct.HeuristicScorer.html" title="struct synthia::workflow::scorer::HeuristicScorer">Heuristic<wbr>Scorer</a></dt><dd>A registered heuristic scorer: the runtime looks these up by their
+wire name and uses the trait object they carry for the run.</dd><dt><a class="struct" href="struct.ScoredBranch.html" title="struct synthia::workflow::scorer::ScoredBranch">Scored<wbr>Branch</a></dt><dd>What one scorer is told about a branch.</dd></dl><h2 id="enums" class="section-header">Enums<a href="#enums" class="anchor">§</a></h2><dl class="item-table"><dt><a class="enum" href="enum.BuiltinScorer.html" title="enum synthia::workflow::scorer::BuiltinScorer">Builtin<wbr>Scorer</a></dt><dd>A scorer the runtime owns when the document names a built-in
+variant, or the trait object the document asks for when it does not.</dd><dt><a class="enum" href="enum.MctsScorer.html" title="enum synthia::workflow::scorer::MctsScorer">Mcts<wbr>Scorer</a></dt><dd>The built-in scorers a document can name on the wire.</dd></dl><h2 id="traits" class="section-header">Traits<a href="#traits" class="anchor">§</a></h2><dl class="item-table"><dt><a class="trait" href="trait.Scorer.html" title="trait synthia::workflow::scorer::Scorer">Scorer</a></dt><dd>A synchronous scorer: returns a single <code>f64</code> per branch.</dd></dl></section></div></main></body></html>

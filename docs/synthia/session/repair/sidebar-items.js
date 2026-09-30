@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"constant":["TOOL_NOT_STARTED","TOOL_OUTCOME_UNKNOWN","TURN_INTERRUPTED"],"fn":["compaction_outcomes","interrupted_turn_closers","orphaned_compactions"],"struct":["OrphanedCompaction"]};

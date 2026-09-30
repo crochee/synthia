@@ -1,0 +1,55 @@
+<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><meta name="generator" content="rustdoc"><meta name="description" content="Typed event builders for the ReAct loop’s structural boundaries."><title>synthia::session::typed_event_builders - Rust</title><script>if(window.location.protocol!=="file:")document.head.insertAdjacentHTML("beforeend","SourceSerif4-Regular-6b053e98.ttf.woff2,FiraSans-Italic-81dc35de.woff2,FiraSans-Regular-0fe48ade.woff2,FiraSans-MediumItalic-ccf7e434.woff2,FiraSans-Medium-e1aa3f0a.woff2,SourceCodePro-Regular-8badfe75.ttf.woff2,SourceCodePro-Semibold-aa29a496.ttf.woff2".split(",").map(f=>`<link rel="preload" as="font" type="font/woff2"href="../../../static.files/${f}">`).join(""))</script><link rel="stylesheet" href="../../../static.files/normalize-9960930a.css"><link rel="stylesheet" href="../../../static.files/rustdoc-1ed95124.css"><meta name="rustdoc-vars" data-root-path="../../../" data-static-root-path="../../../static.files/" data-current-crate="synthia" data-themes="" data-resource-suffix="" data-rustdoc-version="1.98.1 (48a229cea 2026-09-01)" data-channel="1.98.1" data-search-js="search-9944d736.js" data-stringdex-js="stringdex-2da4960a.js" data-settings-js="settings-170eb4bf.js" ><script src="../../../static.files/storage-41dd4d93.js"></script><script defer src="../sidebar-items.js"></script><script defer src="../../../static.files/main-417ebf0a.js"></script><noscript><link rel="stylesheet" href="../../../static.files/noscript-f7c3ffd8.css"></noscript><link rel="alternate icon" type="image/png" href="../../../static.files/favicon-32x32-eab170b8.png"><link rel="icon" type="image/svg+xml" href="../../../static.files/favicon-044be391.svg"></head><body class="rustdoc mod"><a class="skip-main-content" href="#main-content">Skip to main content</a><!--[if lte IE 11]><div class="warning">This old browser is unsupported and will most likely display funky things.</div><![endif]--><rustdoc-topbar><h2><a href="#">Module typed_event_builders</a></h2></rustdoc-topbar><nav class="sidebar"><div class="sidebar-crate"><h2><a href="../../../synthia/index.html">synthia</a><span class="version">0.1.0</span></h2></div><div class="sidebar-elems"><section id="rustdoc-toc"><h2 class="location"><a href="#">Module typed_<wbr>event_<wbr>builders</a></h2><h3><a href="#">Sections</a></h3><ul class="block top-toc"><li><a href="#why-builders-not-direct-enum-construction" title="Why builders, not direct enum construction?">Why builders, not direct enum construction?</a></li></ul><h3><a href="#functions">Module Items</a></h3><ul class="block"><li><a href="#functions" title="Functions">Functions</a></li></ul></section><div id="rustdoc-modnav"><h2><a href="../index.html">In synthia::<wbr>session</a></h2></div></div></nav><div class="sidebar-resizer" title="Drag to resize sidebar"></div><main><div class="width-limiter"><section id="main-content" class="content" tabindex="-1"><div class="main-heading"><div class="rustdoc-breadcrumbs"><a href="../../index.html">synthia</a>::<wbr><a href="../index.html">session</a></div><h1>Module <span>typed_<wbr>event_<wbr>builders</span>&nbsp;<button id="copy-path" title="Copy item path to clipboard">Copy item path</button></h1><rustdoc-toolbar></rustdoc-toolbar><span class="sub-heading"><a class="src" href="../../../src/synthia_session/lib.rs.html#69">Source</a> </span></div><details class="toggle top-doc" open><summary class="hideme"><span>Expand description</span></summary><div class="docblock"><p>Typed event builders for the ReAct loop’s structural
+boundaries.</p>
+<p>R6-2 (dsh <code>turn/start|end</code> + <code>step/start|end</code> parity). The
+<a href="../enum.SessionEvent.html" title="enum synthia::session::SessionEvent"><code>SessionEvent</code></a> enum already carries <code>Step</code> / <code>Turn</code> /
+<code>Iteration</code> / <code>SubagentEnter</code> / <code>SubagentExit</code> variants, but
+the loop has had no producer for them. This module pins the
+wire shape each event takes so the loop and the controller
+agree on the JSON contract before any of them have to wire
+up the actual call site.</p>
+<h3 id="why-builders-not-direct-enum-construction"><a class="doc-anchor" href="#why-builders-not-direct-enum-construction">§</a>Why builders, not direct enum construction?</h3>
+<p>Five reasons:</p>
+<ol>
+<li><strong>Centralised <code>seq</code> / <code>ts</code> stamping</strong> — the loop fills
+the structural payload (iteration / step / turn) and the
+builder stamps <code>seq: 0</code> + <code>ts: ""</code>. The controller
+re-stamps at append time.</li>
+<li><strong>Shape stability</strong> — if the loop constructs a
+<code>SessionEvent::Step</code> inline, any future schema change
+touches every site. The builder is the single
+canonicalisation point.</li>
+<li><strong>Frontend codegen</strong> — <code>KNOWN_SESSION_EVENT_TYPES</code> exposes
+the <em>type</em> tags; this module exposes the <em>payload</em> shape
+so the OpenAPI generator can describe each event.</li>
+<li><strong>Replay-friendliness</strong> — <code>fold_surface</code> /
+<code>interrupted_turn_closers</code> already understand the
+<code>data</code>-as-<code>Value</code> envelope; builders produce the exact
+shape the repair helpers expect.</li>
+<li><strong>No engine-level wiring required</strong> — the builders are
+pure functions. The agent loop can adopt them
+incrementally without touching its hot path; future R7
+work wires them into the actual emission points.</li>
+</ol>
+</div></details><h2 id="functions" class="section-header">Functions<a href="#functions" class="anchor">§</a></h2><dl class="item-table"><dt><a class="fn" href="fn.iteration_end.html" title="fn synthia::session::typed_event_builders::iteration_end">iteration_<wbr>end</a></dt><dd>Build an <code>Iteration { end }</code> event.</dd><dt><a class="fn" href="fn.iteration_start.html" title="fn synthia::session::typed_event_builders::iteration_start">iteration_<wbr>start</a></dt><dd>Build an <code>Iteration { start }</code> event. R6-2 keeps this
+distinct from <code>step</code> to mirror dsh’s
+<code>iteration/start|end</code> semantics: an iteration wraps one
+pass of the LLM, a step wraps one tool dispatch within an
+iteration.</dd><dt><a class="fn" href="fn.request_header.html" title="fn synthia::session::typed_event_builders::request_header">request_<wbr>header</a></dt><dd>Build a <code>RequestHeader</code> event with the resolved provider +
+model + tools_hash triple. <code>reason</code> is <code>"initial"</code> on the
+first run, <code>"change"</code> when the configuration drifted.</dd><dt><a class="fn" href="fn.round_trip.html" title="fn synthia::session::typed_event_builders::round_trip">round_<wbr>trip</a></dt><dd>Round-trip a typed event through <code>serde_json::Value</code> and
+back. Builders must produce JSON that survives
+<code>from_value</code> — that is the durability contract.</dd><dt><a class="fn" href="fn.sandbox_mode.html" title="fn synthia::session::typed_event_builders::sandbox_mode">sandbox_<wbr>mode</a></dt><dd>Build a <code>SandboxMode { mode }</code> event — the durable
+sandbox-policy override for a session (R31).</dd><dt><a class="fn" href="fn.step_end.html" title="fn synthia::session::typed_event_builders::step_end">step_<wbr>end</a></dt><dd>Build a <code>Step { end }</code> event. Mirrors <a href="../fn.step_start.html" title="fn synthia::session::step_start"><code>step_start</code></a>.</dd><dt><a class="fn" href="fn.step_start.html" title="fn synthia::session::typed_event_builders::step_start">step_<wbr>start</a></dt><dd>Build a <code>Step { start }</code> event. <code>step_idx</code> is the 0-based
+step ordinal inside the current turn; <code>turn_idx</code> is the
+0-based turn ordinal inside the run.</dd><dt><a class="fn" href="fn.structural_kind.html" title="fn synthia::session::typed_event_builders::structural_kind">structural_<wbr>kind</a></dt><dd>Extract the <code>kind</code> tag from a <code>Step</code> / <code>Turn</code> / <code>Iteration</code>
+event’s data payload, if any. Returns <code>None</code> for events
+that are not structural boundaries.</dd><dt><a class="fn" href="fn.subagent_enter.html" title="fn synthia::session::typed_event_builders::subagent_enter">subagent_<wbr>enter</a></dt><dd>Build a <code>SubagentEnter</code> event. <code>child_session_id</code> is the
+session id the delegating sub-agent will use; <code>depth</code> is the
+sub-agent depth (1 = direct child, 2 = grandchild, …).</dd><dt><a class="fn" href="fn.subagent_exit.html" title="fn synthia::session::typed_event_builders::subagent_exit">subagent_<wbr>exit</a></dt><dd>Build a <code>SubagentExit</code> event. <code>status</code> is one of:
+<code>"completed"</code>, <code>"cancelled"</code>, <code>"error"</code>.</dd><dt><a class="fn" href="fn.turn_end.html" title="fn synthia::session::typed_event_builders::turn_end">turn_<wbr>end</a></dt><dd>Build a <code>Turn { end }</code> event. <code>reason</code> is one of:
+<code>"completed"</code>, <code>"max_iterations"</code>, <code>"cancelled"</code>, <code>"error"</code>.</dd><dt><a class="fn" href="fn.turn_start.html" title="fn synthia::session::typed_event_builders::turn_start">turn_<wbr>start</a></dt><dd>Build a <code>Turn { start }</code> event. The 0-based turn ordinal
+increments every time the model emits a non-final answer.</dd><dt><a class="fn" href="fn.usage.html" title="fn synthia::session::typed_event_builders::usage">usage</a></dt><dd>Build a <code>Usage</code> event for one LLM call. <code>prompt_tokens</code> /
+<code>completion_tokens</code> are the required fields;
+<code>reasoning_tokens</code> / <code>cache_read_tokens</code> /
+<code>cache_write_tokens</code> are optional and serialised only
+when present.</dd></dl></section></div></main></body></html>

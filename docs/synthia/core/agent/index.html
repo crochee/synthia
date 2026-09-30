@@ -1,0 +1,52 @@
+<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><meta name="generator" content="rustdoc"><meta name="description" content="`AgentDescriptor` / `AgentFilter` — the cross-cutting agent identity types."><title>synthia::core::agent - Rust</title><script>if(window.location.protocol!=="file:")document.head.insertAdjacentHTML("beforeend","SourceSerif4-Regular-6b053e98.ttf.woff2,FiraSans-Italic-81dc35de.woff2,FiraSans-Regular-0fe48ade.woff2,FiraSans-MediumItalic-ccf7e434.woff2,FiraSans-Medium-e1aa3f0a.woff2,SourceCodePro-Regular-8badfe75.ttf.woff2,SourceCodePro-Semibold-aa29a496.ttf.woff2".split(",").map(f=>`<link rel="preload" as="font" type="font/woff2"href="../../../static.files/${f}">`).join(""))</script><link rel="stylesheet" href="../../../static.files/normalize-9960930a.css"><link rel="stylesheet" href="../../../static.files/rustdoc-1ed95124.css"><meta name="rustdoc-vars" data-root-path="../../../" data-static-root-path="../../../static.files/" data-current-crate="synthia" data-themes="" data-resource-suffix="" data-rustdoc-version="1.98.1 (48a229cea 2026-09-01)" data-channel="1.98.1" data-search-js="search-9944d736.js" data-stringdex-js="stringdex-2da4960a.js" data-settings-js="settings-170eb4bf.js" ><script src="../../../static.files/storage-41dd4d93.js"></script><script defer src="../sidebar-items.js"></script><script defer src="../../../static.files/main-417ebf0a.js"></script><noscript><link rel="stylesheet" href="../../../static.files/noscript-f7c3ffd8.css"></noscript><link rel="alternate icon" type="image/png" href="../../../static.files/favicon-32x32-eab170b8.png"><link rel="icon" type="image/svg+xml" href="../../../static.files/favicon-044be391.svg"></head><body class="rustdoc mod"><a class="skip-main-content" href="#main-content">Skip to main content</a><!--[if lte IE 11]><div class="warning">This old browser is unsupported and will most likely display funky things.</div><![endif]--><rustdoc-topbar><h2><a href="#">Module agent</a></h2></rustdoc-topbar><nav class="sidebar"><div class="sidebar-crate"><h2><a href="../../../synthia/index.html">synthia</a><span class="version">0.1.0</span></h2></div><div class="sidebar-elems"><section id="rustdoc-toc"><h2 class="location"><a href="#">Module agent</a></h2><h3><a href="#">Sections</a></h3><ul class="block top-toc"><li><a href="#what-lives-here" title="What lives here">What lives here</a></li><li><a href="#what-deliberately-stays-in-synthia-harness" title="What deliberately stays in `synthia-harness`">What deliberately stays in <code>synthia-harness</code></a></li><li><a href="#identity-industry-aligned" title="Identity (industry-aligned)">Identity (industry-aligned)</a></li></ul><h3><a href="#structs">Module Items</a></h3><ul class="block"><li><a href="#structs" title="Structs">Structs</a></li></ul></section><div id="rustdoc-modnav"><h2><a href="../index.html">In synthia::<wbr>core</a></h2></div></div></nav><div class="sidebar-resizer" title="Drag to resize sidebar"></div><main><div class="width-limiter"><section id="main-content" class="content" tabindex="-1"><div class="main-heading"><div class="rustdoc-breadcrumbs"><a href="../../index.html">synthia</a>::<wbr><a href="../index.html">core</a></div><h1>Module <span>agent</span>&nbsp;<button id="copy-path" title="Copy item path to clipboard">Copy item path</button></h1><rustdoc-toolbar></rustdoc-toolbar><span class="sub-heading"><a class="src" href="../../../src/synthia_core/lib.rs.html#54">Source</a> </span></div><details class="toggle top-doc" open><summary class="hideme"><span>Expand description</span></summary><div class="docblock"><p><code>AgentDescriptor</code> / <code>AgentFilter</code> — the cross-cutting agent
+identity types.</p>
+<p>These types used to live in <code>synthia-harness</code>. They moved here
+because every cross-crate surface (registry filters,
+delegation peers, server route bodies, evaluation harnesses)
+needs the static identity metadata of an agent without
+pulling the agent runtime in. Putting them at the foundation
+of the dependency graph lets the consumer-facing crates talk
+about an agent’s identity without a transitive <code>synthia-harness</code>
+dependency.</p>
+<h3 id="what-lives-here"><a class="doc-anchor" href="#what-lives-here">§</a>What lives here</h3>
+<ul>
+<li><a href="../struct.AgentDescriptor.html" title="struct synthia::core::AgentDescriptor"><code>AgentDescriptor</code></a> — the industry-aligned identity +
+capability metadata (Anthropic Agent SDK / OpenAI Swarm /
+MCP reference designs).</li>
+<li><a href="../struct.AgentFilter.html" title="struct synthia::core::AgentFilter"><code>AgentFilter</code></a> — the conjunctive filter shape used by
+<a href="../trait.Registry.html#tymethod.list_paginate" title="method synthia::core::Registry::list_paginate"><code>Registry::list_paginate</code></a>
+for agents.</li>
+</ul>
+<h3 id="what-deliberately-stays-in-synthia-harness"><a class="doc-anchor" href="#what-deliberately-stays-in-synthia-harness">§</a>What deliberately stays in <code>synthia-harness</code></h3>
+<ul>
+<li><code>AgentEntry</code> (descriptor + boxed runtime <code>Agent</code>) — it owns
+an <code>Arc&lt;dyn Agent&gt;</code> and therefore a hard <code>synthia-harness</code>
+dependency.</li>
+</ul>
+<h3 id="identity-industry-aligned"><a class="doc-anchor" href="#identity-industry-aligned">§</a>Identity (industry-aligned)</h3>
+<ul>
+<li><code>name</code> / <code>description</code> — identity (Anthropic <code>name</code>, OpenAI
+<code>name</code> + <code>handoffDescription</code>).</li>
+<li><code>kind</code> / <code>version</code> — paradigm + schema revision.</li>
+<li><code>instructions</code> — the system prompt (Anthropic <code>instructions</code>,
+OpenAI <code>instructions</code>).</li>
+<li><code>model_hint</code> — preferred model identifier (Anthropic <code>model</code>,
+OpenAI <code>model</code>).</li>
+<li><code>tools</code> — tool names exposed directly (OpenAI <code>tools</code>).</li>
+<li><code>capabilities</code> — coarse capability tags (“streaming”,
+“cancellation”, …); finer-grained than <code>tools</code>.</li>
+<li><code>handoffs</code> — agent names this specialist can route to
+(OpenAI <code>handoffs</code>).</li>
+<li><code>handoff_hint</code> — short label describing <em>when</em> an
+orchestrator should route to this agent (OpenAI
+<code>handoffDescription</code>).</li>
+<li><code>output_schema</code> — optional JSON-schema reference for
+structured outputs (OpenAI <code>outputType</code>).</li>
+<li><code>owner</code> / <code>domain</code> — ownership + functional domain, useful
+for multi-tenant routing.</li>
+<li><code>persona</code> — short role-framing sentence surfaced verbatim to
+the LLM (e.g. <code>"You are a strict security reviewer"</code>).
+Distinct from the long-form <code>instructions</code>.</li>
+</ul>
+</div></details><h2 id="structs" class="section-header">Structs<a href="#structs" class="anchor">§</a></h2><dl class="item-table"><dt><a class="struct" href="struct.AgentDescriptor.html" title="struct synthia::core::agent::AgentDescriptor">Agent<wbr>Descriptor</a></dt><dd>Industry-aligned metadata for one registered agent.</dd><dt><a class="struct" href="struct.AgentFilter.html" title="struct synthia::core::agent::AgentFilter">Agent<wbr>Filter</a></dt><dd>Filter used by <code>AgentRegistry::list_paginate</code>. All fields are
+conjunctive (<code>AND</code>); <code>None</code> fields are ignored.</dd></dl></section></div></main></body></html>

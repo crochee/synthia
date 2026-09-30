@@ -1,0 +1,50 @@
+<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><meta name="generator" content="rustdoc"><meta name="description" content="Keyless deterministic replay of recorded model-call scripts."><title>synthia::test_support::replay - Rust</title><script>if(window.location.protocol!=="file:")document.head.insertAdjacentHTML("beforeend","SourceSerif4-Regular-6b053e98.ttf.woff2,FiraSans-Italic-81dc35de.woff2,FiraSans-Regular-0fe48ade.woff2,FiraSans-MediumItalic-ccf7e434.woff2,FiraSans-Medium-e1aa3f0a.woff2,SourceCodePro-Regular-8badfe75.ttf.woff2,SourceCodePro-Semibold-aa29a496.ttf.woff2".split(",").map(f=>`<link rel="preload" as="font" type="font/woff2"href="../../../static.files/${f}">`).join(""))</script><link rel="stylesheet" href="../../../static.files/normalize-9960930a.css"><link rel="stylesheet" href="../../../static.files/rustdoc-1ed95124.css"><meta name="rustdoc-vars" data-root-path="../../../" data-static-root-path="../../../static.files/" data-current-crate="synthia" data-themes="" data-resource-suffix="" data-rustdoc-version="1.98.1 (48a229cea 2026-09-01)" data-channel="1.98.1" data-search-js="search-9944d736.js" data-stringdex-js="stringdex-2da4960a.js" data-settings-js="settings-170eb4bf.js" ><script src="../../../static.files/storage-41dd4d93.js"></script><script defer src="../sidebar-items.js"></script><script defer src="../../../static.files/main-417ebf0a.js"></script><noscript><link rel="stylesheet" href="../../../static.files/noscript-f7c3ffd8.css"></noscript><link rel="alternate icon" type="image/png" href="../../../static.files/favicon-32x32-eab170b8.png"><link rel="icon" type="image/svg+xml" href="../../../static.files/favicon-044be391.svg"></head><body class="rustdoc mod"><a class="skip-main-content" href="#main-content">Skip to main content</a><!--[if lte IE 11]><div class="warning">This old browser is unsupported and will most likely display funky things.</div><![endif]--><rustdoc-topbar><h2><a href="#">Module replay</a></h2></rustdoc-topbar><nav class="sidebar"><div class="sidebar-crate"><h2><a href="../../../synthia/index.html">synthia</a><span class="version">0.1.0</span></h2></div><div class="sidebar-elems"><section id="rustdoc-toc"><h2 class="location"><a href="#">Module replay</a></h2><h3><a href="#">Sections</a></h3><ul class="block top-toc"><li><a href="#example" title="Example">Example</a></li></ul><h3><a href="#structs">Module Items</a></h3><ul class="block"><li><a href="#structs" title="Structs">Structs</a></li><li><a href="#enums" title="Enums">Enums</a></li></ul></section><div id="rustdoc-modnav"><h2><a href="../index.html">In synthia::<wbr>test_<wbr>support</a></h2></div></div></nav><div class="sidebar-resizer" title="Drag to resize sidebar"></div><main><div class="width-limiter"><section id="main-content" class="content" tabindex="-1"><div class="main-heading"><div class="rustdoc-breadcrumbs"><a href="../../index.html">synthia</a>::<wbr><a href="../index.html">test_support</a></div><h1>Module <span>replay</span>&nbsp;<button id="copy-path" title="Copy item path to clipboard">Copy item path</button></h1><rustdoc-toolbar></rustdoc-toolbar><span class="sub-heading"><a class="src" href="../../../src/synthia_test_support/lib.rs.html#53">Source</a> </span></div><details class="toggle top-doc" open><summary class="hideme"><span>Expand description</span></summary><div class="docblock"><p>Keyless deterministic replay of recorded model-call scripts.</p>
+<p>Ports the <code>deepseek-harness</code> <code>llm-replay</code> design to the
+single-provider shape synthia’s tests need: a
+<a href="../struct.ReplayProvider.html" title="struct synthia::test_support::ReplayProvider"><code>ReplayProvider</code></a> is constructed from per-run scripts
+(<code>Vec&lt;Vec&lt;StreamChunk&gt;&gt;</code>, one entry per model call) or from a
+recorded session <code>events.jsonl</code> fixture, then hands one
+script to each <code>complete</code> / <code>complete_with_stream</code> call.</p>
+<p>Two properties make it a test tool rather than a mock:</p>
+<ul>
+<li><strong>No silent underruns.</strong> A call with no script left is a
+hard error, and <a href="../struct.ReplayProvider.html#method.assert_consumed" title="method synthia::test_support::ReplayProvider::assert_consumed"><code>ReplayProvider::assert_consumed</code></a> turns
+“the scenario made fewer calls than were recorded” into a
+crisp teardown diagnostic, including calls that were bound
+but left undelivered (e.g. the agent cancelled mid-stream).</li>
+<li><strong>Optional pacing.</strong> <a href="../struct.ReplayProvider.html#method.with_pacing" title="method synthia::test_support::ReplayProvider::with_pacing"><code>ReplayProvider::with_pacing</code></a> sleeps
+before each delivered chunk so downstream consumers observe
+genuinely incremental delivery. Correctness never depends on
+it.</li>
+</ul>
+<h2 id="example"><a class="doc-anchor" href="#example">§</a>Example</h2>
+<div class="example-wrap"><pre class="rust rust-example-rendered"><code><span class="kw">use </span>synthia_provider::{
+    CompletionRequest,
+    ContentPart,
+    ModelProvider,
+    SamplingResult,
+    StreamChunk,
+    TextContent,
+};
+<span class="kw">use </span>synthia_test_support::ReplayProvider;
+
+<span class="kw">let </span>provider = ReplayProvider::new(<span class="macro">vec!</span>[<span class="macro">vec!</span>[
+    StreamChunk::Content(ContentPart::Text(TextContent {
+        text: <span class="string">"hello"</span>.to_string(),
+        cache_control: <span class="prelude-val">None</span>,
+    })),
+    StreamChunk::IsDone {
+        result: Box::new(SamplingResult {
+            text: <span class="string">"hello"</span>.to_string(),
+            stop_reason: <span class="prelude-val">Some</span>(<span class="string">"end_turn"</span>.to_string()),
+            ..Default::default()
+        }),
+    },
+]]);
+
+<span class="kw">let </span>response = provider.complete(CompletionRequest::default()).<span class="kw">await</span><span class="question-mark">?</span>;
+<span class="macro">assert_eq!</span>(response.stop_reason.as_deref(), <span class="prelude-val">Some</span>(<span class="string">"end_turn"</span>));
+provider
+    .assert_consumed()
+    .expect(<span class="string">"scenario used every script"</span>);</code></pre></div></div></details><h2 id="structs" class="section-header">Structs<a href="#structs" class="anchor">§</a></h2><dl class="item-table"><dt><a class="struct" href="struct.ReplayProvider.html" title="struct synthia::test_support::replay::ReplayProvider">Replay<wbr>Provider</a></dt><dd>Deterministic, keyless <a href="../../prelude/trait.ModelProvider.html" title="trait synthia::prelude::ModelProvider"><code>ModelProvider</code></a> that replays recorded
+model-call scripts in order.</dd></dl><h2 id="enums" class="section-header">Enums<a href="#enums" class="anchor">§</a></h2><dl class="item-table"><dt><a class="enum" href="enum.ReplayError.html" title="enum synthia::test_support::replay::ReplayError">Replay<wbr>Error</a></dt><dd>Errors raised while building or checking a <a href="../struct.ReplayProvider.html" title="struct synthia::test_support::ReplayProvider"><code>ReplayProvider</code></a>.</dd></dl></section></div></main></body></html>

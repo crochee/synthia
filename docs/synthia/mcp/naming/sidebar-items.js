@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"constant":["MAX_TOOL_NAME_LENGTH"],"enum":["NamingPolicy"],"fn":["public_tool_name","resolve_prefix"]};

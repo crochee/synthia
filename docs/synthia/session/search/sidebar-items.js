@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"constant":["DEFAULT_LIMIT"],"enum":["SearchError"],"fn":["jsonl_session_search","modified_at"],"struct":["EntryHit","JsonlSessionSearch","SearchQuery","SessionHit"],"trait":["SessionSearch"],"type":["SharedSessionSearch"]};

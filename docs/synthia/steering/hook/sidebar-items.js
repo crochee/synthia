@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"enum":["HookAction","HookStage"],"fn":["run_hook","run_hook_gated"],"struct":["HookError","LoggingHook"],"trait":["AgentHook"],"type":["HookFuture"]};

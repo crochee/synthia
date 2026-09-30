@@ -1,0 +1,62 @@
+<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><meta name="generator" content="rustdoc"><meta name="description" content="Sub-agent delegation — the `task` tool seam."><title>synthia::tool_task::task - Rust</title><script>if(window.location.protocol!=="file:")document.head.insertAdjacentHTML("beforeend","SourceSerif4-Regular-6b053e98.ttf.woff2,FiraSans-Italic-81dc35de.woff2,FiraSans-Regular-0fe48ade.woff2,FiraSans-MediumItalic-ccf7e434.woff2,FiraSans-Medium-e1aa3f0a.woff2,SourceCodePro-Regular-8badfe75.ttf.woff2,SourceCodePro-Semibold-aa29a496.ttf.woff2".split(",").map(f=>`<link rel="preload" as="font" type="font/woff2"href="../../../static.files/${f}">`).join(""))</script><link rel="stylesheet" href="../../../static.files/normalize-9960930a.css"><link rel="stylesheet" href="../../../static.files/rustdoc-1ed95124.css"><meta name="rustdoc-vars" data-root-path="../../../" data-static-root-path="../../../static.files/" data-current-crate="synthia" data-themes="" data-resource-suffix="" data-rustdoc-version="1.98.1 (48a229cea 2026-09-01)" data-channel="1.98.1" data-search-js="search-9944d736.js" data-stringdex-js="stringdex-2da4960a.js" data-settings-js="settings-170eb4bf.js" ><script src="../../../static.files/storage-41dd4d93.js"></script><script defer src="../sidebar-items.js"></script><script defer src="../../../static.files/main-417ebf0a.js"></script><noscript><link rel="stylesheet" href="../../../static.files/noscript-f7c3ffd8.css"></noscript><link rel="alternate icon" type="image/png" href="../../../static.files/favicon-32x32-eab170b8.png"><link rel="icon" type="image/svg+xml" href="../../../static.files/favicon-044be391.svg"></head><body class="rustdoc mod"><a class="skip-main-content" href="#main-content">Skip to main content</a><!--[if lte IE 11]><div class="warning">This old browser is unsupported and will most likely display funky things.</div><![endif]--><rustdoc-topbar><h2><a href="#">Module task</a></h2></rustdoc-topbar><nav class="sidebar"><div class="sidebar-crate"><h2><a href="../../../synthia/index.html">synthia</a><span class="version">0.1.0</span></h2></div><div class="sidebar-elems"><section id="rustdoc-toc"><h2 class="location"><a href="#">Module task</a></h2><h3><a href="#">Sections</a></h3><ul class="block top-toc"><li><a href="#why-interception-instead-of-a-registered-tool" title="Why interception instead of a registered tool">Why interception instead of a registered tool</a></li><li><a href="#depth-guard" title="Depth guard">Depth guard</a></li><li><a href="#verification-gate--worktree-isolation" title="Verification gate + worktree isolation">Verification gate + worktree isolation</a><ul><li><a href="#module-layout" title="Module layout">Module layout</a></li></ul></li></ul><h3><a href="#structs">Module Items</a></h3><ul class="block"><li><a href="#structs" title="Structs">Structs</a></li><li><a href="#constants" title="Constants">Constants</a></li><li><a href="#functions" title="Functions">Functions</a></li></ul></section><div id="rustdoc-modnav"><h2><a href="../index.html">In synthia::<wbr>tool_<wbr>task</a></h2></div></div></nav><div class="sidebar-resizer" title="Drag to resize sidebar"></div><main><div class="width-limiter"><section id="main-content" class="content" tabindex="-1"><div class="main-heading"><div class="rustdoc-breadcrumbs"><a href="../../index.html">synthia</a>::<wbr><a href="../index.html">tool_task</a></div><h1>Module <span>task</span>&nbsp;<button id="copy-path" title="Copy item path to clipboard">Copy item path</button></h1><rustdoc-toolbar></rustdoc-toolbar><span class="sub-heading"><a class="src" href="../../../src/synthia_tool_task/lib.rs.html#65">Source</a> </span></div><details class="toggle top-doc" open><summary class="hideme"><span>Expand description</span></summary><div class="docblock"><p>Sub-agent delegation — the <code>task</code> tool seam.</p>
+<p>Fills in the multi-agent delegation contract documented on
+the crate root: a parent agent’s model invokes the <code>task</code>
+tool once per sub-agent; <code>ReActLoop</code>
+intercepts those calls before normal tool dispatch, resolves
+the named peer from the <a href="../../harness/struct.AgentRegistry.html" title="struct synthia::harness::AgentRegistry"><code>synthia_harness::AgentRegistry</code></a>,
+runs it as a child, forwards every child event wrapped in
+<a href="../../harness/enum.AgentEvent.html#variant.Agent" title="variant synthia::harness::AgentEvent::Agent"><code>synthia_harness::AgentEvent::Agent</code></a> +
+<a href="../../harness/struct.AgentMeta.html" title="struct synthia::harness::AgentMeta"><code>synthia_harness::AgentMeta</code></a>, and commits the child’s final text as the tool
+result.</p>
+<h2 id="why-interception-instead-of-a-registered-tool"><a class="doc-anchor" href="#why-interception-instead-of-a-registered-tool">§</a>Why interception instead of a registered tool</h2>
+<p>The <code>task</code> primitive is not a tool: it needs the parent
+loop’s event sink (to forward the child trace), the parent’s
+cancellation token, and per-run depth bookkeeping — none of
+which the <a href="../../prelude/trait.Tool.html" title="trait synthia::prelude::Tool"><code>synthia_tool::Tool</code></a> contract carries. Routing it
+through <code>execute_tool_inner</code> keeps the <code>ToolRegistry</code>
+untouched while giving the model one uniform surface (it
+just sees a <code>task</code> tool definition in its tool list).</p>
+<h2 id="depth-guard"><a class="doc-anchor" href="#depth-guard">§</a>Depth guard</h2>
+<p>Child runs receive <code>AgentInput::subagent_depth = parent + 1</code>.
+Delegation refuses to spawn at
+<a href="../constant.MAX_SUBAGENT_DEPTH.html" title="constant synthia::tool_task::MAX_SUBAGENT_DEPTH"><code>MAX_SUBAGENT_DEPTH</code></a> — a misbehaving planner cannot
+recurse forever.</p>
+<h2 id="verification-gate--worktree-isolation"><a class="doc-anchor" href="#verification-gate--worktree-isolation">§</a>Verification gate + worktree isolation</h2>
+<p>(Slice D, R30.) <code>TaskSpec</code> optionally carries a
+<a href="../struct.GateSpec.html" title="struct synthia::tool_task::GateSpec"><code>crate::gate::GateSpec</code></a> and / or a <a href="../struct.WorktreeSpec.html" title="struct synthia::tool_task::WorktreeSpec"><code>crate::worktree::WorktreeSpec</code></a>. When either is
+present, <code>run_subagent</code> takes responsibility for the
+lifecycle:</p>
+<ul>
+<li>With a worktree: create a temp git worktree off the base
+cwd at <code>HEAD</code>, run the child against the worktree’s path,
+clean up after the child (clean ⇒ remove; dirty ⇒ commit
+on the reserved <code>synthia/agent-&lt;ulid&gt;</code> branch + remove).</li>
+<li>With a gate: run a verification command from the
+worktree (when present) or the base cwd otherwise; pass ⇒
+child text becomes the tool result; anything else ⇒
+<code>ToolOutput::error("failed gate: …")</code>.</li>
+</ul>
+<p>All subprocess execution goes through the
+<a href="../trait.CommandRunner.html" title="trait synthia::tool_task::CommandRunner"><code>crate::gate::CommandRunner</code></a> trait
+so the production path uses <code>std::process::Command</code> while
+the integration tests use a recording fake.</p>
+<h3 id="module-layout"><a class="doc-anchor" href="#module-layout">§</a>Module layout</h3>
+<ul>
+<li><code>spec</code> — <a href="../struct.TaskSpec.html" title="struct synthia::tool_task::TaskSpec"><code>TaskSpec</code></a> parsing (+ <a href="../constant.TASK_TOOL_NAME.html" title="constant synthia::tool_task::TASK_TOOL_NAME"><code>TASK_TOOL_NAME</code></a> /
+<a href="../constant.MAX_SUBAGENT_DEPTH.html" title="constant synthia::tool_task::MAX_SUBAGENT_DEPTH"><code>MAX_SUBAGENT_DEPTH</code></a>): what a <code>task</code> call means.</li>
+<li><code>schema</code> — <a href="../fn.task_tool_definition.html" title="fn synthia::tool_task::task_tool_definition"><code>task_tool_definition</code></a> /
+<a href="../fn.task_tool_definition_with_features.html" title="fn synthia::tool_task::task_tool_definition_with_features"><code>task_tool_definition_with_features</code></a>: the LLM-facing
+wire definition, feature-gated per deployment.</li>
+<li><code>delegator</code> — <a href="../struct.TaskDelegator.html" title="struct synthia::tool_task::TaskDelegator"><code>TaskDelegator</code></a>: the interceptor that
+turns a <code>task</code> tool call into a depth-capped child run.</li>
+<li><code>runner</code> — <code>run_subagent</code>(+<code>_with_runner</code>): drives one
+child, forwards its events, applies the gate + worktree
+lifecycle, and commits the final text.</li>
+</ul>
+</div></details><h2 id="structs" class="section-header">Structs<a href="#structs" class="anchor">§</a></h2><dl class="item-table"><dt><a class="struct" href="struct.TaskDelegator.html" title="struct synthia::tool_task::task::TaskDelegator">Task<wbr>Delegator</a></dt><dt><a class="struct" href="struct.TaskSpec.html" title="struct synthia::tool_task::task::TaskSpec">Task<wbr>Spec</a></dt><dd>Parsed arguments of one <code>task</code> tool call.</dd></dl><h2 id="constants" class="section-header">Constants<a href="#constants" class="anchor">§</a></h2><dl class="item-table"><dt><a class="constant" href="constant.MAX_SUBAGENT_DEPTH.html" title="constant synthia::tool_task::task::MAX_SUBAGENT_DEPTH">MAX_<wbr>SUBAGENT_<wbr>DEPTH</a></dt><dd>Maximum sub-agent nesting depth (0 = top-level session).</dd><dt><a class="constant" href="constant.TASK_TOOL_NAME.html" title="constant synthia::tool_task::task::TASK_TOOL_NAME">TASK_<wbr>TOOL_<wbr>NAME</a></dt><dd>The tool name the model calls to delegate to a peer agent.</dd></dl><h2 id="functions" class="section-header">Functions<a href="#functions" class="anchor">§</a></h2><dl class="item-table"><dt><a class="fn" href="fn.task_tool_definition.html" title="fn synthia::tool_task::task::task_tool_definition">task_<wbr>tool_<wbr>definition</a></dt><dd>The <code>task</code> tool definition with every feature off:
+<code>isolation</code> is dropped so the model never sees a refused
+capability.</dd><dt><a class="fn" href="fn.task_tool_definition_with_features.html" title="fn synthia::tool_task::task::task_tool_definition_with_features">task_<wbr>tool_<wbr>definition_<wbr>with_<wbr>features</a></dt><dd>Schema-aware variant of <a href="../fn.task_tool_definition.html" title="fn synthia::tool_task::task_tool_definition"><code>task_tool_definition</code></a>: when
+<code>features</code> enables <code>worktree_isolation</code>, the <code>isolation</code>
+property is kept; otherwise it is dropped (it is never in
+<code>required</code>, so nothing else shifts) so the model never
+sees it.</dd></dl></section></div></main></body></html>

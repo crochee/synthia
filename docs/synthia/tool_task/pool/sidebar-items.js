@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"constant":["DEFAULT_BACKGROUND_CONCURRENCY","MAX_TOMBSTONES"],"enum":["Admission","InvocationStatus","Slot"],"struct":["AdmissionTicket","InvocationRecord","PoolCounts","QueuedToken","SubagentPool"],"type":["SharedSubagentPool"]};

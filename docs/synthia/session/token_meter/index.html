@@ -1,0 +1,55 @@
+<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><meta name="generator" content="rustdoc"><meta name="description" content="Usage-anchored token meter — a pure fold over the durable session event stream (dsh `token-meter` parity)."><title>synthia::session::token_meter - Rust</title><script>if(window.location.protocol!=="file:")document.head.insertAdjacentHTML("beforeend","SourceSerif4-Regular-6b053e98.ttf.woff2,FiraSans-Italic-81dc35de.woff2,FiraSans-Regular-0fe48ade.woff2,FiraSans-MediumItalic-ccf7e434.woff2,FiraSans-Medium-e1aa3f0a.woff2,SourceCodePro-Regular-8badfe75.ttf.woff2,SourceCodePro-Semibold-aa29a496.ttf.woff2".split(",").map(f=>`<link rel="preload" as="font" type="font/woff2"href="../../../static.files/${f}">`).join(""))</script><link rel="stylesheet" href="../../../static.files/normalize-9960930a.css"><link rel="stylesheet" href="../../../static.files/rustdoc-1ed95124.css"><meta name="rustdoc-vars" data-root-path="../../../" data-static-root-path="../../../static.files/" data-current-crate="synthia" data-themes="" data-resource-suffix="" data-rustdoc-version="1.98.1 (48a229cea 2026-09-01)" data-channel="1.98.1" data-search-js="search-9944d736.js" data-stringdex-js="stringdex-2da4960a.js" data-settings-js="settings-170eb4bf.js" ><script src="../../../static.files/storage-41dd4d93.js"></script><script defer src="../sidebar-items.js"></script><script defer src="../../../static.files/main-417ebf0a.js"></script><noscript><link rel="stylesheet" href="../../../static.files/noscript-f7c3ffd8.css"></noscript><link rel="alternate icon" type="image/png" href="../../../static.files/favicon-32x32-eab170b8.png"><link rel="icon" type="image/svg+xml" href="../../../static.files/favicon-044be391.svg"></head><body class="rustdoc mod"><a class="skip-main-content" href="#main-content">Skip to main content</a><!--[if lte IE 11]><div class="warning">This old browser is unsupported and will most likely display funky things.</div><![endif]--><rustdoc-topbar><h2><a href="#">Module token_meter</a></h2></rustdoc-topbar><nav class="sidebar"><div class="sidebar-crate"><h2><a href="../../../synthia/index.html">synthia</a><span class="version">0.1.0</span></h2></div><div class="sidebar-elems"><section id="rustdoc-toc"><h2 class="location"><a href="#">Module token_<wbr>meter</a></h2><h3><a href="#">Sections</a></h3><ul class="block top-toc"><li><a href="#anchor-rule" title="Anchor rule">Anchor rule</a></li><li><a href="#replay-contract" title="Replay contract">Replay contract</a></li></ul><h3><a href="#structs">Module Items</a></h3><ul class="block"><li><a href="#structs" title="Structs">Structs</a></li><li><a href="#enums" title="Enums">Enums</a></li><li><a href="#functions" title="Functions">Functions</a></li></ul></section><div id="rustdoc-modnav"><h2><a href="../index.html">In synthia::<wbr>session</a></h2></div></div></nav><div class="sidebar-resizer" title="Drag to resize sidebar"></div><main><div class="width-limiter"><section id="main-content" class="content" tabindex="-1"><div class="main-heading"><div class="rustdoc-breadcrumbs"><a href="../../index.html">synthia</a>::<wbr><a href="../index.html">session</a></div><h1>Module <span>token_<wbr>meter</span>&nbsp;<button id="copy-path" title="Copy item path to clipboard">Copy item path</button></h1><rustdoc-toolbar></rustdoc-toolbar><span class="sub-heading"><a class="src" href="../../../src/synthia_session/lib.rs.html#67">Source</a> </span></div><details class="toggle top-doc" open><summary class="hideme"><span>Expand description</span></summary><div class="docblock"><p>Usage-anchored token meter — a pure fold over the durable
+session event stream (dsh <code>token-meter</code> parity).</p>
+<p>Reference: <code>deepseek-harness/packages/llm/token-meter/src/ {index,projection,usage-projection}.ts</code>. Three concerns live
+here, all derived from the same replay:</p>
+<ol>
+<li><strong>Disjoint usage buckets</strong> (<a href="../struct.UsageBuckets.html" title="struct synthia::session::UsageBuckets"><code>UsageBuckets</code></a>): the
+cumulative provider-reported <code>input</code> / <code>cache_read</code> /
+<code>cache_write</code> / <code>output</code> totals across the whole log. The
+four buckets never overlap — reasoning tokens are already
+inside <code>output</code> and are not counted twice.</li>
+<li><strong>Provider-usage anchoring</strong> (<a href="../struct.TokenMeter.html" title="struct synthia::session::TokenMeter"><code>TokenMeter</code></a>): a
+provider-reported <a href="../enum.SessionEvent.html#variant.Usage" title="variant synthia::session::SessionEvent::Usage"><code>SessionEvent::Usage</code></a> sample is adopted
+as the pressure baseline only when it plausibly priced the
+surface its request saw; the cheap char heuristic
+(<a href="../fn.estimate_message_tokens.html" title="fn synthia::session::estimate_message_tokens"><code>estimate_message_tokens</code></a>) covers the signed surface
+delta since that anchor.</li>
+<li><strong>Projected next-request tokens</strong>
+(<a href="../struct.TokenMeasurement.html#structfield.total_tokens" title="field synthia::session::TokenMeasurement::total_tokens"><code>TokenMeasurement::total_tokens</code></a>):
+<code>max(0, anchored_pressure + surface_delta_since_sample)</code> —
+the figure the compaction gate and status displays consume.</li>
+</ol>
+<h3 id="anchor-rule"><a class="doc-anchor" href="#anchor-rule">§</a>Anchor rule</h3>
+<p>A usage sample is stamped against the surface <em>its request
+saw</em> — the surface immediately before the assistant response
+joined it (<code>response_boundary_tokens</code> in the fold). Adoption
+requires the sample’s prompt-side total to be at least the
+heuristic price of that surface; a provider count <em>below</em> the
+heuristic estimate cannot describe this content (stale or
+route-mismatched), so the meter falls back to the
+conservative heuristic baseline instead. Because the heuristic
+systematically underprices CJK text and JSON schemas, a genuine
+sample is always adopted — anchoring is what keeps that
+underpricing out of the occupancy figure.</p>
+<p>A later <a href="../enum.SessionEvent.html#variant.RequestHeader" title="variant synthia::session::SessionEvent::RequestHeader"><code>SessionEvent::RequestHeader</code></a> drops the anchor: the
+sample priced the previous request envelope, not the new one.</p>
+<h3 id="replay-contract"><a class="doc-anchor" href="#replay-contract">§</a>Replay contract</h3>
+<p><a href="../struct.TokenMeter.html#method.observe" title="method synthia::session::TokenMeter::observe"><code>TokenMeter::observe</code></a> is idempotent catch-up: pass the full
+durable log each time and the meter folds only the events past
+its cursor. A fold error (bad replace provenance, shrunken
+log) leaves the failing event unconsumed so a retry re-sees
+it; already-folded state is never half-applied.</p>
+<p>The fold reads the <strong>typed</strong> surface layer
+(<a href="../enum.SessionEvent.html#variant.UserMessage" title="variant synthia::session::SessionEvent::UserMessage"><code>SessionEvent::UserMessage</code></a> / <code>AssistantMessage</code> /
+<code>ToolResult</code> / <code>Compaction</code> rows), exactly like
+<a href="../fn.fold_surface.html" title="fn synthia::session::fold_surface"><code>crate::surface::fold_surface</code></a>; pre-R4 legacy envelopes
+(<code>{"type": "UserInput"}</code> / <code>{"type": "Model"}</code>) contribute no
+surface. A caller replaying a mixed log should feed the meter
+the same typed partition it feeds <code>fold_surface</code>.</p>
+</div></details><h2 id="structs" class="section-header">Structs<a href="#structs" class="anchor">§</a></h2><dl class="item-table"><dt><a class="struct" href="struct.ContextPressure.html" title="struct synthia::session::token_meter::ContextPressure">Context<wbr>Pressure</a></dt><dd>User-facing context-occupancy reference (dsh
+<code>ContextPressureProjection</code> parity).</dd><dt><a class="struct" href="struct.TokenMeasurement.html" title="struct synthia::session::token_meter::TokenMeasurement">Token<wbr>Measurement</a></dt><dd>Detached request-pressure and surface snapshot at one consumed
+log revision (dsh <code>TokenMeasurement</code> parity).</dd><dt><a class="struct" href="struct.TokenMeter.html" title="struct synthia::session::token_meter::TokenMeter">Token<wbr>Meter</a></dt><dd>Pure replay fold over the durable event stream producing
+usage totals, context pressure, and the projected
+next-request token count.</dd><dt><a class="struct" href="struct.UsageBuckets.html" title="struct synthia::session::token_meter::UsageBuckets">Usage<wbr>Buckets</a></dt><dd>Disjoint provider usage buckets for one report or one folded
+log.</dd></dl><h2 id="enums" class="section-header">Enums<a href="#enums" class="anchor">§</a></h2><dl class="item-table"><dt><a class="enum" href="enum.MeasurementBaseline.html" title="enum synthia::session::token_meter::MeasurementBaseline">Measurement<wbr>Baseline</a></dt><dd>The baseline a <a href="../struct.TokenMeasurement.html" title="struct synthia::session::TokenMeasurement"><code>TokenMeasurement</code></a> projects from.</dd><dt><a class="enum" href="enum.TokenMeterError.html" title="enum synthia::session::token_meter::TokenMeterError">Token<wbr>Meter<wbr>Error</a></dt><dd>Errors the meter’s replay can surface.</dd></dl><h2 id="functions" class="section-header">Functions<a href="#functions" class="anchor">§</a></h2><dl class="item-table"><dt><a class="fn" href="fn.estimate_message_tokens.html" title="fn synthia::session::token_meter::estimate_message_tokens">estimate_<wbr>message_<wbr>tokens</a></dt><dd>Heuristic per-message token price used between provider
+anchors.</dd></dl></section></div></main></body></html>

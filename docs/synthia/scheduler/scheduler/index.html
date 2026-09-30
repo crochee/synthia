@@ -1,0 +1,39 @@
+<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><meta name="generator" content="rustdoc"><meta name="description" content="`Scheduler` — runtime-neutral dispatcher."><title>synthia::scheduler::scheduler - Rust</title><script>if(window.location.protocol!=="file:")document.head.insertAdjacentHTML("beforeend","SourceSerif4-Regular-6b053e98.ttf.woff2,FiraSans-Italic-81dc35de.woff2,FiraSans-Regular-0fe48ade.woff2,FiraSans-MediumItalic-ccf7e434.woff2,FiraSans-Medium-e1aa3f0a.woff2,SourceCodePro-Regular-8badfe75.ttf.woff2,SourceCodePro-Semibold-aa29a496.ttf.woff2".split(",").map(f=>`<link rel="preload" as="font" type="font/woff2"href="../../../static.files/${f}">`).join(""))</script><link rel="stylesheet" href="../../../static.files/normalize-9960930a.css"><link rel="stylesheet" href="../../../static.files/rustdoc-1ed95124.css"><meta name="rustdoc-vars" data-root-path="../../../" data-static-root-path="../../../static.files/" data-current-crate="synthia" data-themes="" data-resource-suffix="" data-rustdoc-version="1.98.1 (48a229cea 2026-09-01)" data-channel="1.98.1" data-search-js="search-9944d736.js" data-stringdex-js="stringdex-2da4960a.js" data-settings-js="settings-170eb4bf.js" ><script src="../../../static.files/storage-41dd4d93.js"></script><script defer src="../sidebar-items.js"></script><script defer src="../../../static.files/main-417ebf0a.js"></script><noscript><link rel="stylesheet" href="../../../static.files/noscript-f7c3ffd8.css"></noscript><link rel="alternate icon" type="image/png" href="../../../static.files/favicon-32x32-eab170b8.png"><link rel="icon" type="image/svg+xml" href="../../../static.files/favicon-044be391.svg"></head><body class="rustdoc mod"><a class="skip-main-content" href="#main-content">Skip to main content</a><!--[if lte IE 11]><div class="warning">This old browser is unsupported and will most likely display funky things.</div><![endif]--><rustdoc-topbar><h2><a href="#">Module scheduler</a></h2></rustdoc-topbar><nav class="sidebar"><div class="sidebar-crate"><h2><a href="../../../synthia/index.html">synthia</a><span class="version">0.1.0</span></h2></div><div class="sidebar-elems"><section id="rustdoc-toc"><h2 class="location"><a href="#">Module scheduler</a></h2><h3><a href="#">Sections</a></h3><ul class="block top-toc"><li><a href="#reentrancy" title="Reentrancy">Reentrancy</a></li><li><a href="#the-timing-wheel" title="The timing wheel">The timing wheel</a></li></ul><h3><a href="#structs">Module Items</a></h3><ul class="block"><li><a href="#structs" title="Structs">Structs</a></li></ul></section><div id="rustdoc-modnav"><h2><a href="../index.html">In synthia::<wbr>scheduler</a></h2></div></div></nav><div class="sidebar-resizer" title="Drag to resize sidebar"></div><main><div class="width-limiter"><section id="main-content" class="content" tabindex="-1"><div class="main-heading"><div class="rustdoc-breadcrumbs"><a href="../../index.html">synthia</a>::<wbr><a href="../index.html">scheduler</a></div><h1>Module <span>scheduler</span>&nbsp;<button id="copy-path" title="Copy item path to clipboard">Copy item path</button></h1><rustdoc-toolbar></rustdoc-toolbar><span class="sub-heading"><a class="src" href="../../../src/synthia_scheduler/lib.rs.html#34">Source</a> </span></div><details class="toggle top-doc" open><summary class="hideme"><span>Expand description</span></summary><div class="docblock"><p><code>Scheduler</code> — runtime-neutral dispatcher.</p>
+<p>The scheduler never owns a timer; it never spawns a task.
+Every <a href="../struct.Scheduler.html#method.tick" title="method synthia::scheduler::Scheduler::tick"><code>Scheduler::tick</code></a> is driven by the caller, who
+passes <code>now</code> (typically <code>chrono::Utc::now()</code>) and gets
+back the <a href="../struct.ScheduleTick.html" title="struct synthia::scheduler::ScheduleTick"><code>ScheduleTick</code></a> of jobs whose <code>next_fire_at</code>
+has arrived. The caller then executes the firing on
+whichever executor it uses (<code>tokio::spawn_local</code>,
+<code>smol::spawn</code>, <code>std::thread::spawn</code>, …). This is the
+same “callers arm their own timer” discipline the rest
+of synthia’s library crates follow — and is what makes
+the crate usable from any runtime.</p>
+<h3 id="reentrancy"><a class="doc-anchor" href="#reentrancy">§</a>Reentrancy</h3>
+<p><code>tick</code> borrows <code>&amp;self</code> and returns a snapshot. The
+in-memory <code>Job</code> cache is updated under a single
+<code>parking_lot::Mutex</code>, so concurrent ticks from multiple
+callers serialise on the lock but never deadlock
+(the lock is never held across an await).</p>
+<h3 id="the-timing-wheel"><a class="doc-anchor" href="#the-timing-wheel">§</a>The timing wheel</h3>
+<p><code>tick</code> does not scan the store: the scheduler keeps a
+<a href="../struct.TimingWheel.html" title="struct synthia::scheduler::TimingWheel"><code>TimingWheel</code></a> of the active jobs, so a
+pass with nothing due costs a couple of hash lookups instead of a
+visit per job. The wheel is an <em>index</em>, never a second source of
+truth — <a href="../struct.Job.html#method.is_due" title="method synthia::scheduler::Job::is_due"><code>Job::is_due</code></a> still decides whether a candidate fires, and
+every firing still goes through one <code>store.update</code>, so the row is
+persisted exactly as before.</p>
+<p>The wheel is a <strong>snapshot of the store</strong>, taken by
+<a href="../struct.Scheduler.html#method.new" title="associated function synthia::scheduler::Scheduler::new"><code>Scheduler::new</code></a> (the constructor reads no clock, so the first
+<code>tick</code> anchors it) and rebuilt by <code>tick</code> itself when the host clock
+moves backwards. A write that bypasses the scheduler — the
+<code>schedule</code> tool’s actions, an operator’s own store handle, another
+process’s rows after a <code>load</code> — is picked up by the next <code>tick</code> (and
+by <code>next_deadline</code> / <code>tick_dry_run</code>), which compares the store’s
+<a href="../struct.ScheduleStore.html#method.version" title="method synthia::scheduler::ScheduleStore::version"><code>ScheduleStore::version</code></a> against the value it last saw and rebuilds
+when they differ. <a href="../struct.Scheduler.html#method.resync" title="method synthia::scheduler::Scheduler::resync"><code>Scheduler::resync</code></a> stays available as an
+explicit rebuild for hosts that want the wheel reconciled <em>now</em>
+rather than at the next pass.</p>
+</div></details><h2 id="structs" class="section-header">Structs<a href="#structs" class="anchor">§</a></h2><dl class="item-table"><dt><a class="struct" href="struct.FiredJob.html" title="struct synthia::scheduler::scheduler::FiredJob">Fired<wbr>Job</a></dt><dd>One entry in a <a href="../struct.ScheduleTick.html#structfield.fired" title="field synthia::scheduler::ScheduleTick::fired"><code>ScheduleTick::fired</code></a> list.</dd><dt><a class="struct" href="struct.ScheduleTick.html" title="struct synthia::scheduler::scheduler::ScheduleTick">Schedule<wbr>Tick</a></dt><dd>One <a href="../struct.Scheduler.html#method.tick" title="method synthia::scheduler::Scheduler::tick"><code>Scheduler::tick</code></a> result — the set of jobs that
+fired in this round and the bookkeeping the caller
+needs to deliver them.</dd><dt><a class="struct" href="struct.Scheduler.html" title="struct synthia::scheduler::scheduler::Scheduler">Scheduler</a></dt><dd>Runtime-neutral dispatcher around a <a href="../struct.ScheduleStore.html" title="struct synthia::scheduler::ScheduleStore"><code>ScheduleStore</code></a>.</dd></dl></section></div></main></body></html>

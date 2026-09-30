@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"fn":["cap_to_char_boundary","truncate_chars"]};

@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"fn":["iteration_end","iteration_start","request_header","round_trip","sandbox_mode","step_end","step_start","structural_kind","subagent_enter","subagent_exit","turn_end","turn_start","usage"]};

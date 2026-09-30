@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"constant":["DEFAULT_GROUP_TIMEOUT","DEFAULT_STRAGGLER_TIMEOUT"],"enum":["GroupOutcome"],"struct":["Delivery","GroupJoin"]};

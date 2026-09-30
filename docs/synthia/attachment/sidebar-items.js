@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"constant":["DEFAULT_MAX_BYTES","SUPPORTED_IMAGE_MIME"],"enum":["AttachmentError"],"fn":["attachment_to_content_part","sha256_hex","validate_mime","validate_size"],"struct":["AttachmentStore","FilesystemBackend","ImageAttachmentRef","InMemoryBackend"],"trait":["AttachmentBackend"]};

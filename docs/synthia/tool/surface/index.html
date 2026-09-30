@@ -1,0 +1,67 @@
+<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><meta name="generator" content="rustdoc"><meta name="description" content="The model-facing tool surface: one pure projection from registered `ToolDescriptor`s to the `ToolDefinition`s an LLM request carries."><title>synthia::tool::surface - Rust</title><script>if(window.location.protocol!=="file:")document.head.insertAdjacentHTML("beforeend","SourceSerif4-Regular-6b053e98.ttf.woff2,FiraSans-Italic-81dc35de.woff2,FiraSans-Regular-0fe48ade.woff2,FiraSans-MediumItalic-ccf7e434.woff2,FiraSans-Medium-e1aa3f0a.woff2,SourceCodePro-Regular-8badfe75.ttf.woff2,SourceCodePro-Semibold-aa29a496.ttf.woff2".split(",").map(f=>`<link rel="preload" as="font" type="font/woff2"href="../../../static.files/${f}">`).join(""))</script><link rel="stylesheet" href="../../../static.files/normalize-9960930a.css"><link rel="stylesheet" href="../../../static.files/rustdoc-1ed95124.css"><meta name="rustdoc-vars" data-root-path="../../../" data-static-root-path="../../../static.files/" data-current-crate="synthia" data-themes="" data-resource-suffix="" data-rustdoc-version="1.98.1 (48a229cea 2026-09-01)" data-channel="1.98.1" data-search-js="search-9944d736.js" data-stringdex-js="stringdex-2da4960a.js" data-settings-js="settings-170eb4bf.js" ><script src="../../../static.files/storage-41dd4d93.js"></script><script defer src="../sidebar-items.js"></script><script defer src="../../../static.files/main-417ebf0a.js"></script><noscript><link rel="stylesheet" href="../../../static.files/noscript-f7c3ffd8.css"></noscript><link rel="alternate icon" type="image/png" href="../../../static.files/favicon-32x32-eab170b8.png"><link rel="icon" type="image/svg+xml" href="../../../static.files/favicon-044be391.svg"></head><body class="rustdoc mod"><a class="skip-main-content" href="#main-content">Skip to main content</a><!--[if lte IE 11]><div class="warning">This old browser is unsupported and will most likely display funky things.</div><![endif]--><rustdoc-topbar><h2><a href="#">Module surface</a></h2></rustdoc-topbar><nav class="sidebar"><div class="sidebar-crate"><h2><a href="../../../synthia/index.html">synthia</a><span class="version">0.1.0</span></h2></div><div class="sidebar-elems"><section id="rustdoc-toc"><h2 class="location"><a href="#">Module surface</a></h2><h3><a href="#">Sections</a></h3><ul class="block top-toc"><li><a href="#exposure-rules" title="Exposure rules">Exposure rules</a></li><li><a href="#promotion-is-transcript-derived" title="Promotion is transcript-derived">Promotion is transcript-derived</a></li><li><a href="#composing-the-visible-name-filter" title="Composing the visible-name filter">Composing the visible-name filter</a></li><li><a href="#deployment-level-policy" title="Deployment-level policy">Deployment-level policy</a></li></ul><h3><a href="#structs">Module Items</a></h3><ul class="block"><li><a href="#structs" title="Structs">Structs</a></li><li><a href="#enums" title="Enums">Enums</a></li><li><a href="#functions" title="Functions">Functions</a></li></ul></section><div id="rustdoc-modnav"><h2><a href="../index.html">In synthia::<wbr>tool</a></h2></div></div></nav><div class="sidebar-resizer" title="Drag to resize sidebar"></div><main><div class="width-limiter"><section id="main-content" class="content" tabindex="-1"><div class="main-heading"><div class="rustdoc-breadcrumbs"><a href="../../index.html">synthia</a>::<wbr><a href="../index.html">tool</a></div><h1>Module <span>surface</span>&nbsp;<button id="copy-path" title="Copy item path to clipboard">Copy item path</button></h1><rustdoc-toolbar></rustdoc-toolbar><span class="sub-heading"><a class="src" href="../../../src/synthia_tool/lib.rs.html#132">Source</a> </span></div><details class="toggle top-doc" open><summary class="hideme"><span>Expand description</span></summary><div class="docblock"><p>The model-facing tool surface: one pure projection from registered
+<a href="../struct.ToolDescriptor.html" title="struct synthia::tool::ToolDescriptor"><code>ToolDescriptor</code></a>s to the <a href="../../provider/struct.ToolDefinition.html" title="struct synthia::provider::ToolDefinition"><code>ToolDefinition</code></a>s an LLM request
+carries.</p>
+<p>A registry answers two different questions — <em>what can run?</em> and
+<em>what is the model told about?</em> — and they must not be conflated.
+<a href="../../prelude/struct.ToolRegistry.html" title="struct synthia::prelude::ToolRegistry"><code>ToolRegistry</code></a> owns the first; this module
+owns the second. Nothing here mutates state, so a projection is
+replay-stable: the same descriptors + transcript + filter always
+yield the same list, in the same order.</p>
+<h3 id="exposure-rules"><a class="doc-anchor" href="#exposure-rules">§</a>Exposure rules</h3>
+<p>For each descriptor that survives the visibility filter:</p>
+<div><table><thead><tr><th>exposure</th><th>in the transcript</th><th>advertised as</th></tr></thead><tbody>
+<tr><td><code>Direct</code></td><td>either</td><td>name + description + full <code>parameters()</code> schema</td></tr>
+<tr><td><code>Deferred</code></td><td>no</td><td>name + description + open placeholder schema</td></tr>
+<tr><td><code>Deferred</code></td><td>yes</td><td>name + description + full <code>parameters()</code> schema</td></tr>
+<tr><td><code>Hidden</code></td><td>either</td><td>nothing</td></tr>
+</tbody></table>
+</div>
+<p><code>is_hidden</code> (the registry’s privacy flag) removes a tool from the
+projection regardless of its exposure; unlike
+<a href="../enum.ToolExposure.html#variant.Hidden" title="variant synthia::tool::ToolExposure::Hidden"><code>ToolExposure::Hidden</code></a> it <em>also</em> makes
+<a href="../../prelude/struct.ToolRegistry.html#method.run_stream" title="method synthia::prelude::ToolRegistry::run_stream"><code>ToolRegistry::run_stream</code></a>
+refuse the tool.</p>
+<p>A <code>Deferred</code> tool is advertised with
+<code>{"type":"object","additionalProperties":true}</code> instead of its real
+schema: the model can call it from the description alone, and the
+tool’s own argument validation still runs on dispatch. This is a
+deliberate divergence from pi
+(<code>packages/ai/src/utils/deferred-tools.ts</code>), which drops deferred
+tools from the advertised list entirely and relies on the
+transcript mentioning their names — a provider that rejects an
+unadvertised tool name would turn a prompt-economy choice into a
+hard failure.</p>
+<h3 id="promotion-is-transcript-derived"><a class="doc-anchor" href="#promotion-is-transcript-derived">§</a>Promotion is transcript-derived</h3>
+<p><a href="../fn.called_tool_names.html" title="fn synthia::tool::called_tool_names"><code>called_tool_names</code></a> scans the messages that will be sent and
+returns every tool name they mention, so a <code>Deferred</code> tool promotes
+itself on the next request after its first call without the
+registry — or any other mutable state — tracking anything.</p>
+<h3 id="composing-the-visible-name-filter"><a class="doc-anchor" href="#composing-the-visible-name-filter">§</a>Composing the visible-name filter</h3>
+<p><a href="../fn.project_tool_definitions.html" title="fn synthia::tool::project_tool_definitions"><code>project_tool_definitions</code></a> takes an optional set of visible
+names, which lets the tier cap and the groups seam reach the same
+projection:</p>
+
+<div class="example-wrap"><pre class="rust rust-example-rendered"><code><span class="kw">let </span>adaptive =
+    AdaptiveRegistry::new(Arc::clone(<span class="kw-2">&amp;</span>registry), ModelTier::Small);
+<span class="kw">let </span>visible: HashSet&lt;String&gt; =
+    adaptive.visible_tool_names().into_iter().collect();
+<span class="kw">let </span>defs = project_tool_definitions(
+    <span class="kw-2">&amp;</span>registry.descriptors(),
+    <span class="kw-2">&amp;</span>called_tool_names(<span class="kw-2">&amp;</span>messages),
+    <span class="prelude-val">Some</span>(<span class="kw-2">&amp;</span>visible),
+);</code></pre></div>
+<p><a href="../struct.GroupedRegistry.html" title="struct synthia::tool::GroupedRegistry"><code>GroupedRegistry</code></a> composes identically
+through its own <code>visible_tool_names()</code>. Passing <code>None</code> advertises
+every non-hidden tool.</p>
+<h3 id="deployment-level-policy"><a class="doc-anchor" href="#deployment-level-policy">§</a>Deployment-level policy</h3>
+<p><a href="../struct.ToolSurfacePolicy.html" title="struct synthia::tool::ToolSurfacePolicy"><code>ToolSurfacePolicy</code></a> is the serializable twin of those two
+wrappers: a deployment declares groups, an active set, and a cap
+once. <a href="../struct.ToolSurfacePolicy.html#method.apply" title="method synthia::tool::ToolSurfacePolicy::apply"><code>ToolSurfacePolicy::apply</code></a> writes the group verdict onto
+the registry’s <a href="../enum.ToolExposure.html" title="enum synthia::tool::ToolExposure"><code>ToolExposure</code></a>s, while
+<a href="../struct.ToolSurfacePolicy.html#method.visible_tool_names" title="method synthia::tool::ToolSurfacePolicy::visible_tool_names"><code>ToolSurfacePolicy::visible_tool_names</code></a> is the allow-list half
+the projection takes — so a config file reaches the same seam as
+the runtime wrappers.</p>
+</div></details><h2 id="structs" class="section-header">Structs<a href="#structs" class="anchor">§</a></h2><dl class="item-table"><dt><a class="struct" href="struct.ToolSurfacePolicy.html" title="struct synthia::tool::surface::ToolSurfacePolicy">Tool<wbr>Surface<wbr>Policy</a></dt><dd>A deployment-level description of the model-facing tool surface.</dd></dl><h2 id="enums" class="section-header">Enums<a href="#enums" class="anchor">§</a></h2><dl class="item-table"><dt><a class="enum" href="enum.SurfacePolicyError.html" title="enum synthia::tool::surface::SurfacePolicyError">Surface<wbr>Policy<wbr>Error</a></dt><dd>Why a <a href="../struct.ToolSurfacePolicy.html" title="struct synthia::tool::ToolSurfacePolicy"><code>ToolSurfacePolicy</code></a> was rejected.</dd></dl><h2 id="functions" class="section-header">Functions<a href="#functions" class="anchor">§</a></h2><dl class="item-table"><dt><a class="fn" href="fn.called_tool_names.html" title="fn synthia::tool::surface::called_tool_names">called_<wbr>tool_<wbr>names</a></dt><dd>Every tool name the transcript mentions: <code>ToolUse</code> names (the
+assistant asking for a tool) plus <code>ToolResult</code> names (a result
+injected or replayed without its matching call, e.g. from a session
+log).</dd><dt><a class="fn" href="fn.project_tool_definitions.html" title="fn synthia::tool::surface::project_tool_definitions">project_<wbr>tool_<wbr>definitions</a></dt><dd>Project <code>descriptors</code> into the model-facing tool list.</dd></dl></section></div></main></body></html>

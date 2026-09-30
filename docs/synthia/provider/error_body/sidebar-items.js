@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"constant":["MAX_PROVIDER_ERROR_BODY_CHARS"],"fn":["parse_provider_error_body"],"struct":["ProviderErrorBody"]};

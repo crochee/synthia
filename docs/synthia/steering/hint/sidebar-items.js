@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"enum":["HintPriority","InjectionPoint"],"struct":["ContextBudgetHint","HintMessage","IterationReminderHint","NoopHint","TruncationHint"],"trait":["Hint"]};

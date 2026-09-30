@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"enum":["AdmissionError","GateState"],"struct":["Gate","GateControl"]};

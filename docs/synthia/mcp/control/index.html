@@ -1,0 +1,53 @@
+<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><meta name="generator" content="rustdoc"><meta name="description" content="`McpControlTool` — the `mcp` tool: browse and call the remote tools a supervised MCP server advertises."><title>synthia::mcp::control - Rust</title><script>if(window.location.protocol!=="file:")document.head.insertAdjacentHTML("beforeend","SourceSerif4-Regular-6b053e98.ttf.woff2,FiraSans-Italic-81dc35de.woff2,FiraSans-Regular-0fe48ade.woff2,FiraSans-MediumItalic-ccf7e434.woff2,FiraSans-Medium-e1aa3f0a.woff2,SourceCodePro-Regular-8badfe75.ttf.woff2,SourceCodePro-Semibold-aa29a496.ttf.woff2".split(",").map(f=>`<link rel="preload" as="font" type="font/woff2"href="../../../static.files/${f}">`).join(""))</script><link rel="stylesheet" href="../../../static.files/normalize-9960930a.css"><link rel="stylesheet" href="../../../static.files/rustdoc-1ed95124.css"><meta name="rustdoc-vars" data-root-path="../../../" data-static-root-path="../../../static.files/" data-current-crate="synthia" data-themes="" data-resource-suffix="" data-rustdoc-version="1.98.1 (48a229cea 2026-09-01)" data-channel="1.98.1" data-search-js="search-9944d736.js" data-stringdex-js="stringdex-2da4960a.js" data-settings-js="settings-170eb4bf.js" ><script src="../../../static.files/storage-41dd4d93.js"></script><script defer src="../sidebar-items.js"></script><script defer src="../../../static.files/main-417ebf0a.js"></script><noscript><link rel="stylesheet" href="../../../static.files/noscript-f7c3ffd8.css"></noscript><link rel="alternate icon" type="image/png" href="../../../static.files/favicon-32x32-eab170b8.png"><link rel="icon" type="image/svg+xml" href="../../../static.files/favicon-044be391.svg"></head><body class="rustdoc mod"><a class="skip-main-content" href="#main-content">Skip to main content</a><!--[if lte IE 11]><div class="warning">This old browser is unsupported and will most likely display funky things.</div><![endif]--><rustdoc-topbar><h2><a href="#">Module control</a></h2></rustdoc-topbar><nav class="sidebar"><div class="sidebar-crate"><h2><a href="../../../synthia/index.html">synthia</a><span class="version">0.1.0</span></h2></div><div class="sidebar-elems"><section id="rustdoc-toc"><h2 class="location"><a href="#">Module control</a></h2><h3><a href="#">Sections</a></h3><ul class="block top-toc"><li><a href="#what-it-deliberately-cannot-do" title="What it deliberately cannot do">What it deliberately cannot do</a></li><li><a href="#the-supervisor-must-be-ticked" title="The supervisor must be ticked">The supervisor must be ticked</a></li><li><a href="#governance" title="Governance">Governance</a></li></ul><h3><a href="#structs">Module Items</a></h3><ul class="block"><li><a href="#structs" title="Structs">Structs</a></li><li><a href="#constants" title="Constants">Constants</a></li><li><a href="#functions" title="Functions">Functions</a></li></ul></section><div id="rustdoc-modnav"><h2><a href="../index.html">In synthia::<wbr>mcp</a></h2></div></div></nav><div class="sidebar-resizer" title="Drag to resize sidebar"></div><main><div class="width-limiter"><section id="main-content" class="content" tabindex="-1"><div class="main-heading"><div class="rustdoc-breadcrumbs"><a href="../../index.html">synthia</a>::<wbr><a href="../index.html">mcp</a></div><h1>Module <span>control</span>&nbsp;<button id="copy-path" title="Copy item path to clipboard">Copy item path</button></h1><rustdoc-toolbar></rustdoc-toolbar><span class="sub-heading"><a class="src" href="../../../src/synthia_mcp/lib.rs.html#61">Source</a> </span></div><details class="toggle top-doc" open><summary class="hideme"><span>Expand description</span></summary><div class="docblock"><p><a href="../struct.McpControlTool.html" title="struct synthia::mcp::McpControlTool"><code>McpControlTool</code></a> — the <code>mcp</code> tool: browse and call the remote
+tools a supervised MCP server advertises.</p>
+<p>Two ways an MCP server’s tools reach the model, and they answer
+different questions:</p>
+<div><table><thead><tr><th>path</th><th>shape</th><th>when to use it</th></tr></thead><tbody>
+<tr><td><a href="../struct.McpTool.html" title="struct synthia::mcp::McpTool"><code>McpTool</code></a></td><td>one local <a href="../../prelude/trait.Tool.html" title="trait synthia::prelude::Tool"><code>Tool</code></a> per discovered remote tool, published by <a href="../fn.register_mcp_tools.html" title="fn synthia::mcp::register_mcp_tools"><code>register_mcp_tools</code></a></td><td>the host knows the catalog at assembly time and wants each remote schema in the model’s own tool list</td></tr>
+<tr><td><a href="../struct.McpControlTool.html" title="struct synthia::mcp::McpControlTool"><code>McpControlTool</code></a></td><td>one <code>mcp</code> tool, three actions</td><td>the catalog is larger than the context budget, changes while the run is live, or was never pre-registered</td></tr>
+</tbody></table>
+</div>
+<p>Both paths dispatch over the same <a href="../struct.McpClient.html" title="struct synthia::mcp::McpClient"><code>McpClient</code></a> and render through
+the same projection (the private <code>tool::output_from_result</code>), so a
+remote image survives either way — the control tool only changes
+<em>how the call is addressed</em>.</p>
+<h3 id="what-it-deliberately-cannot-do"><a class="doc-anchor" href="#what-it-deliberately-cannot-do">§</a>What it deliberately cannot do</h3>
+<p>The tool is bound to an <a href="../struct.McpSupervisor.html" title="struct synthia::mcp::McpSupervisor"><code>McpSupervisor</code></a>, so it sees exactly the
+servers the host already supervises. It cannot spawn a process,
+open a socket, or register a new server: a model-issued call can
+only read the configured catalog and invoke a tool from it. Adding
+a server stays a host action (<a href="../struct.McpSupervisor.html#method.supervise" title="method synthia::mcp::McpSupervisor::supervise"><code>McpSupervisor::supervise</code></a>).</p>
+<h3 id="the-supervisor-must-be-ticked"><a class="doc-anchor" href="#the-supervisor-must-be-ticked">§</a>The supervisor must be ticked</h3>
+<p>Every action reads what the host’s last
+<a href="../struct.McpSupervisor.html#method.tick" title="method synthia::mcp::McpSupervisor::tick"><code>tick</code></a> established — health, live clients,
+the registered generation. A supervisor that is never ticked
+reports its servers as <code>pending</code> and the tool will refuse every
+call. The tool does not tick on the caller’s behalf: ticking is the
+host’s timer, and a tool that ticked would be a second scheduler
+beside the host’s.</p>
+<h3 id="governance"><a class="doc-anchor" href="#governance">§</a>Governance</h3>
+<p>This is a <em>second</em> dispatch path over remote tools, so it honours
+the same boundary the registry enforces: a remote tool whose
+registered counterpart carries the privacy flag
+(<a href="../../prelude/struct.ToolRegistry.html#method.set_hidden" title="method synthia::prelude::ToolRegistry::set_hidden"><code>ToolRegistry::set_hidden</code></a>, what a deployment writes with
+<code>[tools] hidden = [...]</code>) is neither listed by <code>tools</code> nor callable
+through <code>call</code>. The softer <a href="../../tool/enum.ToolExposure.html#variant.Hidden" title="variant synthia::tool::ToolExposure::Hidden"><code>ToolExposure::Hidden</code></a> stays
+advertisement-only, exactly as the registry treats it (see
+<code>synthia_tool::registry::dispatch</code>).</p>
+
+<div class="example-wrap"><pre class="rust rust-example-rendered"><code><span class="kw">use </span>std::sync::Arc;
+
+<span class="kw">use </span>synthia_mcp::{McpControlTool, McpSupervisor};
+<span class="kw">use </span>synthia_tool::{Tool <span class="kw">as _</span>, ToolRegistry};
+
+<span class="kw">let </span>supervisor = Arc::new(McpSupervisor::new());
+<span class="kw">let </span>registry = Arc::new(ToolRegistry::new());
+<span class="comment">// The tool observes the very registry the agent loop reads, so a
+// hidden remote tool cannot be reached through it either.
+</span><span class="kw">let </span>tool = McpControlTool::new(Arc::clone(<span class="kw-2">&amp;</span>supervisor), <span class="kw-2">&amp;</span>registry);
+<span class="macro">assert_eq!</span>(tool.name(), <span class="string">"mcp"</span>);</code></pre></div>
+<p>The tool claims the bare <code>mcp</code> name, which the default namespaced
+policy (<a href="../enum.NamingPolicy.html#variant.Namespaced" title="variant synthia::mcp::NamingPolicy::Namespaced"><code>NamingPolicy::Namespaced</code></a>)
+leaves free: a remote tool registers as <code>mcp__&lt;server&gt;__&lt;tool&gt;</code>.</p>
+</div></details><h2 id="structs" class="section-header">Structs<a href="#structs" class="anchor">§</a></h2><dl class="item-table"><dt><a class="struct" href="struct.McpControlTool.html" title="struct synthia::mcp::control::McpControlTool">McpControl<wbr>Tool</a></dt><dd>The <code>mcp</code> control tool: <code>servers</code> / <code>tools</code> / <code>call</code> over an
+<a href="../struct.McpSupervisor.html" title="struct synthia::mcp::McpSupervisor"><code>McpSupervisor</code></a>.</dd></dl><h2 id="constants" class="section-header">Constants<a href="#constants" class="anchor">§</a></h2><dl class="item-table"><dt><a class="constant" href="constant.MCP_TOOL_NAME.html" title="constant synthia::mcp::control::MCP_TOOL_NAME">MCP_<wbr>TOOL_<wbr>NAME</a></dt><dd>The name the control tool registers under.</dd></dl><h2 id="functions" class="section-header">Functions<a href="#functions" class="anchor">§</a></h2><dl class="item-table"><dt><a class="fn" href="fn.register_mcp_control_tool.html" title="fn synthia::mcp::control::register_mcp_control_tool">register_<wbr>mcp_<wbr>control_<wbr>tool</a></dt><dd>Publish the <code>mcp</code> control tool into <code>registry</code>.</dd></dl></section></div></main></body></html>

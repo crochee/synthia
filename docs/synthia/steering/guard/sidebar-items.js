@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"enum":["GuardOutcome","GuardResult","GuardSeverity"],"fn":["run_guards"],"struct":["NoopGuard"],"trait":["Guard"]};

@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"enum":["MessageCacheStrategy"],"fn":["apply_cache_policy","resolve_cache_policy"],"struct":["CachePolicy","CachePolicyApplier","IdentityCacheHook"],"trait":["CacheStrategyHook"]};

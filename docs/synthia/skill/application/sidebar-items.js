@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"enum":["SkillApplicationError","SkillResponseContent"],"struct":["RegisteredSkillApplication","SkillApplicationBuilder","SkillApplicationContext","SkillRequest","SkillResponse"],"type":["SkillApplication"]};

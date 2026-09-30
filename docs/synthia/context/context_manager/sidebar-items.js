@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"constant":["FINGERPRINT_WINDOW"],"struct":["AgentState","NoopContextManager","TruncatingContextManager","UsageMeter"],"trait":["ContextManager"],"type":["SharedContextManager"]};

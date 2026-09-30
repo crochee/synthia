@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"fn":["is_silent_overflow","synthesize_orphan_result"],"struct":["ContextOverflowDetector"]};

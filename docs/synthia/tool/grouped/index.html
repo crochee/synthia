@@ -1,0 +1,64 @@
+<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><meta name="generator" content="rustdoc"><meta name="description" content="`GroupedRegistry` — named tool groups with independent activation."><title>synthia::tool::grouped - Rust</title><script>if(window.location.protocol!=="file:")document.head.insertAdjacentHTML("beforeend","SourceSerif4-Regular-6b053e98.ttf.woff2,FiraSans-Italic-81dc35de.woff2,FiraSans-Regular-0fe48ade.woff2,FiraSans-MediumItalic-ccf7e434.woff2,FiraSans-Medium-e1aa3f0a.woff2,SourceCodePro-Regular-8badfe75.ttf.woff2,SourceCodePro-Semibold-aa29a496.ttf.woff2".split(",").map(f=>`<link rel="preload" as="font" type="font/woff2"href="../../../static.files/${f}">`).join(""))</script><link rel="stylesheet" href="../../../static.files/normalize-9960930a.css"><link rel="stylesheet" href="../../../static.files/rustdoc-1ed95124.css"><meta name="rustdoc-vars" data-root-path="../../../" data-static-root-path="../../../static.files/" data-current-crate="synthia" data-themes="" data-resource-suffix="" data-rustdoc-version="1.98.1 (48a229cea 2026-09-01)" data-channel="1.98.1" data-search-js="search-9944d736.js" data-stringdex-js="stringdex-2da4960a.js" data-settings-js="settings-170eb4bf.js" ><script src="../../../static.files/storage-41dd4d93.js"></script><script defer src="../sidebar-items.js"></script><script defer src="../../../static.files/main-417ebf0a.js"></script><noscript><link rel="stylesheet" href="../../../static.files/noscript-f7c3ffd8.css"></noscript><link rel="alternate icon" type="image/png" href="../../../static.files/favicon-32x32-eab170b8.png"><link rel="icon" type="image/svg+xml" href="../../../static.files/favicon-044be391.svg"></head><body class="rustdoc mod"><a class="skip-main-content" href="#main-content">Skip to main content</a><!--[if lte IE 11]><div class="warning">This old browser is unsupported and will most likely display funky things.</div><![endif]--><rustdoc-topbar><h2><a href="#">Module grouped</a></h2></rustdoc-topbar><nav class="sidebar"><div class="sidebar-crate"><h2><a href="../../../synthia/index.html">synthia</a><span class="version">0.1.0</span></h2></div><div class="sidebar-elems"><section id="rustdoc-toc"><h2 class="location"><a href="#">Module grouped</a></h2><h3><a href="#">Sections</a></h3><ul class="block top-toc"><li><a href="#the-point-visibility--executability" title="The point: visibility ≠ executability">The point: visibility ≠ executability</a></li><li><a href="#deliberate-divergences-from-traitclaw" title="Deliberate divergences from traitclaw">Deliberate divergences from traitclaw</a></li><li><a href="#group-naming-and-ordering" title="Group naming and ordering">Group naming and ordering</a></li><li><a href="#declaring-a-group-hides-it-until-activation" title="Declaring a group hides it until activation">Declaring a group hides it until activation</a></li><li><a href="#consuming-the-active-set" title="Consuming the active set">Consuming the active set</a></li></ul><h3><a href="#structs">Module Items</a></h3><ul class="block"><li><a href="#structs" title="Structs">Structs</a></li><li><a href="#enums" title="Enums">Enums</a></li></ul></section><div id="rustdoc-modnav"><h2><a href="../index.html">In synthia::<wbr>tool</a></h2></div></div></nav><div class="sidebar-resizer" title="Drag to resize sidebar"></div><main><div class="width-limiter"><section id="main-content" class="content" tabindex="-1"><div class="main-heading"><div class="rustdoc-breadcrumbs"><a href="../../index.html">synthia</a>::<wbr><a href="../index.html">tool</a></div><h1>Module <span>grouped</span>&nbsp;<button id="copy-path" title="Copy item path to clipboard">Copy item path</button></h1><rustdoc-toolbar></rustdoc-toolbar><span class="sub-heading"><a class="src" href="../../../src/synthia_tool/lib.rs.html#125">Source</a> </span></div><details class="toggle top-doc" open><summary class="hideme"><span>Expand description</span></summary><div class="docblock"><p><a href="../struct.GroupedRegistry.html" title="struct synthia::tool::GroupedRegistry"><code>GroupedRegistry</code></a> — named tool groups with independent
+activation.</p>
+<p>Adopted from traitclaw
+<code>crates/traitclaw-core/src/registries.rs:170-310</code>
+(<code>GroupedRegistry::group</code> / <code>activate_group</code> /
+<code>deactivate_group</code>). A deployment declares <em>named groups</em> over the
+tools it registered and decides, at runtime, which groups the
+model is told about.</p>
+<h3 id="the-point-visibility--executability"><a class="doc-anchor" href="#the-point-visibility--executability">§</a>The point: visibility ≠ executability</h3>
+<p>Only tools in active groups (plus tools no group claims) appear in
+<a href="../struct.GroupedRegistry.html#method.visible_tool_names" title="method synthia::tool::GroupedRegistry::visible_tool_names"><code>GroupedRegistry::visible_tool_names</code></a>. Dispatch is <strong>not</strong>
+touched: the wrapper never gates execution, so a tool whose group
+is deactivated stays callable through
+<a href="../../prelude/struct.ToolRegistry.html#method.run_stream" title="method synthia::prelude::ToolRegistry::run_stream"><code>ToolRegistry::run_stream</code></a> — which is exactly what a skill, a
+workflow step, or a subagent needs when the <em>model</em> is not
+supposed to see the tool. Narrowing what the model sees is a
+prompt-budget and focus decision; it is not and must not be a
+security boundary. (Hidden tools, by contrast, are refused by both
+<code>snapshot</code> and <code>run_stream</code> — that is the registry’s own privacy
+contract, and it is unchanged here.)</p>
+<h3 id="deliberate-divergences-from-traitclaw"><a class="doc-anchor" href="#deliberate-divergences-from-traitclaw">§</a>Deliberate divergences from traitclaw</h3>
+<ul>
+<li><strong>Read-side wrapper, not a registry.</strong> The wrapper holds
+<code>Arc&lt;ToolRegistry&gt;</code> and only re-shapes the LLM-facing list, like
+<a href="../struct.AdaptiveRegistry.html" title="struct synthia::tool::AdaptiveRegistry"><code>AdaptiveRegistry</code></a>. Registration,
+name uniqueness, panic isolation and dispatch stay in one place.</li>
+<li><strong>Ungrouped tools stay visible.</strong> traitclaw’s registry <em>is</em> the
+groups, so a tool outside every group does not exist. A wrapper
+cannot make that assumption about an existing catalog: grouping
+is opt-in narrowing, and a deployment that declares no group
+sees the catalog it had.</li>
+<li><strong>One group per tool.</strong> “Which group advertises this?” has
+exactly one answer, so visibility never depends on the order
+groups were declared (traitclaw searches a <code>HashMap</code> of groups,
+where the first match is arbitrary).</li>
+<li><strong>Declarations are validated, not trusted.</strong> An unknown tool
+name or a tool claimed by two groups is a wiring error raised at
+declaration time (<a href="../enum.GroupError.html" title="enum synthia::tool::GroupError"><code>GroupError</code></a>), not a silent no-op.</li>
+</ul>
+<h3 id="group-naming-and-ordering"><a class="doc-anchor" href="#group-naming-and-ordering">§</a>Group naming and ordering</h3>
+<p>Group names are <code>BTreeMap</code> keys, so <a href="../struct.GroupedRegistry.html#method.group_names" title="method synthia::tool::GroupedRegistry::group_names"><code>GroupedRegistry::group_names</code></a>
+and <a href="../struct.GroupedRegistry.html#method.active_group_names" title="method synthia::tool::GroupedRegistry::active_group_names"><code>GroupedRegistry::active_group_names</code></a> are sorted
+deterministically — logs and tests do not depend on insertion
+order. Membership lists keep the declaration order given, which is
+the order a caller wrote them in. The <em>visible</em> list, by contrast,
+follows <a href="../../prelude/struct.ToolRegistry.html#method.snapshot" title="method synthia::prelude::ToolRegistry::snapshot"><code>ToolRegistry::snapshot</code></a>’s order (sorted by tool name),
+so it is byte-stable for the same tool set.</p>
+<h3 id="declaring-a-group-hides-it-until-activation"><a class="doc-anchor" href="#declaring-a-group-hides-it-until-activation">§</a>Declaring a group hides it until activation</h3>
+<p>A declaration is an opt-in narrowing, so a tool named by a group
+is not advertised until that group is active: a deployment
+declares every group, then activates the ones this run should
+offer. A tool no declaration mentions is advertised throughout.</p>
+<h3 id="consuming-the-active-set"><a class="doc-anchor" href="#consuming-the-active-set">§</a>Consuming the active set</h3>
+<p><a href="../struct.GroupedRegistry.html#method.visible_tool_names" title="method synthia::tool::GroupedRegistry::visible_tool_names"><code>GroupedRegistry::visible_tool_names</code></a> is the allow-list half of
+the projection in <a href="../surface/index.html" title="mod synthia::tool::surface"><code>crate::surface</code></a>:</p>
+
+<div class="example-wrap ignore"><a href="#" class="tooltip" title="This example is not tested">ⓘ</a><pre class="rust rust-example-rendered"><code><span class="kw">let </span>visible: HashSet&lt;String&gt; =
+    grouped.visible_tool_names().into_iter().collect();
+<span class="kw">let </span>defs = synthia_tool::project_tool_definitions(
+    <span class="kw-2">&amp;</span>registry.descriptors(),
+    <span class="kw-2">&amp;</span>synthia_tool::called_tool_names(<span class="kw-2">&amp;</span>messages),
+    <span class="prelude-val">Some</span>(<span class="kw-2">&amp;</span>visible),
+);</code></pre></div></div></details><h2 id="structs" class="section-header">Structs<a href="#structs" class="anchor">§</a></h2><dl class="item-table"><dt><a class="struct" href="struct.GroupedRegistry.html" title="struct synthia::tool::grouped::GroupedRegistry">Grouped<wbr>Registry</a></dt><dd>Named tool groups with independent activation, over a shared
+<a href="../../prelude/struct.ToolRegistry.html" title="struct synthia::prelude::ToolRegistry"><code>ToolRegistry</code></a>.</dd></dl><h2 id="enums" class="section-header">Enums<a href="#enums" class="anchor">§</a></h2><dl class="item-table"><dt><a class="enum" href="enum.GroupError.html" title="enum synthia::tool::grouped::GroupError">Group<wbr>Error</a></dt><dd>Why a group declaration or activation was rejected.</dd></dl></section></div></main></body></html>

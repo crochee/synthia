@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"constant":["SUMMARY_TAG"],"enum":["CompactionLifecycle"],"fn":["as_summarise_fn"],"struct":["CompactionRecord","SummarizingContextManager","ToolCallArchive","ToolCallRecord"],"type":["CompactionHookFn","SummariseFn"]};

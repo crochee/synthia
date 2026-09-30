@@ -1,0 +1,41 @@
+<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><meta name="generator" content="rustdoc"><meta name="description" content="Crash-repair: synthesise the boundary events that close an open tail turn after a process crash."><title>synthia::session::repair - Rust</title><script>if(window.location.protocol!=="file:")document.head.insertAdjacentHTML("beforeend","SourceSerif4-Regular-6b053e98.ttf.woff2,FiraSans-Italic-81dc35de.woff2,FiraSans-Regular-0fe48ade.woff2,FiraSans-MediumItalic-ccf7e434.woff2,FiraSans-Medium-e1aa3f0a.woff2,SourceCodePro-Regular-8badfe75.ttf.woff2,SourceCodePro-Semibold-aa29a496.ttf.woff2".split(",").map(f=>`<link rel="preload" as="font" type="font/woff2"href="../../../static.files/${f}">`).join(""))</script><link rel="stylesheet" href="../../../static.files/normalize-9960930a.css"><link rel="stylesheet" href="../../../static.files/rustdoc-1ed95124.css"><meta name="rustdoc-vars" data-root-path="../../../" data-static-root-path="../../../static.files/" data-current-crate="synthia" data-themes="" data-resource-suffix="" data-rustdoc-version="1.98.1 (48a229cea 2026-09-01)" data-channel="1.98.1" data-search-js="search-9944d736.js" data-stringdex-js="stringdex-2da4960a.js" data-settings-js="settings-170eb4bf.js" ><script src="../../../static.files/storage-41dd4d93.js"></script><script defer src="../sidebar-items.js"></script><script defer src="../../../static.files/main-417ebf0a.js"></script><noscript><link rel="stylesheet" href="../../../static.files/noscript-f7c3ffd8.css"></noscript><link rel="alternate icon" type="image/png" href="../../../static.files/favicon-32x32-eab170b8.png"><link rel="icon" type="image/svg+xml" href="../../../static.files/favicon-044be391.svg"></head><body class="rustdoc mod"><a class="skip-main-content" href="#main-content">Skip to main content</a><!--[if lte IE 11]><div class="warning">This old browser is unsupported and will most likely display funky things.</div><![endif]--><rustdoc-topbar><h2><a href="#">Module repair</a></h2></rustdoc-topbar><nav class="sidebar"><div class="sidebar-crate"><h2><a href="../../../synthia/index.html">synthia</a><span class="version">0.1.0</span></h2></div><div class="sidebar-elems"><section id="rustdoc-toc"><h2 class="location"><a href="#">Module repair</a></h2><h3><a href="#">Sections</a></h3><ul class="block top-toc"><li><a href="#what-gets-synthesised" title="What gets synthesised">What gets synthesised</a></li><li><a href="#compaction-crash-detection" title="Compaction crash detection">Compaction crash detection</a></li><li><a href="#wire-stable-codes" title="Wire-stable codes">Wire-stable codes</a></li></ul><h3><a href="#structs">Module Items</a></h3><ul class="block"><li><a href="#structs" title="Structs">Structs</a></li><li><a href="#constants" title="Constants">Constants</a></li><li><a href="#functions" title="Functions">Functions</a></li></ul></section><div id="rustdoc-modnav"><h2><a href="../index.html">In synthia::<wbr>session</a></h2></div></div></nav><div class="sidebar-resizer" title="Drag to resize sidebar"></div><main><div class="width-limiter"><section id="main-content" class="content" tabindex="-1"><div class="main-heading"><div class="rustdoc-breadcrumbs"><a href="../../index.html">synthia</a>::<wbr><a href="../index.html">session</a></div><h1>Module <span>repair</span>&nbsp;<button id="copy-path" title="Copy item path to clipboard">Copy item path</button></h1><rustdoc-toolbar></rustdoc-toolbar><span class="sub-heading"><a class="src" href="../../../src/synthia_session/lib.rs.html#63">Source</a> </span></div><details class="toggle top-doc" open><summary class="hideme"><span>Expand description</span></summary><div class="docblock"><p>Crash-repair: synthesise the boundary events that close an
+open tail turn after a process crash.</p>
+<p>Mirrors <code>deepseek-harness</code>’s <code>core/session/src/repair.ts</code>.
+<code>interrupted_turn_closers</code> walks a <code>[SessionEvent]</code> log and,
+when it finds an open tail (assistant message with tool
+calls but no matching tool results), emits the synthetic
+events needed to balance the log so the next run can resume
+from a well-formed prefix.</p>
+<h3 id="what-gets-synthesised"><a class="doc-anchor" href="#what-gets-synthesised">§</a>What gets synthesised</h3>
+<p>For each dangling tool call recorded in the open assistant
+message:</p>
+<ol>
+<li>A <code>ToolResult</code> event with an <code>error: TOOL_NOT_STARTED</code>
+payload (the call was emitted to the wire but no
+provider-side state was recorded for it) OR
+<code>TOOL_OUTCOME_UNKNOWN</code> (the call was recorded but no
+completion row was durably committed — the agent must
+replay-or-retry on resume).</li>
+<li>A <code>Step { kind: "end", turn, step }</code> event if a step is
+currently open.</li>
+<li>A <code>Turn { kind: "end", turn, reason: "interrupted" }</code> event.</li>
+</ol>
+<p>Timestamps on synthetic events reuse the last real event’s
+timestamp so the wire stays deterministic and the
+continuation never invents a “future” wall-clock value.</p>
+<h3 id="compaction-crash-detection"><a class="doc-anchor" href="#compaction-crash-detection">§</a>Compaction crash detection</h3>
+<p><a href="../fn.orphaned_compactions.html" title="fn synthia::session::orphaned_compactions"><code>orphaned_compactions</code></a> covers the other half of crash
+repair: a <code>CompactionStart</code> whose <code>CompactionEnd</code> never
+reached the log. The caller decides whether to re-emit the
+end as <code>interrupted</code> or replay the compaction.</p>
+<h3 id="wire-stable-codes"><a class="doc-anchor" href="#wire-stable-codes">§</a>Wire-stable codes</h3>
+<p>The two <code>TOOL_*</code> string codes match dsh’s export names so
+downstream consumers (UI, dashboard, prompt recovery flow)
+can recognise them across the two runtimes.</p>
+</div></details><h2 id="structs" class="section-header">Structs<a href="#structs" class="anchor">§</a></h2><dl class="item-table"><dt><a class="struct" href="struct.OrphanedCompaction.html" title="struct synthia::session::repair::OrphanedCompaction">Orphaned<wbr>Compaction</a></dt><dd>A <code>CompactionStart</code> with no matching <code>CompactionEnd</code>.</dd></dl><h2 id="constants" class="section-header">Constants<a href="#constants" class="anchor">§</a></h2><dl class="item-table"><dt><a class="constant" href="constant.TOOL_NOT_STARTED.html" title="constant synthia::session::repair::TOOL_NOT_STARTED">TOOL_<wbr>NOT_<wbr>STARTED</a></dt><dd>Recovery code for an assistant tool request that never reached
+a recorded call start.</dd><dt><a class="constant" href="constant.TOOL_OUTCOME_UNKNOWN.html" title="constant synthia::session::repair::TOOL_OUTCOME_UNKNOWN">TOOL_<wbr>OUTCOME_<wbr>UNKNOWN</a></dt><dd>Recovery code for a recorded tool call whose completed outcome
+was not durably recorded.</dd><dt><a class="constant" href="constant.TURN_INTERRUPTED.html" title="constant synthia::session::repair::TURN_INTERRUPTED">TURN_<wbr>INTERRUPTED</a></dt><dd>Recovery reason attached to the synthesised
+<code>Turn { kind: "end" }</code> closer.</dd></dl><h2 id="functions" class="section-header">Functions<a href="#functions" class="anchor">§</a></h2><dl class="item-table"><dt><a class="fn" href="fn.compaction_outcomes.html" title="fn synthia::session::repair::compaction_outcomes">compaction_<wbr>outcomes</a></dt><dd>The loader-side view of every compaction in a log: one
+<code>(token, outcome)</code> per lifecycle, in log order.</dd><dt><a class="fn" href="fn.interrupted_turn_closers.html" title="fn synthia::session::repair::interrupted_turn_closers">interrupted_<wbr>turn_<wbr>closers</a></dt><dd>Synthesise the boundary events needed to close an open tail
+turn after a crash.</dd><dt><a class="fn" href="fn.orphaned_compactions.html" title="fn synthia::session::repair::orphaned_compactions">orphaned_<wbr>compactions</a></dt><dd>Scan a session log for compaction lifecycles that began but
+never ended.</dd></dl></section></div></main></body></html>

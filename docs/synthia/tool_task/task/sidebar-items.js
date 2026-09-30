@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"constant":["MAX_SUBAGENT_DEPTH","TASK_TOOL_NAME"],"fn":["task_tool_definition","task_tool_definition_with_features"],"struct":["TaskDelegator","TaskSpec"]};

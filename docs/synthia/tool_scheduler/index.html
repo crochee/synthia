@@ -1,0 +1,41 @@
+<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><meta name="generator" content="rustdoc"><meta name="description" content="`synthia_tool_scheduler` — the `schedule` tool: create and manage scheduled jobs from the model side."><title>synthia::tool_scheduler - Rust</title><script>if(window.location.protocol!=="file:")document.head.insertAdjacentHTML("beforeend","SourceSerif4-Regular-6b053e98.ttf.woff2,FiraSans-Italic-81dc35de.woff2,FiraSans-Regular-0fe48ade.woff2,FiraSans-MediumItalic-ccf7e434.woff2,FiraSans-Medium-e1aa3f0a.woff2,SourceCodePro-Regular-8badfe75.ttf.woff2,SourceCodePro-Semibold-aa29a496.ttf.woff2".split(",").map(f=>`<link rel="preload" as="font" type="font/woff2"href="../../static.files/${f}">`).join(""))</script><link rel="stylesheet" href="../../static.files/normalize-9960930a.css"><link rel="stylesheet" href="../../static.files/rustdoc-1ed95124.css"><meta name="rustdoc-vars" data-root-path="../../" data-static-root-path="../../static.files/" data-current-crate="synthia" data-themes="" data-resource-suffix="" data-rustdoc-version="1.98.1 (48a229cea 2026-09-01)" data-channel="1.98.1" data-search-js="search-9944d736.js" data-stringdex-js="stringdex-2da4960a.js" data-settings-js="settings-170eb4bf.js" ><script src="../../static.files/storage-41dd4d93.js"></script><script defer src="../sidebar-items.js"></script><script defer src="../../static.files/main-417ebf0a.js"></script><noscript><link rel="stylesheet" href="../../static.files/noscript-f7c3ffd8.css"></noscript><link rel="alternate icon" type="image/png" href="../../static.files/favicon-32x32-eab170b8.png"><link rel="icon" type="image/svg+xml" href="../../static.files/favicon-044be391.svg"></head><body class="rustdoc mod"><a class="skip-main-content" href="#main-content">Skip to main content</a><!--[if lte IE 11]><div class="warning">This old browser is unsupported and will most likely display funky things.</div><![endif]--><rustdoc-topbar><h2><a href="#">Module tool_scheduler</a></h2></rustdoc-topbar><nav class="sidebar"><div class="sidebar-crate"><h2><a href="../../synthia/index.html">synthia</a><span class="version">0.1.0</span></h2></div><div class="sidebar-elems"><section id="rustdoc-toc"><h2 class="location"><a href="#">Module tool_<wbr>scheduler</a></h2><h3><a href="#structs">Module Items</a></h3><ul class="block"><li><a href="#structs" title="Structs">Structs</a></li><li><a href="#constants" title="Constants">Constants</a></li><li><a href="#functions" title="Functions">Functions</a></li></ul></section><div id="rustdoc-modnav"><h2 class="in-crate"><a href="../index.html">In crate synthia</a></h2></div></div></nav><div class="sidebar-resizer" title="Drag to resize sidebar"></div><main><div class="width-limiter"><section id="main-content" class="content" tabindex="-1"><div class="main-heading"><div class="rustdoc-breadcrumbs"><a href="../index.html">synthia</a></div><h1>Module <span>tool_<wbr>scheduler</span>&nbsp;<button id="copy-path" title="Copy item path to clipboard">Copy item path</button></h1><rustdoc-toolbar></rustdoc-toolbar><span class="sub-heading"><a class="src" href="../../src/synthia/tool_scheduler.rs.html#1-55">Source</a> </span></div><details class="toggle top-doc" open><summary class="hideme"><span>Expand description</span></summary><div class="docblock"><p><a href="../../synthia_tool_scheduler/index.html" title="mod synthia_tool_scheduler"><code>synthia_tool_scheduler</code></a> — the <code>schedule</code> tool: create and manage
+scheduled jobs from the model side.</p>
+<p>The <a href="../scheduler/index.html" title="mod synthia::scheduler"><code>scheduler</code></a> feature ships the <em>building
+block</em> — a <a href="../scheduler/struct.ScheduleStore.html" title="struct synthia::scheduler::ScheduleStore"><code>ScheduleStore</code></a> and a
+<a href="../scheduler/struct.Scheduler.html" title="struct synthia::scheduler::Scheduler"><code>Scheduler</code></a> whose <code>tick(now)</code> the
+host drives. This module is its model-facing adapter:
+<a href="struct.SchedulerTool.html" title="struct synthia::tool_scheduler::SchedulerTool"><code>SchedulerTool</code></a> is one <a href="../prelude/trait.Tool.html" title="trait synthia::prelude::Tool"><code>Tool</code></a> with five
+actions (<code>list</code> / <code>create</code> / <code>pause</code> / <code>resume</code> / <code>remove</code>), so an
+agent can read and edit the schedule without the host hand-coding a
+tool per verb.</p>
+
+<div class="example-wrap ignore"><a href="#" class="tooltip" title="This example is not tested">ⓘ</a><pre class="rust rust-example-rendered"><code><span class="kw">use </span>std::sync::Arc;
+
+<span class="kw">use </span>synthia::prelude::<span class="kw-2">*</span>;
+<span class="kw">use </span>synthia::scheduler::ScheduleStore;
+<span class="kw">use </span>synthia::tool_scheduler::{SchedulerTool, register_scheduler_tool};
+
+<span class="comment">// One store, shared: the tool writes rows, the host's scheduler
+// tick delivers them.
+</span><span class="kw">let </span>store = Arc::new(ScheduleStore::new(<span class="string">".synthia/schedules"</span>));
+<span class="kw">let </span>registry = ToolRegistry::new();
+register_scheduler_tool(<span class="kw-2">&amp;</span>registry, SchedulerTool::new(Arc::clone(<span class="kw-2">&amp;</span>store)));
+
+<span class="kw">let </span>scheduler = synthia::scheduler::Scheduler::new(store);
+<span class="comment">// Drive the schedule from the consumer's own timer: a tool action
+// writes the store directly, and the next pass notices it.
+</span>scheduler.tick(now);</code></pre></div>
+<p>The tool never fires a job: it plans, the host delivers. That split
+is the whole design — see the crate docs for the delivery boundary
+and for why <code>cron</code> is opt-in (the <code>cron</code> feature).</p>
+<p><strong>A write reaches the next pass on its own.</strong> Every action here
+writes the store directly, and the wheel <code>Scheduler</code> ticks off
+notices: each pass compares the store’s revision with the one its
+wheel was built from and rebuilds when they differ. Nothing has to
+be reconciled by hand.</p>
+<p><a href="../scheduler/struct.Scheduler.html#method.resync" title="method synthia::scheduler::Scheduler::resync"><code>Scheduler::resync</code></a> remains
+as a retained explicit-rebuild escape hatch: it forces the rebuild at
+an instant of the caller’s choosing, rather than waiting for the next
+pass to notice:</p>
+
+<div class="example-wrap ignore"><a href="#" class="tooltip" title="This example is not tested">ⓘ</a><pre class="rust rust-example-rendered"><code>scheduler.resync(now); <span class="comment">// explicit rebuild; the next tick would do it too</span></code></pre></div><div class="example-wrap"><pre class="language-bash"><code>cargo run --example schedule_jobs -p synthia-tool-scheduler</code></pre></div></div></details><h2 id="structs" class="section-header">Structs<a href="#structs" class="anchor">§</a></h2><dl class="item-table"><dt><a class="struct" href="struct.SchedulerTool.html" title="struct synthia::tool_scheduler::SchedulerTool">Scheduler<wbr>Tool</a></dt><dd>The <code>schedule</code> tool: one handle over a shared <a href="../scheduler/struct.ScheduleStore.html" title="struct synthia::scheduler::ScheduleStore"><code>ScheduleStore</code></a>.</dd></dl><h2 id="constants" class="section-header">Constants<a href="#constants" class="anchor">§</a></h2><dl class="item-table"><dt><a class="constant" href="constant.MAX_JOBS.html" title="constant synthia::tool_scheduler::MAX_JOBS">MAX_<wbr>JOBS</a></dt><dd>Most jobs one store may hold.</dd><dt><a class="constant" href="constant.SCHEDULE_TOOL_NAME.html" title="constant synthia::tool_scheduler::SCHEDULE_TOOL_NAME">SCHEDULE_<wbr>TOOL_<wbr>NAME</a></dt><dd>The name the tool registers under.</dd></dl><h2 id="functions" class="section-header">Functions<a href="#functions" class="anchor">§</a></h2><dl class="item-table"><dt><a class="fn" href="fn.register_scheduler_tool.html" title="fn synthia::tool_scheduler::register_scheduler_tool">register_<wbr>scheduler_<wbr>tool</a></dt><dd>Publish the <code>schedule</code> tool into <code>registry</code>.</dd></dl></section></div></main></body></html>

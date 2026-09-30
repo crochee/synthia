@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"constant":["TEXT_EXPOSITION_CONTENT_TYPE"],"fn":["gather_text","record_tool_duration","record_tool_outcome_metric","record_tool_panic","record_tool_truncation"],"struct":["HTTP_REQUESTS_DURATION_SECONDS","HTTP_REQUESTS_TOTAL","TOOL_EXECUTIONS_TOTAL","TOOL_EXECUTION_DURATION_SECONDS","TOOL_PANICS_TOTAL","TOOL_TRUNCATIONS_TOTAL"]};

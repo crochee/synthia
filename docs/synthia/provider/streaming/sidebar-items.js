@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"constant":["DEFAULT_STREAM_IDLE_TIMEOUT","IDLE_TIMEOUT_MARKER"],"fn":["idle_timeout_error","is_idle_timeout","parse_tool_input"],"struct":["AnthropicStreamContentBlock","AnthropicStreamDelta","AnthropicStreamEvent","StreamProcessor","ThinkExtractor","ToolUseBuffer"],"type":["ToolUseBufferMap"]};

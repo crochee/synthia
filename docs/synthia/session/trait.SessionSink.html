@@ -1,0 +1,222 @@
+<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><meta name="generator" content="rustdoc"><meta name="description" content="The single trait every agent loop sees."><title>SessionSink in synthia::session - Rust</title><script>if(window.location.protocol!=="file:")document.head.insertAdjacentHTML("beforeend","SourceSerif4-Regular-6b053e98.ttf.woff2,FiraSans-Italic-81dc35de.woff2,FiraSans-Regular-0fe48ade.woff2,FiraSans-MediumItalic-ccf7e434.woff2,FiraSans-Medium-e1aa3f0a.woff2,SourceCodePro-Regular-8badfe75.ttf.woff2,SourceCodePro-Semibold-aa29a496.ttf.woff2".split(",").map(f=>`<link rel="preload" as="font" type="font/woff2"href="../../static.files/${f}">`).join(""))</script><link rel="stylesheet" href="../../static.files/normalize-9960930a.css"><link rel="stylesheet" href="../../static.files/rustdoc-1ed95124.css"><meta name="rustdoc-vars" data-root-path="../../" data-static-root-path="../../static.files/" data-current-crate="synthia" data-themes="" data-resource-suffix="" data-rustdoc-version="1.98.1 (48a229cea 2026-09-01)" data-channel="1.98.1" data-search-js="search-9944d736.js" data-stringdex-js="stringdex-2da4960a.js" data-settings-js="settings-170eb4bf.js" ><script src="../../static.files/storage-41dd4d93.js"></script><script defer src="sidebar-items.js"></script><script defer src="../../static.files/main-417ebf0a.js"></script><noscript><link rel="stylesheet" href="../../static.files/noscript-f7c3ffd8.css"></noscript><link rel="alternate icon" type="image/png" href="../../static.files/favicon-32x32-eab170b8.png"><link rel="icon" type="image/svg+xml" href="../../static.files/favicon-044be391.svg"></head><body class="rustdoc trait"><a class="skip-main-content" href="#main-content">Skip to main content</a><!--[if lte IE 11]><div class="warning">This old browser is unsupported and will most likely display funky things.</div><![endif]--><rustdoc-topbar><h2><a href="#">SessionSink</a></h2></rustdoc-topbar><nav class="sidebar"><div class="sidebar-crate"><h2><a href="../../synthia/index.html">synthia</a><span class="version">0.1.0</span></h2></div><div class="sidebar-elems"><section id="rustdoc-toc"><h2 class="location"><a href="#">Session<wbr>Sink</a></h2><h3><a href="#required-methods">Required Methods</a></h3><ul class="block"><li><a href="#tymethod.append" title="append">append</a></li><li><a href="#tymethod.close" title="close">close</a></li><li><a href="#tymethod.id" title="id">id</a></li><li><a href="#tymethod.read" title="read">read</a></li><li><a href="#tymethod.read_from" title="read_from">read_from</a></li><li><a href="#tymethod.snapshot" title="snapshot">snapshot</a></li></ul><h3><a href="#provided-methods">Provided Methods</a></h3><ul class="block"><li><a href="#method.append_many" title="append_many">append_many</a></li><li><a href="#method.append_with_key" title="append_with_key">append_with_key</a></li><li><a href="#method.read_from_index" title="read_from_index">read_from_index</a></li></ul><h3><a href="#implementors">Implementors</a></h3></section><div id="rustdoc-modnav"><h2><a href="index.html">In synthia::<wbr>session</a></h2></div></div></nav><div class="sidebar-resizer" title="Drag to resize sidebar"></div><main><div class="width-limiter"><section id="main-content" class="content" tabindex="-1"><div class="main-heading"><div class="rustdoc-breadcrumbs"><a href="../index.html">synthia</a>::<wbr><a href="index.html">session</a></div><h1>Trait <span class="trait">Session<wbr>Sink</span>&nbsp;<button id="copy-path" title="Copy item path to clipboard">Copy item path</button></h1><rustdoc-toolbar></rustdoc-toolbar><span class="sub-heading"><a class="src" href="../../src/synthia_session/sink.rs.html#99">Source</a> </span></div><pre class="rust item-decl"><code>pub trait SessionSink: <a class="trait" href="https://doc.rust-lang.org/1.98.1/core/marker/trait.Send.html" title="trait core::marker::Send">Send</a> + <a class="trait" href="https://doc.rust-lang.org/1.98.1/core/marker/trait.Sync.html" title="trait core::marker::Sync">Sync</a> {
+    // Required methods
+    fn <a href="#tymethod.id" class="fn">id</a>(&amp;self) -&gt; &amp;<a class="primitive" href="https://doc.rust-lang.org/1.98.1/std/primitive.str.html">str</a>;
+<span class="item-spacer"></span>    fn <a href="#tymethod.append" class="fn">append</a>&lt;'life0, 'life1, 'async_trait&gt;(
+        &amp;'life0 self,
+        event: &amp;'life1 <a class="enum" href="https://docs.rs/serde_json/1.0.151/serde_json/value/enum.Value.html" title="enum serde_json::value::Value">Value</a>,
+    ) -&gt; <a class="struct" href="https://doc.rust-lang.org/1.98.1/core/pin/struct.Pin.html" title="struct core::pin::Pin">Pin</a>&lt;<a class="struct" href="https://doc.rust-lang.org/1.98.1/alloc/boxed/struct.Box.html" title="struct alloc::boxed::Box">Box</a>&lt;dyn <a class="trait" href="https://doc.rust-lang.org/1.98.1/core/future/future/trait.Future.html" title="trait core::future::future::Future">Future</a>&lt;Output = <a class="enum" href="https://doc.rust-lang.org/1.98.1/core/result/enum.Result.html" title="enum core::result::Result">Result</a>&lt;<a class="primitive" href="https://doc.rust-lang.org/1.98.1/std/primitive.u64.html">u64</a>, <a class="enum" href="enum.SessionError.html" title="enum synthia::session::SessionError">SessionError</a>&gt;&gt; + <a class="trait" href="https://doc.rust-lang.org/1.98.1/core/marker/trait.Send.html" title="trait core::marker::Send">Send</a> + 'async_trait&gt;&gt;
+       <span class="where">where 'life0: 'async_trait,
+             'life1: 'async_trait,
+             Self: 'async_trait</span>;
+<span class="item-spacer"></span>    fn <a href="#tymethod.read" class="fn">read</a>&lt;'life0, 'async_trait&gt;(
+        &amp;'life0 self,
+    ) -&gt; <a class="struct" href="https://doc.rust-lang.org/1.98.1/core/pin/struct.Pin.html" title="struct core::pin::Pin">Pin</a>&lt;<a class="struct" href="https://doc.rust-lang.org/1.98.1/alloc/boxed/struct.Box.html" title="struct alloc::boxed::Box">Box</a>&lt;dyn <a class="trait" href="https://doc.rust-lang.org/1.98.1/core/future/future/trait.Future.html" title="trait core::future::future::Future">Future</a>&lt;Output = <a class="enum" href="https://doc.rust-lang.org/1.98.1/core/result/enum.Result.html" title="enum core::result::Result">Result</a>&lt;<a class="struct" href="https://doc.rust-lang.org/1.98.1/alloc/vec/struct.Vec.html" title="struct alloc::vec::Vec">Vec</a>&lt;<a class="enum" href="https://docs.rs/serde_json/1.0.151/serde_json/value/enum.Value.html" title="enum serde_json::value::Value">Value</a>&gt;, <a class="enum" href="enum.SessionError.html" title="enum synthia::session::SessionError">SessionError</a>&gt;&gt; + <a class="trait" href="https://doc.rust-lang.org/1.98.1/core/marker/trait.Send.html" title="trait core::marker::Send">Send</a> + 'async_trait&gt;&gt;
+       <span class="where">where 'life0: 'async_trait,
+             Self: 'async_trait</span>;
+<span class="item-spacer"></span>    fn <a href="#tymethod.read_from" class="fn">read_from</a>&lt;'life0, 'async_trait&gt;(
+        &amp;'life0 self,
+        from: <a class="primitive" href="https://doc.rust-lang.org/1.98.1/std/primitive.u64.html">u64</a>,
+    ) -&gt; <a class="struct" href="https://doc.rust-lang.org/1.98.1/core/pin/struct.Pin.html" title="struct core::pin::Pin">Pin</a>&lt;<a class="struct" href="https://doc.rust-lang.org/1.98.1/alloc/boxed/struct.Box.html" title="struct alloc::boxed::Box">Box</a>&lt;dyn <a class="trait" href="https://doc.rust-lang.org/1.98.1/core/future/future/trait.Future.html" title="trait core::future::future::Future">Future</a>&lt;Output = <a class="enum" href="https://doc.rust-lang.org/1.98.1/core/result/enum.Result.html" title="enum core::result::Result">Result</a>&lt;<a class="struct" href="https://doc.rust-lang.org/1.98.1/alloc/vec/struct.Vec.html" title="struct alloc::vec::Vec">Vec</a>&lt;<a class="enum" href="https://docs.rs/serde_json/1.0.151/serde_json/value/enum.Value.html" title="enum serde_json::value::Value">Value</a>&gt;, <a class="enum" href="enum.SessionError.html" title="enum synthia::session::SessionError">SessionError</a>&gt;&gt; + <a class="trait" href="https://doc.rust-lang.org/1.98.1/core/marker/trait.Send.html" title="trait core::marker::Send">Send</a> + 'async_trait&gt;&gt;
+       <span class="where">where 'life0: 'async_trait,
+             Self: 'async_trait</span>;
+<span class="item-spacer"></span>    fn <a href="#tymethod.snapshot" class="fn">snapshot</a>&lt;'life0, 'async_trait&gt;(
+        &amp;'life0 self,
+    ) -&gt; <a class="struct" href="https://doc.rust-lang.org/1.98.1/core/pin/struct.Pin.html" title="struct core::pin::Pin">Pin</a>&lt;<a class="struct" href="https://doc.rust-lang.org/1.98.1/alloc/boxed/struct.Box.html" title="struct alloc::boxed::Box">Box</a>&lt;dyn <a class="trait" href="https://doc.rust-lang.org/1.98.1/core/future/future/trait.Future.html" title="trait core::future::future::Future">Future</a>&lt;Output = <a class="enum" href="https://doc.rust-lang.org/1.98.1/core/result/enum.Result.html" title="enum core::result::Result">Result</a>&lt;<a class="struct" href="struct.SessionSnapshot.html" title="struct synthia::session::SessionSnapshot">SessionSnapshot</a>, <a class="enum" href="enum.SessionError.html" title="enum synthia::session::SessionError">SessionError</a>&gt;&gt; + <a class="trait" href="https://doc.rust-lang.org/1.98.1/core/marker/trait.Send.html" title="trait core::marker::Send">Send</a> + 'async_trait&gt;&gt;
+       <span class="where">where 'life0: 'async_trait,
+             Self: 'async_trait</span>;
+<span class="item-spacer"></span>    fn <a href="#tymethod.close" class="fn">close</a>&lt;'life0, 'async_trait&gt;(
+        &amp;'life0 self,
+        reason: <a class="enum" href="enum.SessionEndReason.html" title="enum synthia::session::SessionEndReason">SessionEndReason</a>,
+    ) -&gt; <a class="struct" href="https://doc.rust-lang.org/1.98.1/core/pin/struct.Pin.html" title="struct core::pin::Pin">Pin</a>&lt;<a class="struct" href="https://doc.rust-lang.org/1.98.1/alloc/boxed/struct.Box.html" title="struct alloc::boxed::Box">Box</a>&lt;dyn <a class="trait" href="https://doc.rust-lang.org/1.98.1/core/future/future/trait.Future.html" title="trait core::future::future::Future">Future</a>&lt;Output = <a class="enum" href="https://doc.rust-lang.org/1.98.1/core/result/enum.Result.html" title="enum core::result::Result">Result</a>&lt;<a class="primitive" href="https://doc.rust-lang.org/1.98.1/std/primitive.unit.html">()</a>, <a class="enum" href="enum.SessionError.html" title="enum synthia::session::SessionError">SessionError</a>&gt;&gt; + <a class="trait" href="https://doc.rust-lang.org/1.98.1/core/marker/trait.Send.html" title="trait core::marker::Send">Send</a> + 'async_trait&gt;&gt;
+       <span class="where">where 'life0: 'async_trait,
+             Self: 'async_trait</span>;
+
+    // Provided methods
+    fn <a href="#method.read_from_index" class="fn">read_from_index</a>&lt;'life0, 'async_trait&gt;(
+        &amp;'life0 self,
+        idx: <a class="primitive" href="https://doc.rust-lang.org/1.98.1/std/primitive.u64.html">u64</a>,
+    ) -&gt; <a class="struct" href="https://doc.rust-lang.org/1.98.1/core/pin/struct.Pin.html" title="struct core::pin::Pin">Pin</a>&lt;<a class="struct" href="https://doc.rust-lang.org/1.98.1/alloc/boxed/struct.Box.html" title="struct alloc::boxed::Box">Box</a>&lt;dyn <a class="trait" href="https://doc.rust-lang.org/1.98.1/core/future/future/trait.Future.html" title="trait core::future::future::Future">Future</a>&lt;Output = <a class="enum" href="https://doc.rust-lang.org/1.98.1/core/result/enum.Result.html" title="enum core::result::Result">Result</a>&lt;<a class="struct" href="https://doc.rust-lang.org/1.98.1/alloc/vec/struct.Vec.html" title="struct alloc::vec::Vec">Vec</a>&lt;<a class="enum" href="https://docs.rs/serde_json/1.0.151/serde_json/value/enum.Value.html" title="enum serde_json::value::Value">Value</a>&gt;, <a class="enum" href="enum.SessionError.html" title="enum synthia::session::SessionError">SessionError</a>&gt;&gt; + <a class="trait" href="https://doc.rust-lang.org/1.98.1/core/marker/trait.Send.html" title="trait core::marker::Send">Send</a> + 'async_trait&gt;&gt;
+       <span class="where">where 'life0: 'async_trait,
+             Self: 'async_trait</span> { ... }
+<span class="item-spacer"></span>    fn <a href="#method.append_with_key" class="fn">append_with_key</a>&lt;'life0, 'life1, 'life2, 'async_trait&gt;(
+        &amp;'life0 self,
+        key: <a class="enum" href="https://doc.rust-lang.org/1.98.1/core/option/enum.Option.html" title="enum core::option::Option">Option</a>&lt;&amp;'life1 <a class="primitive" href="https://doc.rust-lang.org/1.98.1/std/primitive.str.html">str</a>&gt;,
+        event: &amp;'life2 <a class="enum" href="https://docs.rs/serde_json/1.0.151/serde_json/value/enum.Value.html" title="enum serde_json::value::Value">Value</a>,
+    ) -&gt; <a class="struct" href="https://doc.rust-lang.org/1.98.1/core/pin/struct.Pin.html" title="struct core::pin::Pin">Pin</a>&lt;<a class="struct" href="https://doc.rust-lang.org/1.98.1/alloc/boxed/struct.Box.html" title="struct alloc::boxed::Box">Box</a>&lt;dyn <a class="trait" href="https://doc.rust-lang.org/1.98.1/core/future/future/trait.Future.html" title="trait core::future::future::Future">Future</a>&lt;Output = <a class="enum" href="https://doc.rust-lang.org/1.98.1/core/result/enum.Result.html" title="enum core::result::Result">Result</a>&lt;<a class="primitive" href="https://doc.rust-lang.org/1.98.1/std/primitive.u64.html">u64</a>, <a class="enum" href="enum.SessionError.html" title="enum synthia::session::SessionError">SessionError</a>&gt;&gt; + <a class="trait" href="https://doc.rust-lang.org/1.98.1/core/marker/trait.Send.html" title="trait core::marker::Send">Send</a> + 'async_trait&gt;&gt;
+       <span class="where">where 'life0: 'async_trait,
+             'life1: 'async_trait,
+             'life2: 'async_trait,
+             Self: 'async_trait</span> { ... }
+<span class="item-spacer"></span>    fn <a href="#method.append_many" class="fn">append_many</a>&lt;'life0, 'life1, 'async_trait&gt;(
+        &amp;'life0 self,
+        events: &amp;'life1 [<a class="enum" href="https://docs.rs/serde_json/1.0.151/serde_json/value/enum.Value.html" title="enum serde_json::value::Value">Value</a>],
+    ) -&gt; <a class="struct" href="https://doc.rust-lang.org/1.98.1/core/pin/struct.Pin.html" title="struct core::pin::Pin">Pin</a>&lt;<a class="struct" href="https://doc.rust-lang.org/1.98.1/alloc/boxed/struct.Box.html" title="struct alloc::boxed::Box">Box</a>&lt;dyn <a class="trait" href="https://doc.rust-lang.org/1.98.1/core/future/future/trait.Future.html" title="trait core::future::future::Future">Future</a>&lt;Output = <a class="enum" href="https://doc.rust-lang.org/1.98.1/core/result/enum.Result.html" title="enum core::result::Result">Result</a>&lt;<a class="primitive" href="https://doc.rust-lang.org/1.98.1/std/primitive.u64.html">u64</a>, <a class="enum" href="enum.SessionError.html" title="enum synthia::session::SessionError">SessionError</a>&gt;&gt; + <a class="trait" href="https://doc.rust-lang.org/1.98.1/core/marker/trait.Send.html" title="trait core::marker::Send">Send</a> + 'async_trait&gt;&gt;
+       <span class="where">where 'life0: 'async_trait,
+             'life1: 'async_trait,
+             Self: 'async_trait</span> { ... }
+}</code></pre><details class="toggle top-doc" open><summary class="hideme"><span>Expand description</span></summary><div class="docblock"><p>The single trait every agent loop sees.</p>
+<p><code>synthia-harness</code> holds <code>Arc&lt;dyn SessionSink&gt;</code>; it never sees
+concrete backends. This keeps the agent runtime portable and
+makes test fixtures trivial (<code>InMemorySessionSink</code>).</p>
+</div></details><h2 id="required-methods" class="section-header">Required Methods<a href="#required-methods" class="anchor">§</a></h2><div class="methods"><details class="toggle method-toggle" open><summary><section id="tymethod.id" class="method"><a class="src rightside" href="../../src/synthia_session/sink.rs.html#103">Source</a><h4 class="code-header">fn <a href="#tymethod.id" class="fn">id</a>(&amp;self) -&gt; &amp;<a class="primitive" href="https://doc.rust-lang.org/1.98.1/std/primitive.str.html">str</a></h4></section></summary><div class="docblock"><p>Stable, opaque session identifier. Returned by reference so
+callers can label trace events without cloning on every
+emit.</p>
+</div></details><details class="toggle method-toggle" open><summary><section id="tymethod.append" class="method"><a class="src rightside" href="../../src/synthia_session/sink.rs.html#119">Source</a><h4 class="code-header">fn <a href="#tymethod.append" class="fn">append</a>&lt;'life0, 'life1, 'async_trait&gt;(
+    &amp;'life0 self,
+    event: &amp;'life1 <a class="enum" href="https://docs.rs/serde_json/1.0.151/serde_json/value/enum.Value.html" title="enum serde_json::value::Value">Value</a>,
+) -&gt; <a class="struct" href="https://doc.rust-lang.org/1.98.1/core/pin/struct.Pin.html" title="struct core::pin::Pin">Pin</a>&lt;<a class="struct" href="https://doc.rust-lang.org/1.98.1/alloc/boxed/struct.Box.html" title="struct alloc::boxed::Box">Box</a>&lt;dyn <a class="trait" href="https://doc.rust-lang.org/1.98.1/core/future/future/trait.Future.html" title="trait core::future::future::Future">Future</a>&lt;Output = <a class="enum" href="https://doc.rust-lang.org/1.98.1/core/result/enum.Result.html" title="enum core::result::Result">Result</a>&lt;<a class="primitive" href="https://doc.rust-lang.org/1.98.1/std/primitive.u64.html">u64</a>, <a class="enum" href="enum.SessionError.html" title="enum synthia::session::SessionError">SessionError</a>&gt;&gt; + <a class="trait" href="https://doc.rust-lang.org/1.98.1/core/marker/trait.Send.html" title="trait core::marker::Send">Send</a> + 'async_trait&gt;&gt;<div class="where">where
+    'life0: 'async_trait,
+    'life1: 'async_trait,
+    Self: 'async_trait,</div></h4></section></summary><div class="docblock"><p>Append one event durably. <strong>Write-through</strong> — when the
+future resolves with <code>Ok</code>, the bytes are durable (or the
+caller has explicit transactional guarantees).</p>
+<p>Returns the implicit 1-indexed sequence the sink assigned to
+the row — the same ordinal <a href="trait.SessionSink.html#tymethod.read" title="method synthia::session::SessionSink::read"><code>read</code></a> order and
+<a href="trait.SessionSink.html#tymethod.snapshot" title="method synthia::session::SessionSink::snapshot"><code>snapshot</code></a>’s <code>last_event_seq</code> use. The sink
+is the only thing that can report it: it assigns the ordinal
+under its own lock, so a caller that counts rows itself drifts
+as soon as anything else appends concurrently.</p>
+<p>Failure is fatal at the call site: the agent loop MUST
+surface the error to its caller rather than silently
+dropping the event.</p>
+</div></details><details class="toggle method-toggle" open><summary><section id="tymethod.read" class="method"><a class="src rightside" href="../../src/synthia_session/sink.rs.html#125">Source</a><h4 class="code-header">fn <a href="#tymethod.read" class="fn">read</a>&lt;'life0, 'async_trait&gt;(
+    &amp;'life0 self,
+) -&gt; <a class="struct" href="https://doc.rust-lang.org/1.98.1/core/pin/struct.Pin.html" title="struct core::pin::Pin">Pin</a>&lt;<a class="struct" href="https://doc.rust-lang.org/1.98.1/alloc/boxed/struct.Box.html" title="struct alloc::boxed::Box">Box</a>&lt;dyn <a class="trait" href="https://doc.rust-lang.org/1.98.1/core/future/future/trait.Future.html" title="trait core::future::future::Future">Future</a>&lt;Output = <a class="enum" href="https://doc.rust-lang.org/1.98.1/core/result/enum.Result.html" title="enum core::result::Result">Result</a>&lt;<a class="struct" href="https://doc.rust-lang.org/1.98.1/alloc/vec/struct.Vec.html" title="struct alloc::vec::Vec">Vec</a>&lt;<a class="enum" href="https://docs.rs/serde_json/1.0.151/serde_json/value/enum.Value.html" title="enum serde_json::value::Value">Value</a>&gt;, <a class="enum" href="enum.SessionError.html" title="enum synthia::session::SessionError">SessionError</a>&gt;&gt; + <a class="trait" href="https://doc.rust-lang.org/1.98.1/core/marker/trait.Send.html" title="trait core::marker::Send">Send</a> + 'async_trait&gt;&gt;<div class="where">where
+    'life0: 'async_trait,
+    Self: 'async_trait,</div></h4></section></summary><div class="docblock"><p>Reconstruct the chronological event stream. Returns events
+in the order they were <code>append</code>-ed. Used by callers that
+want to rehydrate a session (e.g. resume under a
+different agent).</p>
+</div></details><details class="toggle method-toggle" open><summary><section id="tymethod.read_from" class="method"><a class="src rightside" href="../../src/synthia_session/sink.rs.html#151">Source</a><h4 class="code-header">fn <a href="#tymethod.read_from" class="fn">read_from</a>&lt;'life0, 'async_trait&gt;(
+    &amp;'life0 self,
+    from: <a class="primitive" href="https://doc.rust-lang.org/1.98.1/std/primitive.u64.html">u64</a>,
+) -&gt; <a class="struct" href="https://doc.rust-lang.org/1.98.1/core/pin/struct.Pin.html" title="struct core::pin::Pin">Pin</a>&lt;<a class="struct" href="https://doc.rust-lang.org/1.98.1/alloc/boxed/struct.Box.html" title="struct alloc::boxed::Box">Box</a>&lt;dyn <a class="trait" href="https://doc.rust-lang.org/1.98.1/core/future/future/trait.Future.html" title="trait core::future::future::Future">Future</a>&lt;Output = <a class="enum" href="https://doc.rust-lang.org/1.98.1/core/result/enum.Result.html" title="enum core::result::Result">Result</a>&lt;<a class="struct" href="https://doc.rust-lang.org/1.98.1/alloc/vec/struct.Vec.html" title="struct alloc::vec::Vec">Vec</a>&lt;<a class="enum" href="https://docs.rs/serde_json/1.0.151/serde_json/value/enum.Value.html" title="enum serde_json::value::Value">Value</a>&gt;, <a class="enum" href="enum.SessionError.html" title="enum synthia::session::SessionError">SessionError</a>&gt;&gt; + <a class="trait" href="https://doc.rust-lang.org/1.98.1/core/marker/trait.Send.html" title="trait core::marker::Send">Send</a> + 'async_trait&gt;&gt;<div class="where">where
+    'life0: 'async_trait,
+    Self: 'async_trait,</div></h4></section></summary><div class="docblock"><p>Reconstruct the chronological event stream starting <strong>after</strong>
+the event whose implicit sequence is <code>from</code>.</p>
+<p>Equivalent to <a href="trait.SessionSink.html#tymethod.read" title="method synthia::session::SessionSink::read"><code>read</code></a> followed by dropping the
+first <code>from</code> events, but implementations are free to skip the
+work without materializing the dropped prefix. A caller
+reconnecting with a <code>from</code> it observed from a previous
+<a href="trait.SessionSink.html#tymethod.snapshot" title="method synthia::session::SessionSink::snapshot"><code>snapshot</code></a> call therefore receives
+strictly the events it has not yet seen, without re-reading
+the whole log.</p>
+<p><code>from = 0</code> returns every recorded event (the same set as
+<a href="trait.SessionSink.html#tymethod.read" title="method synthia::session::SessionSink::read"><code>read</code></a>). <code>from = N</code> returns only events whose
+implicit sequence (<code>append</code> order, 1-indexed) is greater
+than <code>N</code>. <code>from</code> MUST be ≤ the current <code>last_event_seq</code>
+from the latest <a href="trait.SessionSink.html#tymethod.snapshot" title="method synthia::session::SessionSink::snapshot"><code>snapshot</code></a> — callers with
+a stale <code>from</code> are responsible for surfacing that mismatch
+(typically as a <code>410 Gone</code> at the HTTP seam).</p>
+<h5 id="errors"><a class="doc-anchor" href="#errors">§</a>Errors</h5>
+<p>Returns <a href="enum.SessionError.html#variant.ReadFailed" title="variant synthia::session::SessionError::ReadFailed"><code>SessionError::ReadFailed</code></a> when the underlying
+storage cannot satisfy the request (corrupt file, IO
+error).</p>
+</div></details><details class="toggle method-toggle" open><summary><section id="tymethod.snapshot" class="method"><a class="src rightside" href="../../src/synthia_session/sink.rs.html#184">Source</a><h4 class="code-header">fn <a href="#tymethod.snapshot" class="fn">snapshot</a>&lt;'life0, 'async_trait&gt;(
+    &amp;'life0 self,
+) -&gt; <a class="struct" href="https://doc.rust-lang.org/1.98.1/core/pin/struct.Pin.html" title="struct core::pin::Pin">Pin</a>&lt;<a class="struct" href="https://doc.rust-lang.org/1.98.1/alloc/boxed/struct.Box.html" title="struct alloc::boxed::Box">Box</a>&lt;dyn <a class="trait" href="https://doc.rust-lang.org/1.98.1/core/future/future/trait.Future.html" title="trait core::future::future::Future">Future</a>&lt;Output = <a class="enum" href="https://doc.rust-lang.org/1.98.1/core/result/enum.Result.html" title="enum core::result::Result">Result</a>&lt;<a class="struct" href="struct.SessionSnapshot.html" title="struct synthia::session::SessionSnapshot">SessionSnapshot</a>, <a class="enum" href="enum.SessionError.html" title="enum synthia::session::SessionError">SessionError</a>&gt;&gt; + <a class="trait" href="https://doc.rust-lang.org/1.98.1/core/marker/trait.Send.html" title="trait core::marker::Send">Send</a> + 'async_trait&gt;&gt;<div class="where">where
+    'life0: 'async_trait,
+    Self: 'async_trait,</div></h4></section></summary><div class="docblock"><p>Force a stable checkpoint (flush buffers, rotate logs,
+push to remote). Called when the session enters a stable
+state (idle, completed). Returns the snapshot metadata.</p>
+</div></details><details class="toggle method-toggle" open><summary><section id="tymethod.close" class="method"><a class="src rightside" href="../../src/synthia_session/sink.rs.html#188-189">Source</a><h4 class="code-header">fn <a href="#tymethod.close" class="fn">close</a>&lt;'life0, 'async_trait&gt;(
+    &amp;'life0 self,
+    reason: <a class="enum" href="enum.SessionEndReason.html" title="enum synthia::session::SessionEndReason">SessionEndReason</a>,
+) -&gt; <a class="struct" href="https://doc.rust-lang.org/1.98.1/core/pin/struct.Pin.html" title="struct core::pin::Pin">Pin</a>&lt;<a class="struct" href="https://doc.rust-lang.org/1.98.1/alloc/boxed/struct.Box.html" title="struct alloc::boxed::Box">Box</a>&lt;dyn <a class="trait" href="https://doc.rust-lang.org/1.98.1/core/future/future/trait.Future.html" title="trait core::future::future::Future">Future</a>&lt;Output = <a class="enum" href="https://doc.rust-lang.org/1.98.1/core/result/enum.Result.html" title="enum core::result::Result">Result</a>&lt;<a class="primitive" href="https://doc.rust-lang.org/1.98.1/std/primitive.unit.html">()</a>, <a class="enum" href="enum.SessionError.html" title="enum synthia::session::SessionError">SessionError</a>&gt;&gt; + <a class="trait" href="https://doc.rust-lang.org/1.98.1/core/marker/trait.Send.html" title="trait core::marker::Send">Send</a> + 'async_trait&gt;&gt;<div class="where">where
+    'life0: 'async_trait,
+    Self: 'async_trait,</div></h4></section></summary><div class="docblock"><p>Mark the session closed. Idempotent. After this resolves
+no further <code>append</code> / <code>read</code> calls are accepted.</p>
+</div></details></div><h2 id="provided-methods" class="section-header">Provided Methods<a href="#provided-methods" class="anchor">§</a></h2><div class="methods"><details class="toggle method-toggle" open><summary><section id="method.read_from_index" class="method"><a class="src rightside" href="../../src/synthia_session/sink.rs.html#98">Source</a><h4 class="code-header">fn <a href="#method.read_from_index" class="fn">read_from_index</a>&lt;'life0, 'async_trait&gt;(
+    &amp;'life0 self,
+    idx: <a class="primitive" href="https://doc.rust-lang.org/1.98.1/std/primitive.u64.html">u64</a>,
+) -&gt; <a class="struct" href="https://doc.rust-lang.org/1.98.1/core/pin/struct.Pin.html" title="struct core::pin::Pin">Pin</a>&lt;<a class="struct" href="https://doc.rust-lang.org/1.98.1/alloc/boxed/struct.Box.html" title="struct alloc::boxed::Box">Box</a>&lt;dyn <a class="trait" href="https://doc.rust-lang.org/1.98.1/core/future/future/trait.Future.html" title="trait core::future::future::Future">Future</a>&lt;Output = <a class="enum" href="https://doc.rust-lang.org/1.98.1/core/result/enum.Result.html" title="enum core::result::Result">Result</a>&lt;<a class="struct" href="https://doc.rust-lang.org/1.98.1/alloc/vec/struct.Vec.html" title="struct alloc::vec::Vec">Vec</a>&lt;<a class="enum" href="https://docs.rs/serde_json/1.0.151/serde_json/value/enum.Value.html" title="enum serde_json::value::Value">Value</a>&gt;, <a class="enum" href="enum.SessionError.html" title="enum synthia::session::SessionError">SessionError</a>&gt;&gt; + <a class="trait" href="https://doc.rust-lang.org/1.98.1/core/marker/trait.Send.html" title="trait core::marker::Send">Send</a> + 'async_trait&gt;&gt;<div class="where">where
+    'life0: 'async_trait,
+    Self: 'async_trait,</div></h4></section></summary><div class="docblock"><p>Reconstruct the chronological event stream starting <strong>after</strong>
+the event whose <code>stream_index</code> is <code>idx</code>.</p>
+<p>Equivalent to <code>read_from</code> for sinks that allocate one
+<code>stream_index</code> per append and never reuse or skip one
+(today every sink). The default implementation
+delegates to <code>read_from</code>, so the two are interchangeable
+on existing sinks; future stream-position semantics
+(e.g. dense-over-compaction indices) override this
+default.</p>
+<p><code>idx = 0</code> returns every recorded event. <code>idx = N</code>
+returns only events whose <code>stream_index</code> is greater
+than <code>N</code>. Callers with a stale <code>idx</code> are responsible
+for surfacing that mismatch as a <code>410 Gone</code> at the HTTP
+seam – see <code>2026-09-24-stream-index.md</code> section 4.4.</p>
+<h5 id="errors-1"><a class="doc-anchor" href="#errors-1">§</a>Errors</h5>
+<p>Returns <a href="enum.SessionError.html#variant.ReadFailed" title="variant synthia::session::SessionError::ReadFailed"><code>SessionError::ReadFailed</code></a> when the underlying
+storage cannot satisfy the request.</p>
+</div></details><details class="toggle method-toggle" open><summary><section id="method.append_with_key" class="method"><a class="src rightside" href="../../src/synthia_session/sink.rs.html#98">Source</a><h4 class="code-header">fn <a href="#method.append_with_key" class="fn">append_with_key</a>&lt;'life0, 'life1, 'life2, 'async_trait&gt;(
+    &amp;'life0 self,
+    key: <a class="enum" href="https://doc.rust-lang.org/1.98.1/core/option/enum.Option.html" title="enum core::option::Option">Option</a>&lt;&amp;'life1 <a class="primitive" href="https://doc.rust-lang.org/1.98.1/std/primitive.str.html">str</a>&gt;,
+    event: &amp;'life2 <a class="enum" href="https://docs.rs/serde_json/1.0.151/serde_json/value/enum.Value.html" title="enum serde_json::value::Value">Value</a>,
+) -&gt; <a class="struct" href="https://doc.rust-lang.org/1.98.1/core/pin/struct.Pin.html" title="struct core::pin::Pin">Pin</a>&lt;<a class="struct" href="https://doc.rust-lang.org/1.98.1/alloc/boxed/struct.Box.html" title="struct alloc::boxed::Box">Box</a>&lt;dyn <a class="trait" href="https://doc.rust-lang.org/1.98.1/core/future/future/trait.Future.html" title="trait core::future::future::Future">Future</a>&lt;Output = <a class="enum" href="https://doc.rust-lang.org/1.98.1/core/result/enum.Result.html" title="enum core::result::Result">Result</a>&lt;<a class="primitive" href="https://doc.rust-lang.org/1.98.1/std/primitive.u64.html">u64</a>, <a class="enum" href="enum.SessionError.html" title="enum synthia::session::SessionError">SessionError</a>&gt;&gt; + <a class="trait" href="https://doc.rust-lang.org/1.98.1/core/marker/trait.Send.html" title="trait core::marker::Send">Send</a> + 'async_trait&gt;&gt;<div class="where">where
+    'life0: 'async_trait,
+    'life1: 'async_trait,
+    'life2: 'async_trait,
+    Self: 'async_trait,</div></h4></section></summary><div class="docblock"><p>Append one event durably with an <strong>idempotency key</strong>.</p>
+<p><code>Some(key)</code> — a caller-supplied opaque token (typically the
+transport-level <code>event_id</code>, a <code>Message-Id</code> header, or the
+<code>agent.session.turn.id</code> a downstream client minted). The
+sink remembers every key it has seen for this session
+within a bounded LRU window. A re-submission of the same
+key is a <strong>no-op</strong>: the sink returns the <code>seq</code> originally
+assigned to that key, and the bytes are not written twice.</p>
+<p>This is the dedup seam that closes the
+“client retried / SSE reconnected mid-flush” hole —
+without it, a single user-typed prompt could land twice
+in the durable log and the LLM would see two user-role
+rows for the same input.</p>
+<p><code>None</code> — the legacy non-idempotent path. Backends that
+do not need dedup leave the default implementation
+(<code>Ok(self.append(event).await?)</code>) in place; the LRU
+bookkeeping is opt-in. Idempotent callers MUST use a
+unique key per logical event or <code>seq</code> will collide.</p>
+<p>The key is opaque to the sink — it does not appear in
+<code>read()</code> output, so a replay does not leak caller-side
+identifiers. Backends that need to persist the key (for
+across-restart dedup) should stash it in a sibling
+index file; see <code>JsonlSessionSink::append_with_key</code>.</p>
+<h5 id="errors-2"><a class="doc-anchor" href="#errors-2">§</a>Errors</h5>
+<p>Returns <a href="enum.SessionError.html#variant.Closed" title="variant synthia::session::SessionError::Closed"><code>SessionError::Closed</code></a> when the session is
+already closed. Idempotent re-submission is NOT an error
+— it returns the same <code>seq</code> as the original append.</p>
+</div></details><details class="toggle method-toggle" open><summary><section id="method.append_many" class="method"><a class="src rightside" href="../../src/synthia_session/sink.rs.html#98">Source</a><h4 class="code-header">fn <a href="#method.append_many" class="fn">append_many</a>&lt;'life0, 'life1, 'async_trait&gt;(
+    &amp;'life0 self,
+    events: &amp;'life1 [<a class="enum" href="https://docs.rs/serde_json/1.0.151/serde_json/value/enum.Value.html" title="enum serde_json::value::Value">Value</a>],
+) -&gt; <a class="struct" href="https://doc.rust-lang.org/1.98.1/core/pin/struct.Pin.html" title="struct core::pin::Pin">Pin</a>&lt;<a class="struct" href="https://doc.rust-lang.org/1.98.1/alloc/boxed/struct.Box.html" title="struct alloc::boxed::Box">Box</a>&lt;dyn <a class="trait" href="https://doc.rust-lang.org/1.98.1/core/future/future/trait.Future.html" title="trait core::future::future::Future">Future</a>&lt;Output = <a class="enum" href="https://doc.rust-lang.org/1.98.1/core/result/enum.Result.html" title="enum core::result::Result">Result</a>&lt;<a class="primitive" href="https://doc.rust-lang.org/1.98.1/std/primitive.u64.html">u64</a>, <a class="enum" href="enum.SessionError.html" title="enum synthia::session::SessionError">SessionError</a>&gt;&gt; + <a class="trait" href="https://doc.rust-lang.org/1.98.1/core/marker/trait.Send.html" title="trait core::marker::Send">Send</a> + 'async_trait&gt;&gt;<div class="where">where
+    'life0: 'async_trait,
+    'life1: 'async_trait,
+    Self: 'async_trait,</div></h4></section></summary><div class="docblock"><p>Append a batch of events durably with a <strong>single durable
+barrier</strong> (one <code>fsync</code> at the tail, not N).</p>
+<p>Default implementation loops over <a href="trait.SessionSink.html#tymethod.append" title="method synthia::session::SessionSink::append"><code>append</code></a>,
+so backends without a batched write path keep their
+existing per-row durability at the cost of N <code>fsync</code>s.
+The production <code>JsonlSessionSink</code> overrides this to write
+the whole batch in one <code>write_all</code> + one <code>fsync</code> —
+measured ~200× faster than per-row <code>fsync</code> on a 1k-row
+batch.</p>
+<p>Atomicity contract: either every event in <code>events</code> is
+durable after <code>Ok</code>, or none of them are. A partial
+failure rolls back the <code>seq</code> counter so subsequent
+<code>read</code> / <code>snapshot</code> calls do not observe a half-written
+batch. Callers SHOULD treat the same <code>Err</code> as a fatal
+append failure (the agent loop’s fail-fast rule).</p>
+<p>Idempotency: this method does not dedup — call
+<a href="trait.SessionSink.html#method.append_with_key" title="method synthia::session::SessionSink::append_with_key"><code>append_with_key</code></a> per row if
+the batch may have been partially applied on a prior
+attempt. <code>fork_session</code> is the motivating caller: it
+reads the parent transcript once, holds the rows in
+memory, and submits a fresh batch to the child — no
+dedup needed.</p>
+<h5 id="errors-3"><a class="doc-anchor" href="#errors-3">§</a>Errors</h5>
+<p>Returns <a href="enum.SessionError.html#variant.AppendFailed" title="variant synthia::session::SessionError::AppendFailed"><code>SessionError::AppendFailed</code></a> on any IO
+failure; <code>seq</code> is rolled back atomically so a retry
+that re-sends the same batch does not double-write.</p>
+<p>The return value is the <code>seq</code> of the batch’s <strong>last</strong>
+event, or the current tail when <code>events</code> is empty — so a
+caller can read it as “where the log stands now” without a
+separate <code>snapshot</code> call.</p>
+</div></details></div><h2 id="dyn-compatibility" class="section-header">Dyn Compatibility<a href="#dyn-compatibility" class="anchor">§</a></h2><div class="dyn-compatibility-info"><p>This trait <b>is</b> <a href="https://doc.rust-lang.org/1.98.1/reference/items/traits.html#dyn-compatibility">dyn compatible</a>.</p><p><i>In older versions of Rust, dyn compatibility was called "object safety".</i></p></div><h2 id="implementors" class="section-header">Implementors<a href="#implementors" class="anchor">§</a></h2><div id="implementors-list"><div class="negative-marker"></div><section id="impl-SessionSink-for-InMemorySessionSink" class="impl"><a class="src rightside" href="../../src/synthia_session/in_memory.rs.html#82">Source</a><a href="#impl-SessionSink-for-InMemorySessionSink" class="anchor">§</a><h3 class="code-header">impl <a class="trait" href="trait.SessionSink.html" title="trait synthia::session::SessionSink">SessionSink</a> for <a class="struct" href="in_memory/struct.InMemorySessionSink.html" title="struct synthia::session::in_memory::InMemorySessionSink">InMemorySessionSink</a></h3></section><section id="impl-SessionSink-for-JsonlSessionSink" class="impl"><a class="src rightside" href="../../src/synthia_session/jsonl.rs.html#231">Source</a><a href="#impl-SessionSink-for-JsonlSessionSink" class="anchor">§</a><h3 class="code-header">impl <a class="trait" href="trait.SessionSink.html" title="trait synthia::session::SessionSink">SessionSink</a> for <a class="struct" href="jsonl/struct.JsonlSessionSink.html" title="struct synthia::session::jsonl::JsonlSessionSink">JsonlSessionSink</a></h3></section></div><script src="../../trait.impl/synthia_session/sink/trait.SessionSink.js" data-ignore-extern-crates="synthia_session" async></script></section></div></main></body></html>

@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"enum":["ValidationError"],"fn":["should_compact"],"struct":["CompactionDetails","CompactionSettings"]};

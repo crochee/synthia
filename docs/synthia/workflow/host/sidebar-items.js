@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"enum":["CandidateOutcome","GateVerdict"],"struct":["AgentOutcome","AgentRequest","GateOutcome","SelectionCandidate","SelectionRequest"],"trait":["WorkflowHost"]};

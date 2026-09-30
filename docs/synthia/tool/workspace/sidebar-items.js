@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"fn":["check_path_safety","resolve_path"]};

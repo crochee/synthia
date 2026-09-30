@@ -1,0 +1,60 @@
+<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><meta name="generator" content="rustdoc"><meta name="description" content="LLM-summarising context-window manager — Rust port of `pi-context-prune`."><title>synthia::context::summarizing - Rust</title><script>if(window.location.protocol!=="file:")document.head.insertAdjacentHTML("beforeend","SourceSerif4-Regular-6b053e98.ttf.woff2,FiraSans-Italic-81dc35de.woff2,FiraSans-Regular-0fe48ade.woff2,FiraSans-MediumItalic-ccf7e434.woff2,FiraSans-Medium-e1aa3f0a.woff2,SourceCodePro-Regular-8badfe75.ttf.woff2,SourceCodePro-Semibold-aa29a496.ttf.woff2".split(",").map(f=>`<link rel="preload" as="font" type="font/woff2"href="../../../static.files/${f}">`).join(""))</script><link rel="stylesheet" href="../../../static.files/normalize-9960930a.css"><link rel="stylesheet" href="../../../static.files/rustdoc-1ed95124.css"><meta name="rustdoc-vars" data-root-path="../../../" data-static-root-path="../../../static.files/" data-current-crate="synthia" data-themes="" data-resource-suffix="" data-rustdoc-version="1.98.1 (48a229cea 2026-09-01)" data-channel="1.98.1" data-search-js="search-9944d736.js" data-stringdex-js="stringdex-2da4960a.js" data-settings-js="settings-170eb4bf.js" ><script src="../../../static.files/storage-41dd4d93.js"></script><script defer src="../sidebar-items.js"></script><script defer src="../../../static.files/main-417ebf0a.js"></script><noscript><link rel="stylesheet" href="../../../static.files/noscript-f7c3ffd8.css"></noscript><link rel="alternate icon" type="image/png" href="../../../static.files/favicon-32x32-eab170b8.png"><link rel="icon" type="image/svg+xml" href="../../../static.files/favicon-044be391.svg"></head><body class="rustdoc mod"><a class="skip-main-content" href="#main-content">Skip to main content</a><!--[if lte IE 11]><div class="warning">This old browser is unsupported and will most likely display funky things.</div><![endif]--><rustdoc-topbar><h2><a href="#">Module summarizing</a></h2></rustdoc-topbar><nav class="sidebar"><div class="sidebar-crate"><h2><a href="../../../synthia/index.html">synthia</a><span class="version">0.1.0</span></h2></div><div class="sidebar-elems"><section id="rustdoc-toc"><h2 class="location"><a href="#">Module summarizing</a></h2><h3><a href="#">Sections</a></h3><ul class="block top-toc"><li><a href="#behaviour" title="Behaviour">Behaviour</a></li><li><a href="#failure-modes" title="Failure modes">Failure modes</a></li><li><a href="#module-layout" title="Module layout">Module layout</a></li></ul><h3><a href="#structs">Module Items</a></h3><ul class="block"><li><a href="#structs" title="Structs">Structs</a></li><li><a href="#enums" title="Enums">Enums</a></li><li><a href="#constants" title="Constants">Constants</a></li><li><a href="#functions" title="Functions">Functions</a></li><li><a href="#types" title="Type Aliases">Type Aliases</a></li></ul></section><div id="rustdoc-modnav"><h2><a href="../index.html">In synthia::<wbr>context</a></h2></div></div></nav><div class="sidebar-resizer" title="Drag to resize sidebar"></div><main><div class="width-limiter"><section id="main-content" class="content" tabindex="-1"><div class="main-heading"><div class="rustdoc-breadcrumbs"><a href="../../index.html">synthia</a>::<wbr><a href="../index.html">context</a></div><h1>Module <span>summarizing</span>&nbsp;<button id="copy-path" title="Copy item path to clipboard">Copy item path</button></h1><rustdoc-toolbar></rustdoc-toolbar><span class="sub-heading"><a class="src" href="../../../src/synthia_context/lib.rs.html#46">Source</a> </span></div><details class="toggle top-doc" open><summary class="hideme"><span>Expand description</span></summary><div class="docblock"><p>LLM-summarising context-window manager — Rust port of
+<a href="https://github.com/championswimmer/pi-context-prune"><code>pi-context-prune</code></a>.</p>
+<h3 id="behaviour"><a class="doc-anchor" href="#behaviour">§</a>Behaviour</h3>
+<p><code>prepare</code> walks the message list, gathers contiguous blocks of
+tool-result messages, hands each block to the supplied
+summariser callback (a cheap LLM call), and replaces the block
+with a single compact assistant summary message that names the
+summarised tool calls by short alias (<code>t1</code>, <code>t2</code>, …). The
+originals are kept in an in-memory <a href="../struct.ToolCallArchive.html" title="struct synthia::context::ToolCallArchive"><code>ToolCallArchive</code></a> keyed by
+<code>tool_call_id</code> so the agent can recover them at any time via the
+<a href="../struct.SummarizingContextManager.html#method.archive" title="method synthia::context::SummarizingContextManager::archive"><code>context_tree_query</code></a> helper
+(callers register the corresponding <code>Tool</code> against the registry;
+this crate only owns the index).</p>
+<p>This mirrors the design of <code>pi-context-prune/src/pruner.ts</code>:</p>
+<ul>
+<li>Only the <em>tool-result</em> messages are pruned; assistant turns
+that <em>contain</em> tool calls stay intact so the model still
+sees its own call/return shape.</li>
+<li>Summaries are emitted as assistant turns because that is the
+only role the LLM trusts to author content; a system-prompt
+marker (<code>&lt;context-prune-summary&gt;</code>) lets the renderer hide them
+from the chat surface while keeping them in the LLM context.</li>
+<li>When the summary text is <em>larger</em> than the original tool
+outputs it would replace, pruning is skipped for that block
+to avoid inflating the context.</li>
+</ul>
+<h3 id="failure-modes"><a class="doc-anchor" href="#failure-modes">§</a>Failure modes</h3>
+<ul>
+<li>Summariser returns <code>None</code> (LLM error / timeout) — the block
+is left untouched and <code>state.last_truncated</code> stays <code>false</code>.</li>
+<li>Empty <code>messages</code> — no-op.</li>
+<li>Zero tool results in the conversation — no-op.</li>
+</ul>
+<h3 id="module-layout"><a class="doc-anchor" href="#module-layout">§</a>Module layout</h3><div><table><thead><tr><th>Module</th><th>Responsibility</th></tr></thead><tbody>
+<tr><td><code>archive</code></td><td><a href="../struct.ToolCallArchive.html" title="struct synthia::context::ToolCallArchive"><code>ToolCallArchive</code></a> + <a href="../struct.ToolCallRecord.html" title="struct synthia::context::ToolCallRecord"><code>ToolCallRecord</code></a> — the recoverable originals.</td></tr>
+<tr><td><code>lifecycle</code></td><td><a href="../struct.CompactionRecord.html" title="struct synthia::context::CompactionRecord"><code>CompactionRecord</code></a> + <a href="../enum.CompactionLifecycle.html" title="enum synthia::context::CompactionLifecycle"><code>CompactionLifecycle</code></a> — the emit surface.</td></tr>
+<tr><td><code>prompt</code></td><td>Batch serialisation for the summariser (XML-fenced) + the R29-C details line.</td></tr>
+<tr><td><code>refs</code></td><td>Short aliases (<code>t1</code>, <code>t2</code>, …) and the summary message that footers them.</td></tr>
+<tr><td><code>manager</code></td><td><a href="../struct.SummarizingContextManager.html" title="struct synthia::context::SummarizingContextManager"><code>SummarizingContextManager</code></a> — the <code>ContextManager</code> impl.</td></tr>
+</tbody></table>
+</div></div></details><h2 id="structs" class="section-header">Structs<a href="#structs" class="anchor">§</a></h2><dl class="item-table"><dt><a class="struct" href="struct.CompactionRecord.html" title="struct synthia::context::summarizing::CompactionRecord">Compaction<wbr>Record</a></dt><dd>Description of one compaction splice emitted by
+<a href="../struct.SummarizingContextManager.html" title="struct synthia::context::SummarizingContextManager"><code>super::SummarizingContextManager</code></a>.</dd><dt><a class="struct" href="struct.SummarizingContextManager.html" title="struct synthia::context::summarizing::SummarizingContextManager">Summarizing<wbr>Context<wbr>Manager</a></dt><dd>See the <code>summarizing</code> module docs for the full design rationale. The
+default implementation is held in
+<a href="../struct.SummarizingContextManager.html#method.new" title="associated function synthia::context::SummarizingContextManager::new"><code>SummarizingContextManager::new</code></a>; pass your own summariser
+to swap the LLM.</dd><dt><a class="struct" href="struct.ToolCallArchive.html" title="struct synthia::context::summarizing::ToolCallArchive">Tool<wbr>Call<wbr>Archive</a></dt><dd>Process-wide archive of every tool call that has been
+summarised (or could be recovered). Stored behind a single
+<code>Mutex&lt;HashMap&gt;</code> — the volume per session is bounded by
+<code>MAX_ITERATIONS × tools_per_turn</code> and the access pattern is
+“summary once, query rarely”, so a <code>RwLock</code> would only buy
+complexity without throughput.</dd><dt><a class="struct" href="struct.ToolCallRecord.html" title="struct synthia::context::summarizing::ToolCallRecord">Tool<wbr>Call<wbr>Record</a></dt><dd>One tool call’s worth of context held in the in-memory archive.</dd></dl><h2 id="enums" class="section-header">Enums<a href="#enums" class="anchor">§</a></h2><dl class="item-table"><dt><a class="enum" href="enum.CompactionLifecycle.html" title="enum synthia::context::summarizing::CompactionLifecycle">Compaction<wbr>Lifecycle</a></dt><dd>One step of a compaction lifecycle (R29-Phase-J).</dd></dl><h2 id="constants" class="section-header">Constants<a href="#constants" class="anchor">§</a></h2><dl class="item-table"><dt><a class="constant" href="constant.SUMMARY_TAG.html" title="constant synthia::context::summarizing::SUMMARY_TAG">SUMMARY_<wbr>TAG</a></dt><dd>XML marker that wraps every synthesised summary message. The
+frontend renderer matches on this tag to hide the message from
+the chat surface; the LLM still sees it because it lands in
+the <code>messages</code> vector passed to the provider.</dd></dl><h2 id="functions" class="section-header">Functions<a href="#functions" class="anchor">§</a></h2><dl class="item-table"><dt><a class="fn" href="fn.as_summarise_fn.html" title="fn synthia::context::summarizing::as_summarise_fn">as_<wbr>summarise_<wbr>fn</a></dt><dd>Adapter: lift a <a href="type.CompactionHookFn.html" title="type synthia::context::summarizing::CompactionHookFn"><code>CompactionHookFn</code></a> into a closure compatible
+with <a href="../type.SummariseFn.html" title="type synthia::context::SummariseFn"><code>super::SummariseFn</code></a> — the two share the same
+signature, so a deployment that prefers the hook seam can use
+the same closure type for both.</dd></dl><h2 id="types" class="section-header">Type Aliases<a href="#types" class="anchor">§</a></h2><dl class="item-table"><dt><a class="type" href="type.CompactionHookFn.html" title="type synthia::context::summarizing::CompactionHookFn">Compaction<wbr>Hook<wbr>Fn</a></dt><dd>Async callback that decides the prompt handed to the
+compaction summariser.</dd><dt><a class="type" href="type.SummariseFn.html" title="type synthia::context::summarizing::SummariseFn">Summarise<wbr>Fn</a></dt><dd>Async callback that turns a serialised tool-result batch into
+a short summary string. Implementations should return <code>None</code>
+when the LLM call fails so the manager can skip the prune
+rather than corrupt the context.</dd></dl></section></div></main></body></html>

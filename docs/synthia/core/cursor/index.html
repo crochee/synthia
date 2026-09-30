@@ -1,0 +1,40 @@
+<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><meta name="generator" content="rustdoc"><meta name="description" content="Opaque cursor encoding for keyset pagination."><title>synthia::core::cursor - Rust</title><script>if(window.location.protocol!=="file:")document.head.insertAdjacentHTML("beforeend","SourceSerif4-Regular-6b053e98.ttf.woff2,FiraSans-Italic-81dc35de.woff2,FiraSans-Regular-0fe48ade.woff2,FiraSans-MediumItalic-ccf7e434.woff2,FiraSans-Medium-e1aa3f0a.woff2,SourceCodePro-Regular-8badfe75.ttf.woff2,SourceCodePro-Semibold-aa29a496.ttf.woff2".split(",").map(f=>`<link rel="preload" as="font" type="font/woff2"href="../../../static.files/${f}">`).join(""))</script><link rel="stylesheet" href="../../../static.files/normalize-9960930a.css"><link rel="stylesheet" href="../../../static.files/rustdoc-1ed95124.css"><meta name="rustdoc-vars" data-root-path="../../../" data-static-root-path="../../../static.files/" data-current-crate="synthia" data-themes="" data-resource-suffix="" data-rustdoc-version="1.98.1 (48a229cea 2026-09-01)" data-channel="1.98.1" data-search-js="search-9944d736.js" data-stringdex-js="stringdex-2da4960a.js" data-settings-js="settings-170eb4bf.js" ><script src="../../../static.files/storage-41dd4d93.js"></script><script defer src="../sidebar-items.js"></script><script defer src="../../../static.files/main-417ebf0a.js"></script><noscript><link rel="stylesheet" href="../../../static.files/noscript-f7c3ffd8.css"></noscript><link rel="alternate icon" type="image/png" href="../../../static.files/favicon-32x32-eab170b8.png"><link rel="icon" type="image/svg+xml" href="../../../static.files/favicon-044be391.svg"></head><body class="rustdoc mod"><a class="skip-main-content" href="#main-content">Skip to main content</a><!--[if lte IE 11]><div class="warning">This old browser is unsupported and will most likely display funky things.</div><![endif]--><rustdoc-topbar><h2><a href="#">Module cursor</a></h2></rustdoc-topbar><nav class="sidebar"><div class="sidebar-crate"><h2><a href="../../../synthia/index.html">synthia</a><span class="version">0.1.0</span></h2></div><div class="sidebar-elems"><section id="rustdoc-toc"><h2 class="location"><a href="#">Module cursor</a></h2><h3><a href="#">Sections</a></h3><ul class="block top-toc"><li><a href="#contract" title="Contract">Contract</a></li><li><a href="#why-url-safe-no-pad" title="Why URL-safe no-pad">Why URL-safe no-pad</a></li></ul><h3><a href="#functions">Module Items</a></h3><ul class="block"><li><a href="#functions" title="Functions">Functions</a></li></ul></section><div id="rustdoc-modnav"><h2><a href="../index.html">In synthia::<wbr>core</a></h2></div></div></nav><div class="sidebar-resizer" title="Drag to resize sidebar"></div><main><div class="width-limiter"><section id="main-content" class="content" tabindex="-1"><div class="main-heading"><div class="rustdoc-breadcrumbs"><a href="../../index.html">synthia</a>::<wbr><a href="../index.html">core</a></div><h1>Module <span>cursor</span>&nbsp;<button id="copy-path" title="Copy item path to clipboard">Copy item path</button></h1><rustdoc-toolbar></rustdoc-toolbar><span class="sub-heading"><a class="src" href="../../../src/synthia_core/lib.rs.html#57">Source</a> </span></div><details class="toggle top-doc" open><summary class="hideme"><span>Expand description</span></summary><div class="docblock"><p>Opaque cursor encoding for keyset pagination.</p>
+<p>The cursor is the base64 (URL-safe, no-pad) encoding of the
+last resource ID on the current page. Clients treat it as
+opaque; servers decode it to resume via
+<code>WHERE id &gt; last_seen_id</code> (or the in-memory equivalent).</p>
+<p>This module is the <strong>canonical home</strong> for the cursor codec.
+<code>synthia-server</code> (the HTTP transport) used to ship its own
+<code>encode_cursor</code> / <code>decode_cursor</code> with the same logic; that
+duplication is gone (R79) — the server’s wrappers are now
+2-line delegations to <a href="fn.encode.html" title="fn synthia::core::cursor::encode"><code>encode</code></a> and <a href="fn.decode.html" title="fn synthia::core::cursor::decode"><code>decode</code></a>, and the
+<code>synthia-core</code> registry’s private <code>decode_registry_cursor</code> /
+<code>encode_registry_cursor</code> are now the same public functions
+by a different name.</p>
+<h2 id="contract"><a class="doc-anchor" href="#contract">§</a>Contract</h2>
+<ul>
+<li><a href="fn.encode.html" title="fn synthia::core::cursor::encode"><code>encode</code></a> is the inverse of <a href="fn.decode.html" title="fn synthia::core::cursor::decode"><code>decode</code></a>: for any UTF-8
+string <code>s</code>, <code>decode(encode(s)).unwrap() == s</code> (modulo the
+empty-input case where the round-trip is <code>"" → ""</code>).</li>
+<li><a href="fn.decode.html" title="fn synthia::core::cursor::decode"><code>decode</code></a> returns <a href="../enum.Error.html#variant.InvalidItem" title="variant synthia::core::Error::InvalidItem"><code>Error::InvalidItem</code></a> on either a
+non-base64 cursor or a non-UTF-8 payload. The
+<code>decode</code> round-trip never panics.</li>
+<li>The encoding is URL-safe (uses <code>-</code> and <code>_</code> instead of
+<code>+</code> and <code>/</code>) and unpadded (no <code>=</code> trailing bytes), so the
+cursor is safe to drop into a URL query string without
+further escaping.</li>
+<li>The encoding is <strong>stable</strong> across versions: a cursor
+produced by an older <code>synthia-core</code> round-trips on a
+newer one and vice versa. Changing the encoding is a
+breaking change to any deployment that persists cursors
+(e.g. server-side cache, client-side retry tokens).</li>
+</ul>
+<h2 id="why-url-safe-no-pad"><a class="doc-anchor" href="#why-url-safe-no-pad">§</a>Why URL-safe no-pad</h2>
+<p>The cursor is part of the wire surface (every <code>List&lt;T&gt;</code>
+response carries a <code>next_cursor</code> field). URL-safe base64
+is the smallest collision-free alphabet that survives
+every common transport without re-encoding; padding is
+redundant (the length is recoverable from the encoded
+characters alone) and the unpadded form keeps the cursor
+short.</p>
+</div></details><h2 id="functions" class="section-header">Functions<a href="#functions" class="anchor">§</a></h2><dl class="item-table"><dt><a class="fn" href="fn.decode.html" title="fn synthia::core::cursor::decode">decode</a></dt><dd>Decode an opaque base64 cursor back into a resource ID.</dd><dt><a class="fn" href="fn.encode.html" title="fn synthia::core::cursor::encode">encode</a></dt><dd>Encode a resource ID into an opaque base64 cursor.</dd></dl></section></div></main></body></html>

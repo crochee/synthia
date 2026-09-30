@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"enum":["MappingGap"],"fn":["fold_log_surface","surface_events_from_log","try_fold_log_surface"],"struct":["ResolvedReplace","SurfaceLedger"],"type":["SharedSurfaceLedger"]};

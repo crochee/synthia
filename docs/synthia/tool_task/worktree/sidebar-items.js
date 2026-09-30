@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"enum":["WorktreeError"],"fn":["cleanup_worktree","create_worktree"],"struct":["WorktreeCleanupResult","WorktreeInfo","WorktreeSpec"]};

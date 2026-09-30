@@ -1,0 +1,53 @@
+<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><meta name="generator" content="rustdoc"><meta name="description" content="Batched completion notification for background subagents (pi-subagents `group-join.ts` parity)."><title>synthia::tool_task::group_join - Rust</title><script>if(window.location.protocol!=="file:")document.head.insertAdjacentHTML("beforeend","SourceSerif4-Regular-6b053e98.ttf.woff2,FiraSans-Italic-81dc35de.woff2,FiraSans-Regular-0fe48ade.woff2,FiraSans-MediumItalic-ccf7e434.woff2,FiraSans-Medium-e1aa3f0a.woff2,SourceCodePro-Regular-8badfe75.ttf.woff2,SourceCodePro-Semibold-aa29a496.ttf.woff2".split(",").map(f=>`<link rel="preload" as="font" type="font/woff2"href="../../../static.files/${f}">`).join(""))</script><link rel="stylesheet" href="../../../static.files/normalize-9960930a.css"><link rel="stylesheet" href="../../../static.files/rustdoc-1ed95124.css"><meta name="rustdoc-vars" data-root-path="../../../" data-static-root-path="../../../static.files/" data-current-crate="synthia" data-themes="" data-resource-suffix="" data-rustdoc-version="1.98.1 (48a229cea 2026-09-01)" data-channel="1.98.1" data-search-js="search-9944d736.js" data-stringdex-js="stringdex-2da4960a.js" data-settings-js="settings-170eb4bf.js" ><script src="../../../static.files/storage-41dd4d93.js"></script><script defer src="../sidebar-items.js"></script><script defer src="../../../static.files/main-417ebf0a.js"></script><noscript><link rel="stylesheet" href="../../../static.files/noscript-f7c3ffd8.css"></noscript><link rel="alternate icon" type="image/png" href="../../../static.files/favicon-32x32-eab170b8.png"><link rel="icon" type="image/svg+xml" href="../../../static.files/favicon-044be391.svg"></head><body class="rustdoc mod"><a class="skip-main-content" href="#main-content">Skip to main content</a><!--[if lte IE 11]><div class="warning">This old browser is unsupported and will most likely display funky things.</div><![endif]--><rustdoc-topbar><h2><a href="#">Module group_join</a></h2></rustdoc-topbar><nav class="sidebar"><div class="sidebar-crate"><h2><a href="../../../synthia/index.html">synthia</a><span class="version">0.1.0</span></h2></div><div class="sidebar-elems"><section id="rustdoc-toc"><h2 class="location"><a href="#">Module group_<wbr>join</a></h2><h3><a href="#">Sections</a></h3><ul class="block top-toc"><li><a href="#semantics-per-group" title="Semantics (per group)">Semantics (per group)</a></li><li><a href="#runtime-neutrality" title="Runtime neutrality">Runtime neutrality</a></li></ul><h3><a href="#structs">Module Items</a></h3><ul class="block"><li><a href="#structs" title="Structs">Structs</a></li><li><a href="#enums" title="Enums">Enums</a></li><li><a href="#constants" title="Constants">Constants</a></li></ul></section><div id="rustdoc-modnav"><h2><a href="../index.html">In synthia::<wbr>tool_<wbr>task</a></h2></div></div></nav><div class="sidebar-resizer" title="Drag to resize sidebar"></div><main><div class="width-limiter"><section id="main-content" class="content" tabindex="-1"><div class="main-heading"><div class="rustdoc-breadcrumbs"><a href="../../index.html">synthia</a>::<wbr><a href="../index.html">tool_task</a></div><h1>Module <span>group_<wbr>join</span>&nbsp;<button id="copy-path" title="Copy item path to clipboard">Copy item path</button></h1><rustdoc-toolbar></rustdoc-toolbar><span class="sub-heading"><a class="src" href="../../../src/synthia_tool_task/lib.rs.html#60">Source</a> </span></div><details class="toggle top-doc" open><summary class="hideme"><span>Expand description</span></summary><div class="docblock"><p>Batched completion notification for background subagents
+(pi-subagents <code>group-join.ts</code> parity).</p>
+<p>When an orchestrator fans out several background subagents,
+notifying the main agent once per completion produces a burst
+of interruptions. <a href="../struct.GroupJoin.html" title="struct synthia::tool_task::GroupJoin"><code>GroupJoin</code></a> holds those completions and
+emits <strong>one</strong> consolidated delivery per group when the group
+finishes — or, if it takes too long, a partial delivery with
+whatever finished, so a single slow straggler cannot stall the
+notification forever.</p>
+<p>It lives beside the delegation plugin it serves rather than in the
+harness: a host that never runs subagents has nothing to batch. A
+pure value type, it composes with the <a href="../pool/index.html" title="mod synthia::tool_task::pool"><code>pool</code></a> — the pool
+decides <em>whether</em> a child starts, this decides <em>when the host hears
+about it</em>.</p>
+<h3 id="semantics-per-group"><a class="doc-anchor" href="#semantics-per-group">§</a>Semantics (per group)</h3><div><table><thead><tr><th>Event</th><th>Result</th></tr></thead><tbody>
+<tr><td><code>on_complete</code> for an agent in no group</td><td><a href="../enum.GroupOutcome.html#variant.Pass" title="variant synthia::tool_task::GroupOutcome::Pass"><code>GroupOutcome::Pass</code></a> — notify individually</td></tr>
+<tr><td><code>on_complete</code>, other members still pending</td><td><a href="../enum.GroupOutcome.html#variant.Held" title="variant synthia::tool_task::GroupOutcome::Held"><code>GroupOutcome::Held</code></a> — buffered, nothing emitted</td></tr>
+<tr><td><code>on_complete</code>, last outstanding member</td><td><a href="../enum.GroupOutcome.html#variant.Deliver" title="variant synthia::tool_task::GroupOutcome::Deliver"><code>GroupOutcome::Deliver</code></a> with <code>partial: false</code>, group removed</td></tr>
+<tr><td><code>on_tick</code> after <code>initial_timeout</code></td><td><a href="../enum.GroupOutcome.html" title="enum synthia::tool_task::GroupOutcome"><code>GroupOutcome</code></a> partial delivery of the finished subset; the group stays alive for stragglers on a shorter <code>straggler_timeout</code></td></tr>
+<tr><td><code>on_tick</code> in straggler mode</td><td>partial delivery of <strong>only</strong> the newly finished members</td></tr>
+</tbody></table>
+</div>
+<p>A given agent id is delivered <strong>at most once</strong>, so a partial
+delivery followed by the remaining members never repeats a
+result. Once every member has been delivered, the group is
+removed and further ticks are silent.</p>
+<h3 id="runtime-neutrality"><a class="doc-anchor" href="#runtime-neutrality">§</a>Runtime neutrality</h3>
+<p>This is a pure state machine: it owns no clock and no timer.
+The caller passes <code>now</code> (<code>chrono::DateTime&lt;Utc&gt;</code>) and arms its
+own timer from <a href="../struct.GroupJoin.html#method.next_deadline" title="method synthia::tool_task::GroupJoin::next_deadline"><code>GroupJoin::next_deadline</code></a>, so it works on any
+executor and tests are deterministic.</p>
+
+<div class="example-wrap"><pre class="rust rust-example-rendered"><code><span class="kw">use </span>chrono::{DateTime, TimeDelta, Utc};
+<span class="kw">use </span>synthia_tool_task::{GroupJoin, GroupOutcome};
+
+<span class="kw">let </span><span class="kw-2">mut </span>join = GroupJoin::new();
+<span class="comment">// Register BEFORE launching the agents — a completion for an
+// unknown id can only be reported individually.
+</span>join.register_group(<span class="string">"panel"</span>, [<span class="string">"a"</span>.to_string(), <span class="string">"b"</span>.to_string()]);
+
+<span class="kw">let </span>t0 = DateTime::&lt;Utc&gt;::from_timestamp(<span class="number">0</span>, <span class="number">0</span>).unwrap();
+<span class="macro">assert!</span>(<span class="macro">matches!</span>(join.on_complete(<span class="string">"a"</span>, t0), GroupOutcome::Held));
+<span class="macro">assert!</span>(join.next_deadline() == <span class="prelude-val">Some</span>(t0 + TimeDelta::seconds(<span class="number">30</span>)));
+
+<span class="kw">let </span>delivery = <span class="kw">match </span>join.on_complete(<span class="string">"b"</span>, t0) {
+    GroupOutcome::Deliver(delivery) =&gt; delivery,
+    other =&gt; <span class="macro">panic!</span>(<span class="string">"expected a delivery, got {other:?}"</span>),
+};
+<span class="macro">assert!</span>(!delivery.partial);
+<span class="macro">assert_eq!</span>(delivery.agent_ids, [<span class="string">"a"</span>, <span class="string">"b"</span>]);</code></pre></div></div></details><h2 id="structs" class="section-header">Structs<a href="#structs" class="anchor">§</a></h2><dl class="item-table"><dt><a class="struct" href="struct.Delivery.html" title="struct synthia::tool_task::group_join::Delivery">Delivery</a></dt><dd>One consolidated notification.</dd><dt><a class="struct" href="struct.GroupJoin.html" title="struct synthia::tool_task::group_join::GroupJoin">Group<wbr>Join</a></dt><dd>Coordinates consolidated completion notifications for grouped
+background agents. See the module docs for the state machine.</dd></dl><h2 id="enums" class="section-header">Enums<a href="#enums" class="anchor">§</a></h2><dl class="item-table"><dt><a class="enum" href="enum.GroupOutcome.html" title="enum synthia::tool_task::group_join::GroupOutcome">Group<wbr>Outcome</a></dt><dd>What the caller should do after reporting a completion.</dd></dl><h2 id="constants" class="section-header">Constants<a href="#constants" class="anchor">§</a></h2><dl class="item-table"><dt><a class="constant" href="constant.DEFAULT_GROUP_TIMEOUT.html" title="constant synthia::tool_task::group_join::DEFAULT_GROUP_TIMEOUT">DEFAULT_<wbr>GROUP_<wbr>TIMEOUT</a></dt><dd>Default window for a group to complete before a partial
+delivery (pi’s <code>DEFAULT_TIMEOUT</code>).</dd><dt><a class="constant" href="constant.DEFAULT_STRAGGLER_TIMEOUT.html" title="constant synthia::tool_task::group_join::DEFAULT_STRAGGLER_TIMEOUT">DEFAULT_<wbr>STRAGGLER_<wbr>TIMEOUT</a></dt><dd>Re-batch window for members that finish after a partial
+delivery (pi’s <code>STRAGGLER_TIMEOUT</code>).</dd></dl></section></div></main></body></html>

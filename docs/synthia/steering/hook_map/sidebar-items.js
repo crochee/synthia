@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"enum":["HookDecision","HookEvent"],"fn":["event_name"],"struct":["HookMap"],"type":["HookHandler","HookHandlerWithState"]};

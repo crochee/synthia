@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"struct":["Bm25Index"]};

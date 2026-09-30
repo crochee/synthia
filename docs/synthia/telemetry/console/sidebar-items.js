@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"constant":["SYNTHIA_LOG_DIR_ENV"]};
